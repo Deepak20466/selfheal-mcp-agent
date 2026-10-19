@@ -19,9 +19,11 @@ PR; it never merges.
    security checks pass and the repositories are authorized. Never put the key
    in chat, source, variables, command arguments, or the recording.
 5. Set SELFHEAL_REPAIR_ENABLED=true and OPENROUTER_FREE_MODEL to an available
-   model ID ending in :free. The inference controller checks the key's current
-   free-model quota, the live catalog price, and the returned model and cost.
-   If any check fails, it stops without a repair PR.
+   model ID ending in :free. The inference controller checks documented key
+   Free-tier metadata, the live catalog price, and the returned model and cost.
+   OpenRouter does not expose remaining `:free` request count through its
+   documented key endpoint; a 429 or provider error stops the run without
+   retry or a repair PR.
 
 Use only synthetic code and CI output in these public repositories. OpenRouter
 transmits prompts to the selected model provider; some free providers may retain

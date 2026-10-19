@@ -19,10 +19,13 @@ this workflow.
   prompt and completion prices. Provider fallback is disabled. A failed API
   request is not retried; one additional completion is permitted only when the
   first generated patch fails the offline regression suite. Before a
-  completion, the controller checks that the API key is a non-management
-  OpenRouter Free-tier key with remaining free-model quota, then checks the
-  live model catalog. It asks OpenRouter to return usage accounting and
-  discards responses unless they confirm no BYOK route and exactly zero cost.
+  completion, the controller checks the documented key metadata for a regular
+  OpenRouter Free-tier key, then checks the live model catalog. The documented
+  key endpoint does not expose remaining `:free` request count. Free quota is
+  therefore governed by OpenRouter's published limits; a rate-limit or provider
+  error ends the run without retry. The controller asks OpenRouter to return
+  usage accounting and discards responses unless they confirm no BYOK route
+  and exactly zero cost.
 - The patch validator accepts at most three existing `.py` implementation
   files and 200 changed lines. It rejects test/config/workflow paths, unsafe or
   mismatched diff headers, symlinks, binary patches, credential references,
@@ -38,11 +41,13 @@ this workflow.
 
 OpenRouter currently documents Free-tier limits of 20 requests per minute and
 50 requests per day. Limits and free model availability can change, and
-requests made elsewhere on the same account share that capacity. Each failed
-CI run can make at most two completion requests. When free capacity is
-unavailable, the workflow stops; it never selects a paid model, changes to API
-key billing, or purchases credits. The model catalog check and response-model
-check both require the selected `:free` ID and zero advertised prices. A live,
+requests made elsewhere on the same account share that capacity. Its documented
+key endpoint verifies Free-tier status but does not report remaining free
+requests. Each failed CI run can make at most two completion requests; a 429
+or provider error is terminal. When free capacity is unavailable, the workflow
+stops; it never selects a paid model, changes to API key billing, or purchases
+credits. The model catalog check and response-model check both require the
+selected `:free` ID and zero advertised prices. A live,
 unauthenticated catalog read on 2026-10-20 returned multiple `:free` models at
 zero prompt and completion prices. That read did not invoke a model and does
 not verify any particular account key or provider availability at call time.
@@ -76,9 +81,9 @@ repository's default branch and its security checks pass. It also requires:
    workflow files, command arguments, or repository variables.
 
 If the key is missing or malformed, is not reported as a regular Free-tier key,
-has no verifiable remaining free quota, the configured model is
-absent/paid/unavailable, or the response omits the exact zero cost or indicates
-BYOK, inference stops without generating an artifact.
+the configured model is absent/paid/unavailable, a completion is rate limited,
+or the response omits the exact zero cost or indicates BYOK, inference stops
+without generating an artifact.
 
 The current source repository has GitHub Actions enabled, public standard
 Ubuntu runners, default workflow-token permissions set to read, and the setting

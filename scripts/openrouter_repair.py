@@ -76,8 +76,14 @@ def _request(url: str, *, headers: dict[str, str], body: bytes | None = None) ->
     return value
 
 
-def verify_free_quota(api_key: str) -> None:
-    """Require positive free-model quota on this key before a completion call."""
+def verify_free_tier_key(api_key: str) -> None:
+    """Require documented Free-tier metadata before a completion call.
+
+    OpenRouter's documented current-key response does not expose remaining
+    ``:free`` request count. Availability is therefore checked by the live
+    model catalog and the completion response; a rate-limit/provider error is
+    terminal and is never retried or routed to a paid model.
+    """
     if not _VALID_OPENROUTER_KEY.fullmatch(api_key):
         raise InferenceError("OPENROUTER_API_KEY is missing or has an unexpected format")
     data = _request(
@@ -91,19 +97,6 @@ def verify_free_quota(api_key: str) -> None:
         or data.get("is_provisioning_key") is not False
     ):
         raise InferenceError("API key is not verified as an OpenRouter Free-tier key")
-    quota = data.get("free_model_daily_requests") if isinstance(data, dict) else None
-    limit = quota.get("limit") if isinstance(quota, dict) else None
-    remaining = quota.get("remaining") if isinstance(quota, dict) else None
-    if (
-        not isinstance(limit, int)
-        or isinstance(limit, bool)
-        or not isinstance(remaining, int)
-        or isinstance(remaining, bool)
-        or limit <= 0
-        or remaining <= 0
-        or remaining > limit
-    ):
-        raise InferenceError("API key has no verifiable remaining free-model daily quota")
 
 
 def verify_free_model(model_id: str, api_key: str) -> None:
@@ -247,7 +240,7 @@ def generate_patch(
             )
         retry_output = str(report["output"])[-MAX_FAILURE_BYTES:]
         failure = f"Initial CI failure:\n{failure}\n\nRegression failure:\n{retry_output}"
-    verify_free_quota(api_key)
+    verify_free_tier_key(api_key)
     verify_free_model(model_id, api_key)
 
     payload = {

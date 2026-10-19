@@ -21,13 +21,12 @@ index 1111111..2222222 100644
 TEST_API_KEY = "sk-or-v1-" + "x" * 32
 
 
-def _free_key_info(remaining: int = 49) -> dict[str, object]:
+def _free_key_info() -> dict[str, object]:
     return {
         "data": {
             "is_free_tier": True,
             "is_management_key": False,
             "is_provisioning_key": False,
-            "free_model_daily_requests": {"limit": 50, "remaining": remaining},
         }
     }
 
@@ -138,44 +137,59 @@ def test_free_model_must_be_listed_and_zero_priced(monkeypatch: pytest.MonkeyPat
         openrouter_repair.verify_free_model("vendor/other:free", TEST_API_KEY)
 
 
-def test_free_quota_must_be_positive_and_verifiable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_documented_free_tier_key_metadata_is_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[str] = []
 
     def key_response(url: str, **_kwargs: object) -> dict[str, object]:
         calls.append(url)
-        return _free_key_info(1)
+        return _free_key_info()
 
     monkeypatch.setattr(openrouter_repair, "_request", key_response)
-    openrouter_repair.verify_free_quota(TEST_API_KEY)
+    openrouter_repair.verify_free_tier_key(TEST_API_KEY)
     assert calls == [f"{openrouter_repair.API_ROOT}/key"]
 
     calls.clear()
     monkeypatch.setattr(
         openrouter_repair,
         "_request",
-        lambda url, **_kwargs: calls.append(url) or _free_key_info(0),
-    )
-    with pytest.raises(openrouter_repair.InferenceError, match="remaining free-model"):
-        openrouter_repair.verify_free_quota(TEST_API_KEY)
-    assert calls == [f"{openrouter_repair.API_ROOT}/key"]
-
-    calls.clear()
-    monkeypatch.setattr(
-        openrouter_repair,
-        "_request",
-        lambda url, **_kwargs: (
-            calls.append(url)
-            or {
-                "data": {
-                    "is_free_tier": False,
-                    "free_model_daily_requests": {"limit": 50, "remaining": 50},
-                }
-            }
-        ),
+        lambda url, **_kwargs: calls.append(url) or {"data": {"is_free_tier": False}},
     )
     with pytest.raises(openrouter_repair.InferenceError, match="Free-tier key"):
-        openrouter_repair.verify_free_quota(TEST_API_KEY)
+        openrouter_repair.verify_free_tier_key(TEST_API_KEY)
     assert calls == [f"{openrouter_repair.API_ROOT}/key"]
+
+
+def test_rate_limit_response_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    class RateLimitedOpener:
+        def open(self, *_args: object, **_kwargs: object) -> None:
+            nonlocal calls
+            calls += 1
+            raise openrouter_repair.urllib.error.HTTPError(
+                "https://openrouter.ai/api/v1/chat/completions",
+                429,
+                "rate limited",
+                {},
+                None,
+            )
+
+    monkeypatch.setattr(
+        openrouter_repair.urllib.request,
+        "build_opener",
+        lambda *_handlers: RateLimitedOpener(),
+    )
+
+    with pytest.raises(openrouter_repair.InferenceError, match="HTTP 429"):
+        openrouter_repair._request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {TEST_API_KEY}"},
+            body=b"{}",
+        )
+
+    assert calls == 1
 
 
 def test_nonzero_model_price_fails_before_completion(monkeypatch: pytest.MonkeyPatch) -> None:

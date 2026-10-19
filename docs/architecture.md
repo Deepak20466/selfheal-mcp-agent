@@ -244,7 +244,9 @@ OpenRouter documents a Free-tier cap of 20 requests/minute and 50 requests/day;
 availability is not guaranteed, and another use of the same account may consume
 that quota. The implementation makes at most two completion calls per failed
 run and does not buy credits, switch to a paid model, or use paid fallback
-routing. Exhausted or unavailable free capacity ends the run safely. See
+routing. OpenRouter's documented key endpoint confirms Free-tier status but
+does not expose remaining free-request count; the controller makes no claim to
+preflight that value. A 429 or provider error ends the run without retry. See
 [`docs/openrouter-repair.md`](openrouter-repair.md) for setup and current
 verification status.
 
