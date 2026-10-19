@@ -97,7 +97,7 @@ jobs:
           FAILED_RUN_ID: ${{ needs.prepare.outputs.run_id }}
         run: |
           set -euo pipefail
-          gh run view "$FAILED_RUN_ID" --log-failed | tail -c 16384 > failure-context.txt
+          gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -c 16384 > failure-context.txt
           test -s failure-context.txt
 
       - name: Generate one patch from a currently listed zero-price :free model
@@ -226,7 +226,7 @@ jobs:
           FAILED_RUN_ID: ${{ needs.prepare.outputs.run_id }}
         run: |
           set -euo pipefail
-          gh run view "$FAILED_RUN_ID" --log-failed | tail -c 16384 > failure-context.txt
+          gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -c 16384 > failure-context.txt
           test -s failure-context.txt
 
       - name: Generate at most one free-model correction after regression failure
