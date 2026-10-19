@@ -106,7 +106,7 @@ from mcp_server.sandbox import REPO_ROOT
 logger = structlog.get_logger(__name__)
 
 MAX_ATTEMPTS = 3
-_MCP_HTTP_URL = f"http://127.0.0.1:{settings.mcp_port}/mcp"
+_MCP_HTTP_URL = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
 
 _STRIPPED_ENV_VARS = frozenset(
     {
@@ -144,8 +144,11 @@ def _write_gemini_settings(settings_root: Path) -> None:
     """Write isolated Gemini settings outside the repository worktree."""
     settings_dir = settings_root / ".gemini"
     settings_dir.mkdir(parents=True, exist_ok=True)
+    server_config: dict[str, Any] = {"httpUrl": _MCP_HTTP_URL}
+    if settings.mcp_auth_token:
+        server_config["headers"] = {"Authorization": f"Bearer {settings.mcp_auth_token}"}
     payload = {
-        "mcpServers": {"selfheal": {"httpUrl": _MCP_HTTP_URL}},
+        "mcpServers": {"selfheal": server_config},
         "tools": {"core": []},
         "mcp": {"allowed": ["selfheal"]},
     }
@@ -184,6 +187,9 @@ async def run_gemini_cli(
         "default",
     ]
     env = strip_env_vars(_STRIPPED_ENV_VARS)
+    if settings.mcp_auth_token:
+        env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
+    env["MCP_CLIENT_URL"] = _MCP_HTTP_URL
     with tempfile.TemporaryDirectory(prefix="selfheal-gemini-cli-") as settings_root:
         settings_path = Path(settings_root)
         _write_gemini_settings(settings_path)

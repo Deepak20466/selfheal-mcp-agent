@@ -398,7 +398,10 @@ async def run_worker() -> None:
     logger.info("worker.ai_chain", chain=settings.ai_chain_list)
     mcp_url = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
 
-    async with connect_http_reconnecting(mcp_url) as mcp, HealJobListener() as listener:
+    async with (
+        connect_http_reconnecting(mcp_url, auth_token=settings.mcp_auth_token) as mcp,
+        HealJobListener() as listener,
+    ):
         logger.info("worker.started", mcp_url=mcp_url)
         while True:
             # backend=None -> resolved per job from settings.ai_chain_list

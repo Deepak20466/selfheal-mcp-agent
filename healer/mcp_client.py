@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, cast
 
+import httpx2
 from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -71,12 +72,14 @@ async def connect_in_memory(server: MCPServer[Any]) -> AsyncIterator[MCPToolClie
 
 
 @asynccontextmanager
-async def connect_http(url: str) -> AsyncIterator[MCPToolClient]:
+async def connect_http(url: str, *, auth_token: str | None = None) -> AsyncIterator[MCPToolClient]:
     """Connect to the real mcp-pod over streamable HTTP. Used by `healer/worker.py`."""
-    async with streamable_http_client(url) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            yield MCPToolClient(session)
+    headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else None
+    async with httpx2.AsyncClient(headers=headers) as http_client:
+        async with streamable_http_client(url, http_client=http_client) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield MCPToolClient(session)
 
 
 class ReconnectingMCPToolClient(MCPToolClient):
@@ -185,9 +188,14 @@ class ReconnectingMCPToolClient(MCPToolClient):
 
 
 @asynccontextmanager
-async def connect_http_reconnecting(url: str) -> AsyncIterator[ReconnectingMCPToolClient]:
+async def connect_http_reconnecting(
+    url: str, *, auth_token: str | None = None
+) -> AsyncIterator[ReconnectingMCPToolClient]:
     """Keep a healer MCP client available across MCP pod restarts."""
-    client = ReconnectingMCPToolClient(lambda: connect_http(url))
+    if auth_token is None:
+        client = ReconnectingMCPToolClient(lambda: connect_http(url))
+    else:
+        client = ReconnectingMCPToolClient(lambda: connect_http(url, auth_token=auth_token))
     await client.start()
     try:
         yield client

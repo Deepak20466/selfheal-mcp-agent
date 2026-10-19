@@ -73,11 +73,13 @@ limitations below remain despite the green checks.
 
 The readiness recommendation remains **NO-GO for unattended operation on
 untrusted repositories**. The provider CLI process itself is still outside the
-project OS sandbox; the containerized MCP HTTP service has no bearer auth or
-chart NetworkPolicy; and this follow-up did not run live hostile-repository,
-multi-repository, GitHub mutation, provider, or deployment-recovery scenarios.
-The main branch's Bubblewrap CI is useful platform evidence, but it does not
-establish kernel escape resistance or arbitrary-repository reliability.
+project OS sandbox. This follow-up adds MCP bearer authentication and a chart
+NetworkPolicy, but their cluster enforcement is pending CI and live deployment
+evidence; public TCP 443 egress is not destination-filtered. Live hostile
+repository, multi-repository, GitHub mutation, provider, and deployment-recovery
+scenarios remain to be verified. The main branch's Bubblewrap CI is useful
+platform evidence, but it does not establish kernel escape resistance or
+arbitrary-repository reliability.
 
 ## Scope and changes
 

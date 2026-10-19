@@ -165,6 +165,7 @@ async def test_run_gemini_cli_success_parses_result_and_usage(
 async def test_run_gemini_cli_writes_isolated_settings_restricted_to_selfheal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(core_settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
 
     async def inspect_isolated_settings(*args: Any, **kwargs: Any) -> _FakeProcess:
@@ -174,7 +175,10 @@ async def test_run_gemini_cli_writes_isolated_settings_restricted_to_selfheal(
         assert payload["tools"]["core"] == []
         assert payload["mcp"]["allowed"] == ["selfheal"]
         assert payload["mcpServers"] == {
-            "selfheal": {"httpUrl": f"http://127.0.0.1:{core_settings.mcp_port}/mcp"}
+            "selfheal": {
+                "httpUrl": f"http://127.0.0.1:{core_settings.mcp_port}/mcp",
+                "headers": {"Authorization": "Bearer unit-test-mcp-token-0123456789abcdef"},
+            }
         }
         return await fake(*args, **kwargs)
 

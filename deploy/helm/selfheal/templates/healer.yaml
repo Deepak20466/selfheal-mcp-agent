@@ -20,6 +20,11 @@ spec:
             - containerPort: {{ .Values.healer.port }}
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: selfheal-secrets
+                  key: mcp-auth-token
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:

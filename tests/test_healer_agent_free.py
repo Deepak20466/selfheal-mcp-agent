@@ -264,6 +264,9 @@ async def test_run_claude_cli_does_not_shell_wrap_a_plain_exe(
 async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        agent_free.settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef"
+    )
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("ANTHROPIC_MODEL", "should-not-leak-either")
     monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
@@ -278,6 +281,14 @@ async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
     assert "ANTHROPIC_MODEL" not in env
     assert "GITHUB_TOKEN" not in env
     assert "DATABASE_URL" not in env
+    assert env["MCP_AUTH_TOKEN"] == "unit-test-mcp-token-0123456789abcdef"
+
+
+def test_claude_mcp_config_uses_runtime_url_and_environment_token() -> None:
+    config = json.loads((REPO_ROOT / ".mcp.json").read_text(encoding="utf-8"))
+    server = config["mcpServers"]["selfheal"]
+    assert server["url"] == "${MCP_CLIENT_URL:-http://127.0.0.1:8003/mcp}"
+    assert server["headers"]["Authorization"] == "Bearer ${MCP_AUTH_TOKEN:-}"
 
 
 async def test_run_claude_cli_is_error_result_still_parses(monkeypatch: pytest.MonkeyPatch) -> None:
