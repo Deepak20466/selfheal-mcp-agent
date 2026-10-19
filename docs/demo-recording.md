@@ -11,7 +11,9 @@ PR; it never merges.
    passes the Bubblewrap network, filesystem, secret, and resource-limit probes.
 2. The owner explicitly authorizes three disposable public repositories.
 3. Each repository is allowlisted, has Actions enabled, and is configured to
-   let the job-scoped GITHUB_TOKEN create PRs. Leave automatic merging off.
+   let the job-scoped GITHUB_TOKEN create PRs. Protect the default branch with
+   at least one human approval and required CI checks. Leave automatic merging
+   off.
 4. The owner adds OPENROUTER_API_KEY through each disposable repository's
    Settings > Secrets and variables > Actions page. Do this only after the
    security checks pass and the repositories are authorized. Never put the key
@@ -57,8 +59,9 @@ frame before sharing it.
 
 ## Current evidence status
 
-No model completion has been requested, no key has been configured, no live
-repair run or recording exists, and no disposable test repositories have been
-created. The workflow is disabled. The hosted Linux sandbox probes and fresh
-GitHub Actions checks are still required before the owner is asked to authorize
-the three repositories.
+The hosted Linux sandbox probes, full CI suite, database recovery checks, and
+Kubernetes checks passed on implementation commit e2795fb. No model completion
+has been requested, no key has been configured, no live repair run or recording
+exists, and no disposable test repositories have been created. The workflow is
+dormant. The owner must still approve/merge the implementation and authorize
+the three repositories before the trial can proceed.

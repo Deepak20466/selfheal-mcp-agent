@@ -64,7 +64,10 @@ repository's default branch and its security checks pass. It also requires:
 3. Add repository variable `OPENROUTER_FREE_MODEL` with a model ID ending in
    `:free`. Each inference run verifies the ID and its zero prices against
    OpenRouter's current public model catalog.
-4. **Only after steps 1–3 and the hosted security checks pass, and immediately
+4. Protect the default branch with a ruleset that requires at least one human
+   approval and passing CI before merge. The repair workflow never approves or
+   merges a PR.
+5. **Only after steps 1–4 and the hosted security checks pass, and immediately
    before the authorized disposable-repository trial, add the key as a
    repository Actions secret named `OPENROUTER_API_KEY`.** Create/use an
    OpenRouter Free account without buying credits or enabling automatic
@@ -112,11 +115,12 @@ details redacted.
 
 ## Current status
 
-The workflow, validators, quota and pricing preflights, retry controller, and
-security probes are implemented locally. Focused controller and workflow tests
-pass on Windows; platform-specific Linux isolation checks skip here. The actual
-Bubblewrap network and filesystem probes still need to pass on a GitHub-hosted
-Linux runner. No OpenRouter key has been configured, no model completion has
-been requested, and no repair-to-PR demonstration has run. The workflow must
-remain disabled until fresh hosted checks pass and the review/merge gates are
-satisfied.
+At implementation head `e2795fb`, focused tests passed locally (34 passed,
+5 platform-specific skips). Hosted [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316519614)
+passed the Bubblewrap egress/DNS, filesystem, test-suite read-only, and secret
+probes; PostgreSQL recovery, Node and dependency checks, Ruff, strict mypy, and
+the full pytest suite also passed. Hosted [Calico/kind checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316530109)
+passed. The source repository has no `OPENROUTER_API_KEY`, no repair enablement
+variables, and PR creation through `GITHUB_TOKEN` is disabled. No OpenRouter
+completion or live repair-to-PR demonstration has run. Keep the workflow dormant
+until the required reviews/merge and authorization of the disposable trials.

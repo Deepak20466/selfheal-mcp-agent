@@ -248,10 +248,14 @@ routing. Exhausted or unavailable free capacity ends the run safely. See
 [`docs/openrouter-repair.md`](openrouter-repair.md) for setup and current
 verification status.
 
-The workflow code and security probes are implemented, but live inference,
-patch generation, disposable-repository repair PRs and post-PR CI have not yet
-been demonstrated. Keep the workflow disabled and do not add the API secret
-until the controller/test checks pass on the reviewed default branch.
+At implementation head `e2795fb`, the hosted [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316519614)
+and [Calico/kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316530109)
+passed. CI exercised the Bubblewrap network, filesystem, read-only tests, and
+secret probes; database recovery, dependency and Node checks, Ruff, mypy, and
+the full pytest suite also passed. Live inference, patch generation, disposable
+repair PRs and post-PR CI have not been demonstrated. The workflow remains
+dormant; add the API secret only after approval, merge, and authorization of the
+disposable repositories.
 
 ### Linux provider CLI execution target
 
