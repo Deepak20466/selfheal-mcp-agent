@@ -19,6 +19,9 @@ def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
     jobs = workflow["jobs"]
     assert workflow_text.count('gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY"') == 2
     assert "sandbox-preflight" in jobs["infer-initial"]["needs"]
+    inference_script = "\n".join(step.get("run", "") for step in jobs["infer-initial"]["steps"])
+    assert "echo \"patch_sha256=$(sha256sum patch.diff | cut -d ' ' -f 1)\"" in inference_script
+    assert "sha256sum patch.diff | cut -d ' ' -f 1 >> \"$GITHUB_OUTPUT\"" not in inference_script
     preflight = jobs["sandbox-preflight"]
     assert preflight["permissions"] == {"contents": "read"}
     assert "secrets." not in str(preflight)
