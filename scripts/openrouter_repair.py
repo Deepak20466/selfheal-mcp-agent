@@ -314,8 +314,9 @@ def generate_patch(
             },
             {"role": "user", "content": _prompt(source, failure, previous_patch)},
         ],
-        "max_tokens": 4096,
+        "max_tokens": 8192,
         "temperature": 0.1,
+        "reasoning": {"effort": "low", "exclude": True},
         "provider": {"allow_fallbacks": False},
         "usage": {"include": True},
     }
