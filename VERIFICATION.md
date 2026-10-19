@@ -2,12 +2,12 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its CI and Calico checks passed on `0e194dd`. The durable PostgreSQL rerun-claim change added after that run awaits hosted validation. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted CI and Calico-backed Kubernetes run passed on `22f5981`. No production deployment occurred.
 
 ## Provider MCP capability follow-up — PR #25, 2026-10-19
 
-Branch `feature/provider-mcp-capability-2026-10-19` (source commit
-[`fb1597c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/fb1597cd10babe6c402c63d2e02ca9eb006c6156)) adds HMAC-signed
+Branch `feature/provider-mcp-capability-2026-10-19` (head commit
+[`22f5981`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/22f5981552395a728f0f1981c27d989b76ea99e2)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
 worktree. CI repair tokens may rerun only the associated workflow run. A
@@ -27,14 +27,14 @@ skipped**. Full-repository Ruff
 lint and formatting passed; full CI-scope mypy passed for **89 Python files**.
 The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities**.
 The 20-scenario fixture validator passed: all broken baselines failed and all
-reference repairs passed. Full PostgreSQL-backed pytest was not run because
-the session hook requires a reachable PostgreSQL server, which is unavailable
-here. No local PostgreSQL or Docker installation, provider call, GitHub repair
-operation, cloud resource, or deployment was made.
+reference repairs passed. Hosted PostgreSQL-backed CI passed **735 tests, 5
+skipped, and 3 warnings**, including the durable rerun-claim integration case
+on the full pytest suite ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39287202246)). The Calico-backed Kubernetes run also passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39287209944)), covering Helm validation/install, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
 
-PR #25 is open against PR #24's branch. Its hosted CI and Calico-backed
-Kubernetes checks passed on docs-only head `0e194dd`; the PostgreSQL-backed
-rerun-claim integration test added afterward is still awaiting hosted CI.
+PR #25 is open against PR #24's branch. The hosted CI and Calico-backed
+Kubernetes runs passed on source head `22f5981`; GitHub's PR check summary was
+still reporting the Kubernetes check as pending during this report refresh,
+although the Actions run and all job steps had completed successfully.
 
 This is an authorization boundary improvement, not provider process isolation.
 The provider CLI gate still fails closed; no live repair-to-PR flow, three
