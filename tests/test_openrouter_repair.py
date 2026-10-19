@@ -315,6 +315,25 @@ def test_prompt_redacts_openrouter_keys() -> None:
     assert "sk-or-v1-" not in openrouter_repair._scrub(value)
 
 
+def test_completion_text_accepts_text_parts_and_rejects_other_content() -> None:
+    assert (
+        openrouter_repair._completion_text(
+            [{"type": "text", "text": "diff "}, {"type": "text", "text": "--git"}]
+        )
+        == "diff --git"
+    )
+
+    invalid_contents = (
+        None,
+        [],
+        [{"type": "image", "url": "https://example.invalid"}],
+        [{"type": "text", "text": "diff"}, {"type": "image"}],
+    )
+    for content in invalid_contents:
+        with pytest.raises(openrouter_repair.InferenceError, match="content is not text"):
+            openrouter_repair._completion_text(content)
+
+
 def test_inference_requires_an_explicit_zero_cost_response(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
