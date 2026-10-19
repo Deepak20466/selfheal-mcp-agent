@@ -232,6 +232,8 @@ jobs:
               urllib.request.urlopen("https://example.com", timeout=10)
           except urllib.error.HTTPError as exc:
               assert exc.code == 403, f"unexpected egress denial response: {exc.code}"
+          except urllib.error.URLError as exc:
+              assert "403 Destination Denied" in str(exc.reason), f"unexpected egress denial: {exc.reason}"
           else:
               raise AssertionError("non-allowlisted external destination was reachable")
           address = socket.getaddrinfo("api.github.com", 443, type=socket.SOCK_STREAM)[0][4][0]
