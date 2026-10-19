@@ -283,11 +283,33 @@ jobs:
           HEALER_POD=$(kubectl get pod -l app=selfheal-healer -o jsonpath='{.items[0].metadata.name}')
           MCP_POD=$(kubectl get pod -l app=selfheal-mcp -o jsonpath='{.items[0].metadata.name}')
           kubectl exec "$APP_POD" -- python -c '
-          import os
-          forbidden = {"GITHUB_TOKEN", "GITHUB_APP_PRIVATE_KEY", "ANTHROPIC_API_KEY", "DATABASE_URL", "MCP_AUTH_TOKEN", "SESSION_SECRET", "ADMIN_PASSWORD_HASH"}
+          import asyncio, os
+          import asyncpg
+          from sqlalchemy.engine import make_url
+          forbidden = {"GITHUB_TOKEN", "GITHUB_APP_PRIVATE_KEY", "ANTHROPIC_API_KEY", "MCP_AUTH_TOKEN", "SESSION_SECRET", "ADMIN_PASSWORD_HASH"}
           leaked = forbidden.intersection(os.environ)
           assert not leaked, f"untrusted app pod received trusted credentials: {sorted(leaked)}"
-          print("untrusted app pod has no GitHub, provider, database, MCP, or healer credentials")
+          database_url = make_url(os.environ["DATABASE_URL"])
+          assert database_url.database == "selfheal_target_app", "app must use its isolated database"
+          assert database_url.username == "selfheal_app", "app must use its restricted database role"
+          async def verify_database_boundary():
+              connection = await asyncpg.connect(database_url.set(drivername="postgresql").render_as_string(hide_password=False))
+              try:
+                  privileges = await connection.fetchrow("SELECT r.rolsuper, r.rolcreatedb, r.rolcreaterole FROM pg_roles AS r WHERE r.rolname = current_user")
+                  assert tuple(privileges.values()) == (False, False, False), f"target-app database role is privileged: {privileges}"
+              finally:
+                  await connection.close()
+              control_plane_url = database_url.set(database="selfheal")
+              try:
+                  control_plane = await asyncpg.connect(control_plane_url.set(drivername="postgresql").render_as_string(hide_password=False), timeout=3)
+              except asyncpg.PostgresError as exc:
+                  assert "permission denied" in str(exc).lower(), f"unexpected control-plane access failure: {type(exc).__name__}"
+                  print("untrusted app cannot connect to the control-plane database")
+              else:
+                  await control_plane.close()
+                  raise AssertionError("untrusted app role connected to the control-plane database")
+          asyncio.run(verify_database_boundary())
+          print("untrusted app has only a non-privileged role in its isolated database")
           '
           kubectl exec "$SENTINEL_POD" -- python -c '
           import os

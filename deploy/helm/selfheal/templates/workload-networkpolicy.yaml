@@ -47,6 +47,11 @@ spec:
             matchLabels: {app: selfheal-sentinel}
       ports:
         - {protocol: TCP, port: {{ .Values.sentinel.port }}}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-postgres}
+      ports:
+        - {protocol: TCP, port: 5432}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -145,6 +150,7 @@ spec:
         - podSelector: {matchLabels: {app: selfheal-healer}}
         - podSelector: {matchLabels: {app: selfheal-mcp}}
         - podSelector: {matchLabels: {app: selfheal-migrate}}
+        - podSelector: {matchLabels: {app: selfheal-app}}
       ports:
         - {protocol: TCP, port: 5432}
   egress: []

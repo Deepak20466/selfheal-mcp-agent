@@ -30,6 +30,11 @@ postgres:
   username: selfheal
   password: selfheal
   database: selfheal
+  # The monitored demo app gets a separate database and a non-privileged
+  # role. It never receives the control-plane database credentials.
+  targetAppUsername: selfheal_app
+  targetAppPassword: selfheal_app_demo_only
+  targetAppDatabase: selfheal_target_app
   storage: 1Gi
   resources:
     requests:

@@ -48,6 +48,12 @@ async def healthz(session: AsyncSession = Depends(get_db)) -> JSONResponse:
     return JSONResponse(status_code=200, content={"status": "ok", "pod": "app"})
 
 
+@router.get("/livez")
+async def livez() -> JSONResponse:
+    """Report process health without depending on the database."""
+    return JSONResponse(status_code=200, content={"status": "ok", "pod": "app"})
+
+
 # --- Resource routes (normal traffic + contract checks) -----------------------
 
 

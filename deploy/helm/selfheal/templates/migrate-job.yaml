@@ -1,4 +1,4 @@
-# Runs `alembic upgrade head` once, against the in-chart Postgres
+# Runs `alembic upgrade head` against the control-plane and isolated target-app
 # Deployment's own Service (deploy/helm/selfheal/templates/postgres.yaml),
 # before the app pods are expected to actually work.
 #
@@ -44,7 +44,20 @@ spec:
           # real run: sentinel captured a real AssertionError, but the smoke
           # test was querying for ZeroDivisionError specifically and never
           # found it. Idempotent (safe to rerun on `helm upgrade`).
-          command: ["sh", "-c", "python -m alembic upgrade head && python scripts/seed_demo.py"]
+          command:
+            - sh
+            - -c
+            - >-
+              python scripts/provision_target_app_db.py &&
+              python -m alembic upgrade head &&
+              python scripts/seed_demo.py &&
+              DATABASE_URL="$TARGET_APP_DATABASE_URL" python -m alembic upgrade head &&
+              DATABASE_URL="$TARGET_APP_DATABASE_URL" python scripts/seed_demo.py
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
             {{- include "selfheal.databaseEnv" . | nindent 12 }}
+            - name: TARGET_APP_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: selfheal-postgres-credentials
+                  key: target-app-database-url

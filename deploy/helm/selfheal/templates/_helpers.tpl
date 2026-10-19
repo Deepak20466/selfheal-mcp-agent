@@ -10,6 +10,10 @@ selfheal-postgres
 postgresql+asyncpg://{{ .Values.postgres.username }}:{{ .Values.postgres.password }}@{{ include "selfheal.postgresHost" . }}:5432/{{ .Values.postgres.database }}
 {{- end -}}
 
+{{- define "selfheal.targetAppDatabaseUrl" -}}
+postgresql+asyncpg://{{ .Values.postgres.targetAppUsername }}:{{ .Values.postgres.targetAppPassword }}@{{ include "selfheal.postgresHost" . }}:5432/{{ .Values.postgres.targetAppDatabase }}
+{{- end -}}
+
 {{- define "selfheal.image" -}}
 {{- $repo := index .Values.image.repository .pod -}}
 {{- if .Values.image.registry -}}
