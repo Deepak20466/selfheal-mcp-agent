@@ -200,6 +200,24 @@ def _prompt(source: str, failure: str, previous_patch: str | None) -> str:
     )
 
 
+def _completion_text(content: Any) -> str:
+    """Accept only plain text or a list containing text-only content parts."""
+    if isinstance(content, str):
+        return content
+    if (
+        isinstance(content, list)
+        and content
+        and all(
+            isinstance(part, dict)
+            and part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            for part in content
+        )
+    ):
+        return "".join(part["text"] for part in content)
+    raise InferenceError("OpenRouter completion content is not text")
+
+
 def generate_patch(
     repository: Path,
     failure_file: Path,
@@ -294,8 +312,21 @@ def generate_patch(
         raise InferenceError("OpenRouter returned no completion choice")
     message = choices[0].get("message")
     content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str):
-        raise InferenceError("OpenRouter completion content is not text")
+    try:
+        content = _completion_text(content)
+    except InferenceError as exc:
+        finish_reason = choices[0].get("finish_reason")
+        known_finish_reasons = {"stop", "length", "tool_calls", "content_filter", "error"}
+        finish_reason = finish_reason if finish_reason in known_finish_reasons else "other"
+        tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+        tool_call_count = len(tool_calls) if isinstance(tool_calls, list) else 0
+        raise InferenceError(
+            "OpenRouter completion content is not text "
+            f"(content_type={type(content).__name__}, finish_reason={finish_reason}, "
+            f"tool_call_count={tool_call_count}, "
+            f"reasoning_present={bool(isinstance(message, dict) and message.get('reasoning'))}, "
+            f"refusal_present={bool(isinstance(message, dict) and message.get('refusal'))})"
+        ) from exc
     if content.startswith("```diff") and content.endswith("```"):
         content = content[len("```diff") : -3].strip("\n") + "\n"
     patch = content.encode("utf-8")
