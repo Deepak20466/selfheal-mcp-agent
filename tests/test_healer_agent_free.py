@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import uuid
 from dataclasses import dataclass, field
@@ -162,6 +163,8 @@ async def test_run_claude_cli_success_parses_result_and_usage(
     kwargs = fake.calls[0]["kwargs"]
     assert kwargs["cwd"] == str(REPO_ROOT)
     assert kwargs["stdin"] == asyncio.subprocess.PIPE
+    if os.name != "nt":
+        assert kwargs["start_new_session"] is True
 
     # Prompt goes via stdin, never argv.
     assert "do the thing" not in argv

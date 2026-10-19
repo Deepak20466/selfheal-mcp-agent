@@ -26,6 +26,26 @@ MAX_READ_FILE_BYTES = 200_000
 MAX_WRITE_FILE_BYTES = 500_000
 
 _FORBIDDEN_WRITE_PREFIXES = (".git/", ".github/workflows/", "alembic/versions/")
+_SECRET_DIR_NAMES = frozenset(
+    {".aws", ".ssh", ".gnupg", ".kube", ".docker", "secrets", "credentials"}
+)
+_SECRET_FILE_NAMES = frozenset(
+    {
+        ".npmrc",
+        ".pypirc",
+        ".netrc",
+        ".git-credentials",
+        ".envrc",
+        "id_rsa",
+        "id_ed25519",
+        "credentials.json",
+        "secret.json",
+        "secrets.json",
+        "token.json",
+        "service-account.json",
+    }
+)
+_SECRET_FILE_SUFFIXES = (".pem", ".p12", ".pfx", ".key")
 #: Legacy default write scope for a runtime_error/contract_violation job
 #: with no app_id (predates multi-app support). A job with an app_id uses
 #: that app's own `allowed_write_paths` instead (see tools/code.py).
@@ -38,9 +58,19 @@ class SandboxViolation(Exception):
     """Raised for any attempted access outside the allowed sandbox."""
 
 
-def _is_dotenv_secret(relative_posix: str) -> bool:
-    name = relative_posix.rsplit("/", 1)[-1]
-    return name == ".env" or (name.startswith(".env.") and name != ".env.example")
+def is_secret_path(relative_posix: str) -> bool:
+    """Recognize common credential paths for every MCP read and write tool."""
+    parts = [part.lower() for part in relative_posix.replace("\\", "/").split("/")]
+    name = parts[-1] if parts else ""
+    return (
+        any(part in _SECRET_DIR_NAMES for part in parts)
+        or any(
+            part == ".env" or (part.startswith(".env.") and part != ".env.example")
+            for part in parts
+        )
+        or name in _SECRET_FILE_NAMES
+        or name.endswith(_SECRET_FILE_SUFFIXES)
+    )
 
 
 def resolve_repo_path(relative_path: str) -> Path:
@@ -61,7 +91,7 @@ def check_readable(relative_path: str) -> Path:
     """Resolve and validate a path for reading. Raises SandboxViolation if forbidden."""
     resolved = resolve_repo_path(relative_path)
     rel = to_repo_relative(resolved)
-    if _is_dotenv_secret(rel):
+    if is_secret_path(rel):
         raise SandboxViolation(f"Reading {rel!r} is not allowed (secrets file)")
     if rel == ".git" or rel.startswith(".git/"):
         raise SandboxViolation(f"Reading {rel!r} is not allowed (git internals)")
@@ -79,7 +109,7 @@ def check_writable(relative_path: str, *, allowed_prefixes: list[str] | None = N
     resolved = resolve_repo_path(relative_path)
     rel = to_repo_relative(resolved)
 
-    if _is_dotenv_secret(rel):
+    if is_secret_path(rel):
         raise SandboxViolation(f"Writing to {rel!r} is not allowed (secrets file)")
     for forbidden in _FORBIDDEN_WRITE_PREFIXES:
         if rel == forbidden.rstrip("/") or rel.startswith(forbidden):

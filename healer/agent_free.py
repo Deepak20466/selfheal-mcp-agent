@@ -200,7 +200,9 @@ async def _kill_process_tree(pid: int) -> None:
         import signal
 
         with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+            # Provider CLI subprocesses run in a dedicated POSIX session so
+            # a timeout also terminates helpers spawned by the CLI.
+            os.killpg(pid, signal.SIGKILL)
 
 
 def _is_windows_shim(resolved: str) -> bool:
@@ -303,6 +305,8 @@ async def run_claude_cli(
         "stdout": asyncio.subprocess.PIPE,
         "stderr": asyncio.subprocess.PIPE,
     }
+    if os.name != "nt":
+        subprocess_kwargs["start_new_session"] = True
 
     try:
         if _is_windows_shim(resolved_cli):

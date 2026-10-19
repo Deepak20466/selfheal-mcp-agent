@@ -252,6 +252,8 @@ async def run_codex_cli(
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
         }
+        if os.name != "nt":
+            subprocess_kwargs["start_new_session"] = True
 
         try:
             if is_windows_shim(resolved_cli):

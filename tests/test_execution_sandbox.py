@@ -16,6 +16,7 @@ from mcp_server.execution_sandbox import (
     MAX_FILE_BYTES,
     MAX_MEMORY_BYTES,
     MAX_PROCESSES,
+    SandboxUnavailableError,
     _bubblewrap_permission_denied,
     run_untrusted_command,
 )
@@ -26,6 +27,29 @@ def test_bubblewrap_host_namespace_denial_is_recognized() -> None:
         "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
     )
     assert not _bubblewrap_permission_denied("bwrap: unknown option --fake")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="exercises the Windows AppContainer dispatch")
+async def test_windows_sandbox_setup_failure_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mcp_server.execution_sandbox as execution_sandbox
+
+    source = tmp_path / "repo"
+    source.mkdir()
+
+    def unavailable(*args: object, **kwargs: object) -> object:
+        raise SandboxUnavailableError("AppContainer setup deliberately unavailable")
+
+    monkeypatch.setattr(execution_sandbox, "_run_windows_appcontainer", unavailable)
+    result = await run_untrusted_command(
+        [sys.executable, "-c", "print('must not run')"], cwd=source, timeout=2
+    )
+
+    assert result["passed"] is False
+    assert result["sandbox_unavailable"] is True
+    assert "deliberately unavailable" in result["output"]
 
 
 def test_snapshot_excludes_git_and_common_credential_files(tmp_path: Path) -> None:
@@ -53,6 +77,30 @@ def test_snapshot_excludes_git_and_common_credential_files(tmp_path: Path) -> No
     assert not (snapshot / "secrets").exists()
     assert (snapshot / ".env.example").is_file()
     assert (snapshot / "app.py").is_file()
+
+
+def test_snapshot_does_not_copy_file_or_directory_symlinks(tmp_path: Path) -> None:
+    from mcp_server.execution_sandbox import _snapshot_repo
+
+    source = tmp_path / "source"
+    outside = tmp_path / "outside"
+    snapshot = tmp_path / "snapshot"
+    source.mkdir()
+    outside.mkdir()
+    secret = outside / "host-secret.txt"
+    secret.write_text("do not snapshot", encoding="utf-8")
+    (outside / "private").mkdir()
+    (outside / "private" / "key.txt").write_text("private", encoding="utf-8")
+    try:
+        (source / "secret-link.txt").symlink_to(secret)
+        (source / "directory-link").symlink_to(outside / "private", target_is_directory=True)
+    except OSError:
+        pytest.skip("the current Windows account cannot create filesystem symlinks")
+
+    _snapshot_repo(source, snapshot)
+
+    assert not (snapshot / "secret-link.txt").exists()
+    assert not (snapshot / "directory-link").exists()
 
 
 @pytest.mark.asyncio

@@ -4,8 +4,9 @@
 **Audit date:** 2026-10-19
 **Scope:** local source and uncommitted changes, test infrastructure, subprocess
 isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD configuration,
-dependencies, and deployment manifests. Publication is limited to a feature
-branch; no pull request, merge, or deployment is performed.
+dependencies, and deployment manifests. At the time of this local audit,
+publication was limited to a feature branch; no pull request, merge, or
+deployment had been performed. See the post-merge follow-up below.
 
 ## Executive assessment
 
@@ -26,6 +27,58 @@ developer interpreter contains stale vulnerable packages; and no live GitHub
 PR or staging deployment/rollback was performed. This report describes
 observed evidence, not a security certification.
 
+## Post-merge follow-up — 2026-10-19
+
+The source and local test results below describe the audit performed before
+PR #18 was merged. After that audit, PR #18 was merged into `main` at
+[`3ecc054`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/3ecc05417c206359154149e7fe6aec5507d56271).
+The post-merge Ubuntu 22.04 Actions run passed Bubblewrap setup, lint,
+formatting, strict mypy, dependency checks, Node checks, benchmark-fixture
+validation, and the PostgreSQL-backed suite (**634 passed, 4 skipped, 3
+warnings**). See [VERIFICATION.md](../VERIFICATION.md) for direct run links
+and status.
+
+This follow-up found and fixed one lifecycle issue: POSIX provider CLI
+timeouts previously killed only the top-level PID, leaving descendants able
+to outlive the timed-out invocation. Provider CLI processes now start in a
+new POSIX session and timeout cleanup signals that process group. The portable
+unit and provider-launch tests pass on Windows; the descendant integration
+test is skipped here and must run on Linux before this change is considered
+verified there.
+
+The MCP read audit also found that direct tools filtered `.env` and `.git`
+but did not filter other common credential paths. Reads, writes, search
+results, file listings, and the tracked-file resource now share a denylist
+for common credential files, private-key extensions, and credential
+directories. Regression tests cover direct path checks, symlink aliases,
+snapshot exclusion, and tracked-file resource filtering. This remains a
+filename-based control and cannot detect credentials embedded in ordinary
+source files or arbitrary filenames.
+
+The completed follow-up full suite passed on Windows using the disposable
+PostgreSQL helper: **656 passed, 7 skipped, 3 warnings in 642.46 seconds**.
+After publication, PR #19 also passed Ubuntu 22.04 CI: **658 passed, 5
+skipped, 3 warnings in 86.66 seconds**. The Linux run executed both tests in
+`tests/test_cli_process_tree.py` and passed Bubblewrap setup and namespace
+preflight. [CI details](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807)
+and [Kubernetes checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174813)
+passed.
+Ruff, formatting, strict mypy, and the Node example tests (2/2) also passed;
+`npm audit` reported zero vulnerabilities. A direct audit of the shared
+system Python still reports 91 known advisory entries across 8 packages; the
+audit is not scoped to this project's isolated dependencies, and no global
+packages were changed. Gitleaks found two redacted matches in generated test
+bytecode, not source files; no suppression was added. The production-readiness
+limitations below remain despite the green checks.
+
+The readiness recommendation remains **NO-GO for unattended operation on
+untrusted repositories**. The provider CLI process itself is still outside the
+project OS sandbox; the containerized MCP HTTP service has no bearer auth or
+chart NetworkPolicy; and this follow-up did not run live hostile-repository,
+multi-repository, GitHub mutation, provider, or deployment-recovery scenarios.
+The main branch's Bubblewrap CI is useful platform evidence, but it does not
+establish kernel escape resistance or arbitrary-repository reliability.
+
 ## Scope and changes
 
 | Area | Work completed |
@@ -39,9 +92,10 @@ observed evidence, not a security certification.
 | Reliability | Added strict single-file diff parsing, nonzero-context validation, private candidate application, one regression retry, report recovery, worker MCP reconnect handling, bounded fixed Git operations with timeouts and cleanup, hardened Git error redaction, and fixed an order-dependent prober assertion. |
 | CI and packaging | Tightened workflow token permissions, added dependency and fixture checks, updated vulnerable Node example dependencies, and corrected Dockerfile runtime users and healthcheck forms. |
 
-The workspace contains pre-existing user changes as well as audit changes; no
-files were staged or committed. See `git status` before selecting changes to
-commit.
+The follow-up is isolated on local branch `security-readiness-2026-10-19` in a
+separate worktree based on merged `main`. The original workspace and its
+pre-existing changes were left untouched. This branch has not been pushed or
+run through GitHub Actions.
 
 ## PostgreSQL and test results
 
@@ -53,12 +107,9 @@ the helper provisioned and tests used only `selfheal_test`. Migrations 0001
 through 0007 upgraded it, then deterministic demo data was seeded. The helper
 stops PostgreSQL and removes its temporary directory after the run.
 
-Final full run on a fresh disposable PostgreSQL 16.2 cluster:
+Earlier full run on a fresh disposable PostgreSQL 16.2 cluster:
 **633 passed, 3 skipped, 3 warnings** in 657.22 seconds.
-The skips were Linux Bubblewrap integration on Windows, the Windows sandbox
-integration requiring a virtual-environment Python interpreter, and a demo
-capture test whose seeded bug now returns 404 because the fix is already
-present. The warnings were `getpass` terminal-echo warnings from
+The warnings were `getpass` terminal-echo warnings from
 three CLI login tests. A prior full run exposed one order-dependent assertion
 in `test_persist_results_writes_contract_violations`; the test selected
 unrelated rows from the shared test table. It now scopes its query by the

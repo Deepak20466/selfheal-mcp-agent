@@ -153,6 +153,8 @@ async def test_run_codex_cli_success_parses_result_and_usage(
 
     kwargs = fake.calls[0]["kwargs"]
     assert kwargs["cwd"] == str(REPO_ROOT)
+    if os.name != "nt":
+        assert kwargs["start_new_session"] is True
     # Prompt goes via stdin, never argv.
     assert "do the thing" not in argv
     assert fake.process is not None

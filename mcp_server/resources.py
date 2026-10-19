@@ -11,7 +11,7 @@ from core.db import session_scope
 from core.git_env import git_subprocess_env
 from core.models import Error, OpenResolvedStatus, PipelineRun
 from mcp_server.instance import mcp
-from mcp_server.sandbox import REPO_ROOT
+from mcp_server.sandbox import REPO_ROOT, is_secret_path
 
 REPO_TREE_TIMEOUT_SECONDS = 30.0
 
@@ -59,7 +59,11 @@ async def repo_tree() -> list[str]:
             process.kill()
         await process.wait()
         raise RuntimeError(f"git ls-files timed out after {REPO_TREE_TIMEOUT_SECONDS:g}s") from None
-    files = [line for line in stdout.decode(errors="replace").splitlines() if line]
+    files = [
+        line
+        for line in stdout.decode(errors="replace").splitlines()
+        if line and not is_secret_path(line)
+    ]
     return sorted(files)
 
 

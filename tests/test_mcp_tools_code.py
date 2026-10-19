@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+import mcp_server.sandbox as sandbox
+import mcp_server.tools.code as code_tools
 from core.db import session_scope
 from core.models import HealJob, HealJobStatus, HealJobType, MonitoredApp
 from mcp_server.tools._exceptions import ToolError
@@ -23,6 +25,45 @@ from mcp_server.tools.code import (
     run_tests,
     search_code,
 )
+
+
+async def test_search_code_omits_common_secret_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    class CompletedProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (
+                b".aws/credentials:1:token=private\n"
+                b"src/client.pem:2:private key\n"
+                b"src/app.py:3:token=placeholder\n",
+                b"",
+            )
+
+    async def create_process(*args: object, **kwargs: object) -> CompletedProcess:
+        del args, kwargs
+        return CompletedProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+
+    results = await code_tools.search_code.__wrapped__("token")
+
+    assert [item["path"] for item in results] == ["src/app.py"]
+
+
+async def test_list_files_omits_common_secret_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".aws").mkdir()
+    (tmp_path / ".aws" / "credentials").write_text("secret", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "service.pem").write_text("private key", encoding="utf-8")
+    (tmp_path / "src" / "app.py").write_text("print('safe')", encoding="utf-8")
+    monkeypatch.setattr(code_tools, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(sandbox, "REPO_ROOT", tmp_path)
+
+    paths = await code_tools.list_files.__wrapped__("**/*")
+
+    assert paths == ["src/app.py"]
 
 
 async def _make_heal_job(job_type: HealJobType, app_id: int | None = None) -> int:

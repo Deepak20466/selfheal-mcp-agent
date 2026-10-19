@@ -53,6 +53,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -193,6 +194,8 @@ async def run_gemini_cli(
             "stdout": asyncio.subprocess.PIPE,
             "stderr": asyncio.subprocess.PIPE,
         }
+        if os.name != "nt":
+            subprocess_kwargs["start_new_session"] = True
 
         try:
             if is_windows_shim(resolved_cli):

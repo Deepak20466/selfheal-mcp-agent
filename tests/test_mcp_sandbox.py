@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import mcp_server.sandbox as sandbox
 from mcp_server.sandbox import (
     REPO_ROOT,
     RUNTIME_FIX_ALLOWED_PREFIX,
@@ -14,6 +15,7 @@ from mcp_server.sandbox import (
     check_readable,
     check_writable,
     extract_diff_paths,
+    is_secret_path,
     resolve_repo_path,
     resolve_worktree_dir,
 )
@@ -60,6 +62,46 @@ def test_check_readable_rejects_dotenv_variants() -> None:
         check_readable(".env.local")
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        ".aws/credentials",
+        ".ssh/id_ed25519",
+        ".kube/config",
+        ".docker/config.json",
+        "secrets/private.json",
+        "credentials/service.json",
+        "config/service-account.json",
+        "certs/client.pem",
+        "certs/client.p12",
+        "keys/signing.key",
+        ".npmrc",
+        ".netrc",
+        ".env.local",
+        ".env/secret.txt",
+        ".env.local/secret.txt",
+    ],
+)
+def test_common_secret_paths_are_blocked_for_reads_and_writes(
+    path: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert is_secret_path(path)
+    repo = tmp_path / "repo"
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("credential material", encoding="utf-8")
+    monkeypatch.setattr(sandbox, "REPO_ROOT", repo)
+
+    with pytest.raises(SandboxViolation, match="secrets file"):
+        sandbox.check_readable(path)
+    with pytest.raises(SandboxViolation, match="secrets file"):
+        sandbox.check_writable(path)
+
+
+def test_env_example_is_not_a_secret_path() -> None:
+    assert not is_secret_path(".env.example")
+
+
 def test_check_readable_allows_dotenv_example() -> None:
     check_readable(".env.example")  # does not raise, not a secret
 
@@ -67,6 +109,24 @@ def test_check_readable_allows_dotenv_example() -> None:
 def test_check_readable_rejects_git_internals() -> None:
     with pytest.raises(SandboxViolation):
         check_readable(".git/config")
+
+
+def test_check_readable_rejects_symlink_alias_to_secret_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    secret = repo / ".env"
+    secret.write_text("TOKEN=private", encoding="utf-8")
+    alias = repo / "source.txt"
+    try:
+        alias.symlink_to(secret)
+    except OSError:
+        pytest.skip("the current Windows account cannot create filesystem symlinks")
+    monkeypatch.setattr(sandbox, "REPO_ROOT", repo)
+
+    with pytest.raises(SandboxViolation, match="secrets file"):
+        sandbox.check_readable("source.txt")
 
 
 def test_check_writable_rejects_dotenv() -> None:
@@ -82,6 +142,26 @@ def test_check_writable_rejects_git_dir() -> None:
 def test_check_writable_rejects_github_workflows() -> None:
     with pytest.raises(SandboxViolation):
         check_writable(".github/workflows/ci.yml")
+
+
+def test_check_writable_rejects_symlink_alias_to_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    workflow_dir = repo / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    workflow = workflow_dir / "ci.yml"
+    workflow.write_text("name: CI", encoding="utf-8")
+    (repo / "src").mkdir()
+    alias = repo / "src" / "workflow.yml"
+    try:
+        alias.symlink_to(workflow)
+    except OSError:
+        pytest.skip("the current Windows account cannot create filesystem symlinks")
+    monkeypatch.setattr(sandbox, "REPO_ROOT", repo)
+
+    with pytest.raises(SandboxViolation, match="forbidden path"):
+        sandbox.check_writable("src/workflow.yml")
 
 
 def test_check_writable_rejects_alembic_versions() -> None:
