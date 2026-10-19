@@ -2,11 +2,12 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. An earlier push-triggered `k8s` run on that SHA was canceled. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted `test` and `k8s` checks are queued. No production deployment occurred.
 
-## Provider MCP capability follow-up — local, 2026-10-19
+## Provider MCP capability follow-up — PR #25, 2026-10-19
 
-Local branch `feature/provider-mcp-capability-2026-10-19` adds HMAC-signed
+Branch `feature/provider-mcp-capability-2026-10-19` (source commit
+[`fb1597c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/fb1597cd10babe6c402c63d2e02ca9eb006c6156)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
 worktree. CI repair tokens may rerun only the associated workflow run, once.
@@ -25,6 +26,9 @@ reference repairs passed. Full PostgreSQL-backed pytest was not run because
 the session hook requires a reachable PostgreSQL server, which is unavailable
 here. No local PostgreSQL or Docker installation, provider call, GitHub repair
 operation, cloud resource, or deployment was made.
+
+PR #25 is open against PR #24's branch. Its hosted CI and Calico-backed
+Kubernetes workflows were queued when this report was updated.
 
 This is an authorization boundary improvement, not provider process isolation.
 The provider CLI gate still fails closed; no live repair-to-PR flow, three
