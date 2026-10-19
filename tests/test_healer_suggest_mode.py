@@ -120,8 +120,15 @@ async def test_run_heal_job_suggest_opens_a_labeled_pr_with_no_verification(
     try:
         real_commit_and_push = suggest_mode.commit_and_push
 
-        async def _redirect_push(path: Path, branch: str, *, message: str, remote: str) -> None:
-            del remote
+        async def _redirect_push(
+            path: Path,
+            branch: str,
+            *,
+            message: str,
+            remote: str,
+            github_token: str | None = None,
+        ) -> None:
+            del remote, github_token
             await real_commit_and_push(path, branch, message=message, remote=str(bare_remote))
 
         monkeypatch.setattr(suggest_mode, "commit_and_push", _redirect_push)

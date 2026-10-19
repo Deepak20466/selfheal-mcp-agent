@@ -332,14 +332,18 @@ async def run_onboarding_prepare(
                     detail="Generated starter tests failed locally -- no PR opened.",
                 )
 
-        push_remote = (
-            f"https://x-access-token:{settings.github_token}@github.com/{app_github_repo}.git"
-        )
+        push_remote = f"https://github.com/{app_github_repo}.git"
         repo_info = await github.get_repo()
         base_branch = str(repo_info.get("default_branch") or "main")
         commit_msg = f"Onboarding: add starter tests/CI/test-config\n\nheal_job #{job_id}"
         try:
-            await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+            await commit_and_push(
+                worktree_path,
+                branch,
+                message=commit_msg,
+                remote=push_remote,
+                github_token=settings.github_token,
+            )
         except WorktreeError as exc:
             # A real push failure (e.g. a token with insufficient repo
             # permission) used to propagate unhandled out of this function,

@@ -1,37 +1,27 @@
-"""Instant scan: install deps, run tests/lint/type-check/dependency-audit for
-a connected app, store every finding in `findings` (core/models.py).
+"""Instant static scan and sandboxed tests for a connected app.
 
-**Isolation**: every subprocess this module spawns has its `cwd` pinned to
-the app's own directory under `connected_apps/<name>/` (validated with
-`_app_dir` below, the same "resolve and check it's really inside the
-expected root" pattern `mcp_server/sandbox.py` uses) and a timeout + capped
-captured output, so one connected app's scan can never touch another app's
-files, this repo's own files, or run forever. A Python app additionally gets
-its own real virtualenv (`<app_dir>/.selfheal_venv/`, see `_ensure_app_venv`)
--- its dependencies (and ruff/mypy/pip-audit) install there, never into the
-healer process's own environment or onto a bare `pytest`/`ruff` looked up on
-PATH, so two connected apps' dependency versions (or this project's own)
-can never collide. A JavaScript app gets the equivalent isolation for free
-from `npm install`'s own per-directory `node_modules/`. This installs and
-executes the connected repo's own code exactly as its own CI would -- that
-is real code execution from a repo the operator chose to connect, the same
-trust model as cloning and running any third-party project locally; it is
-not sandboxed beyond directory/time/output/dependency scoping (no
-container, to keep this free of new infrastructure). Only connect repos you
-trust.
-
-Every tool run here is free/open-source (ruff, mypy, pytest, pip-audit,
-npm audit) -- no paid scanning service.
+Repository-controlled commands run from a temporary source snapshot through
+``mcp_server.execution_sandbox``. Native execution is never used as fallback.
+The sandbox has no network, receives a clean environment, omits credential
+files and Git metadata, and caps runtime, memory, process count, output, and
+workspace growth. Existing Python virtualenv and Node dependency files may be
+copied into the sandbox and executed there. Dependency installation remains
+disabled. Python and npm advisory lookups use scanner-owned tools against
+sanitized exact-version metadata in a temporary directory; other ecosystems
+without a metadata-only adapter are skipped.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import shutil
 import sys
-from collections.abc import Awaitable, Callable
+import tempfile
+import tomllib
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.language_tools import Check, ToolProfile, detect_profile
 from core.models import Finding, FindingCategory, FindingSeverity, MonitoredApp
 from core.repo_connect import CONNECTED_APPS_ROOT, app_fingerprint
+from mcp_server.execution_sandbox import run_untrusted_command
 from mcp_server.sandbox import REPO_ROOT
 
 logger = structlog.get_logger(__name__)
@@ -52,6 +43,7 @@ logger = structlog.get_logger(__name__)
 INSTALL_TIMEOUT_SECONDS = 300.0
 COMMAND_TIMEOUT_SECONDS = 180.0
 MAX_CAPTURED_OUTPUT_BYTES = 100_000
+MAX_AUDIT_OUTPUT_BYTES = 5_000_000
 
 ProgressCallback = Callable[[str, int], Awaitable[None]]
 
@@ -72,6 +64,8 @@ class CommandOutcome:
     ok: bool
     timed_out: bool
     output: str
+    sandbox_unavailable: bool = False
+    resource_limited: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,8 +88,23 @@ class ScanSummary:
     skipped_checks: tuple[str, ...] = ()
 
 
-VENV_DIR_NAME = ".selfheal_venv"
 _SCANNER_TOOLS = ("pytest", "ruff", "mypy", "pip-audit")
+_EXACT_PYTHON_PIN = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9_.-]*)\s*==\s*([A-Za-z0-9][A-Za-z0-9.!+_-]*)$"
+)
+_EXACT_NPM_PIN = re.compile(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$")
+
+
+def _default_scanner_tools_root() -> Path:
+    if os.name == "nt":
+        cache_root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+    return cache_root / "selfheal" / "scanner-tools-v1"
+
+
+SCANNER_TOOLS_ROOT = _default_scanner_tools_root()
+_SCANNER_TOOLS_LOCK = asyncio.Lock()
 
 #: known heavy/ML-framework package names this project will never install
 #: for a scan -- a fixed denylist rather than a live PyPI/npm size query
@@ -166,32 +175,140 @@ def detect_heavy_dependencies(app_dir: Path) -> list[str]:
     return sorted(found)
 
 
-def _venv_python(app_dir: Path) -> Path:
-    """Path to the per-app venv's own python executable -- every Python
-    install/test/lint/type-check/audit command for that app runs through
-    this interpreter, never the healer process's own or a bare `pytest`/
-    `ruff`/... found on PATH, so one connected app's dependencies (and their
-    versions) can never collide with another's or with this project's own."""
-    venv_dir = app_dir / VENV_DIR_NAME
+def _scanner_venv_python() -> Path:
+    """Return the trusted scanner tools interpreter outside connected repos."""
+    venv_dir = SCANNER_TOOLS_ROOT / "venv"
     if sys.platform == "win32":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
 
 
-async def _ensure_app_venv(app_dir: Path) -> Path:
-    """Create `<app_dir>/.selfheal_venv/` if it doesn't exist yet, with
-    ruff/mypy/pip-audit pre-installed (the scanner's own tools -- not the
-    app's dependencies, so every Python app gets them regardless of what's
-    in its own requirements.txt)."""
-    python = _venv_python(app_dir)
-    if not python.exists():
-        await _run(f'"{sys.executable}" -m venv "{app_dir / VENV_DIR_NAME}"', cwd=app_dir)
-        await _run(
-            f'"{python}" -m pip install --quiet {" ".join(_SCANNER_TOOLS)}',
-            cwd=app_dir,
-            timeout=INSTALL_TIMEOUT_SECONDS,
+def _scanner_tool_environment(root: Path, temp: Path) -> dict[str, str]:
+    """Use a private temporary home without ambient credentials or config."""
+    passthrough = (
+        "PATH",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "LANG",
+        "LC_ALL",
+    )
+    env = {name: os.environ[name] for name in passthrough if name in os.environ}
+    home = root / ".setup-home"
+    for directory in (home, home / "AppData" / "Roaming", home / "AppData" / "Local", temp):
+        directory.mkdir(parents=True, exist_ok=True)
+    if os.name != "nt":
+        home.chmod(0o700)
+        temp.chmod(0o700)
+    env.update(
+        {
+            "HOME": str(home),
+            "USERPROFILE": str(home),
+            "APPDATA": str(home / "AppData" / "Roaming"),
+            "LOCALAPPDATA": str(home / "AppData" / "Local"),
+            "TEMP": str(temp),
+            "TMP": str(temp),
+            "TMPDIR": str(temp),
+            "PYTHONNOUSERSITE": "1",
+            "PIP_NO_INPUT": "1",
+        }
+    )
+    env["PIP_CONFIG_FILE"] = os.devnull
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    return env
+
+
+async def _communicate_setup_process(
+    process: asyncio.subprocess.Process, *, timeout: float, operation: str
+) -> bytes:
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        raise ScanError(f"Scanner tool setup timed out during {operation}") from None
+    if process.returncode:
+        raise ScanError(
+            f"Scanner tool setup failed during {operation}: "
+            + stdout.decode(errors="replace")[-2000:]
         )
-    return python
+    return stdout
+
+
+async def _ensure_scanner_tools_venv() -> Path:
+    """Install trusted scanner tools outside any connected repository.
+
+    The venv is mounted read-only into the repository-code sandbox. Repository
+    content can neither pre-seed an executable that runs on the host nor
+    modify scanner tools that later scans trust.
+    """
+    async with _SCANNER_TOOLS_LOCK:
+        root = SCANNER_TOOLS_ROOT
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
+            raise ScanError("Trusted scanner tools path is not a regular directory")
+        root.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            root.chmod(0o700)
+        venv_dir = root / "venv"
+        if venv_dir.is_symlink():
+            raise ScanError("Trusted scanner tools venv cannot be a symlink")
+        python = _scanner_venv_python()
+        if python.is_file():
+            return python
+        if venv_dir.exists() and any(venv_dir.iterdir()):
+            raise ScanError(
+                "Trusted scanner tools venv is incomplete; inspect it before removing it"
+            )
+
+        build_root = Path(tempfile.mkdtemp(prefix=".scanner-tools-build-", dir=root))
+        build_venv = build_root / "venv"
+        try:
+            env = _scanner_tool_environment(root, build_root / "tmp")
+            create = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "venv",
+                str(build_venv),
+                cwd=str(root),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            await _communicate_setup_process(create, timeout=60, operation="venv creation")
+
+            build_python = (
+                build_venv / "Scripts" / "python.exe"
+                if sys.platform == "win32"
+                else build_venv / "bin" / "python"
+            )
+            install = await asyncio.create_subprocess_exec(
+                str(build_python),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--only-binary=:all:",
+                *_SCANNER_TOOLS,
+                cwd=str(root),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            await _communicate_setup_process(
+                install, timeout=INSTALL_TIMEOUT_SECONDS, operation="trusted tool installation"
+            )
+            if not build_python.is_file():
+                raise ScanError(
+                    "Scanner tool setup completed without creating its Python executable"
+                )
+            os.replace(build_venv, venv_dir)
+        finally:
+            shutil.rmtree(build_root, ignore_errors=True)
+
+        if not python.is_file():
+            raise ScanError("Scanner tool setup completed without creating its Python executable")
+        return python
 
 
 def _app_dir(app: MonitoredApp) -> Path:
@@ -217,6 +334,7 @@ async def _run(
     cwd: Path,
     timeout: float = COMMAND_TIMEOUT_SECONDS,
     merge_stderr: bool = True,
+    read_only_paths: Sequence[Path] = (),
 ) -> CommandOutcome:
     """Run `command`, capturing output for both display and, for some
     callers, JSON parsing.
@@ -234,20 +352,20 @@ async def _run(
     exactly the failure mode that let real vulnerabilities go undetected
     before this was split out.
     """
-    process = await asyncio.create_subprocess_shell(
+    result = await run_untrusted_command(
         command,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.PIPE,
+        cwd=cwd,
+        timeout=timeout,
+        merge_stderr=merge_stderr,
+        read_only_paths=read_only_paths,
     )
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        return CommandOutcome(ok=False, timed_out=True, output=f"Timed out after {timeout}s")
-    output = stdout.decode(errors="replace")[-MAX_CAPTURED_OUTPUT_BYTES:]
-    return CommandOutcome(ok=process.returncode == 0, timed_out=False, output=output)
+    return CommandOutcome(
+        ok=result.get("passed", False),
+        timed_out=result.get("timed_out", False),
+        output=str(result.get("output", ""))[-MAX_CAPTURED_OUTPUT_BYTES:],
+        sandbox_unavailable=result.get("sandbox_unavailable", False),
+        resource_limited=result.get("resource_limited", False),
+    )
 
 
 def parse_ruff_json(output: str) -> list[FindingDraft]:
@@ -361,6 +479,267 @@ def parse_npm_audit_json(output: str) -> list[FindingDraft]:
     return drafts
 
 
+def _python_audit_pins(app_dir: Path) -> list[str]:
+    """Extract exact pins only, excluding options, URLs, markers and ranges."""
+    lines: list[str] = []
+    requirements = app_dir / "requirements.txt"
+    if requirements.is_file():
+        lines.extend(requirements.read_text(encoding="utf-8", errors="ignore").splitlines())
+    project = app_dir / "pyproject.toml"
+    if project.is_file():
+        try:
+            data = tomllib.loads(project.read_text(encoding="utf-8"))
+            lines.extend(data.get("project", {}).get("dependencies", []))
+        except (tomllib.TOMLDecodeError, OSError, AttributeError, TypeError):
+            pass
+    # Lockfiles provide a complete, already-resolved package set. Read only
+    # package names and exact versions; never pass source/build settings to pip.
+    for lock_name in ("uv.lock", "poetry.lock", "pdm.lock"):
+        lock_path = app_dir / lock_name
+        if not lock_path.is_file():
+            continue
+        try:
+            locked = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+            records = locked.get("package", locked.get("packages", []))
+            for record in records if isinstance(records, list) else []:
+                name, version = record.get("name"), record.get("version")
+                source = record.get("source", {})
+                source_type = source.get("type") if isinstance(source, dict) else None
+                is_registry_source = not isinstance(source, dict) or (
+                    source_type in (None, "registry")
+                    and not any(
+                        key in source for key in ("git", "directory", "editable", "virtual")
+                    )
+                )
+                if (
+                    isinstance(name, str)
+                    and isinstance(version, str)
+                    and _EXACT_PYTHON_PIN.fullmatch(f"{name}=={version}")
+                    and is_registry_source
+                ):
+                    lines.append(f"{name}=={version}")
+        except (tomllib.TOMLDecodeError, OSError, AttributeError, TypeError):
+            continue
+    pipfile_lock = app_dir / "Pipfile.lock"
+    if pipfile_lock.is_file():
+        try:
+            locked = json.loads(pipfile_lock.read_text(encoding="utf-8"))
+            for section in ("default", "develop"):
+                for name, record in locked.get(section, {}).items():
+                    version = record.get("version", "") if isinstance(record, dict) else ""
+                    if isinstance(version, str) and version.startswith("=="):
+                        lines.append(f"{name}=={version[2:]}")
+        except (OSError, json.JSONDecodeError, AttributeError, TypeError):
+            pass
+    pins: dict[str, str] = {}
+    for line in lines:
+        raw = line.split("#", 1)[0].strip()
+        if not raw or raw.startswith(("-", "[")) or ";" in raw or " @ " in raw:
+            continue
+        match = _EXACT_PYTHON_PIN.fullmatch(raw)
+        if match:
+            pins[match.group(1).lower().replace("_", "-")] = f"{match.group(1)}=={match.group(2)}"
+    return [pins[key] for key in sorted(pins)]
+
+
+def _npm_audit_lock(app_dir: Path) -> dict[str, Any] | None:
+    """Build a metadata-only lockfile; preserve locked transitives, ignore URLs."""
+    try:
+        data = json.loads((app_dir / "package.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    package_lock_path = app_dir / "package-lock.json"
+    try:
+        original_lock = json.loads(package_lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    source_packages = original_lock.get("packages", {}) if isinstance(original_lock, dict) else {}
+    if not isinstance(source_packages, dict):
+        return None
+    packages: dict[str, Any] = {"": {"name": "scanner-audit-input", "version": "0.0.0"}}
+    for path, record in source_packages.items():
+        if not isinstance(path, str) or not isinstance(record, dict):
+            continue
+        if not re.fullmatch(
+            r"node_modules/(?:@[a-z0-9._-]+/)?[a-z0-9._-]+"
+            r"(?:/node_modules/(?:@[a-z0-9._-]+/)?[a-z0-9._-]+)*",
+            path,
+        ):
+            continue
+        version = record.get("version")
+        if not isinstance(version, str) or not _EXACT_NPM_PIN.fullmatch(version):
+            continue
+        name = record.get("name")
+        if not isinstance(name, str):
+            name = path.rsplit("node_modules/", 1)[-1]
+        if not re.fullmatch(r"(?:@[a-z0-9._-]+/)?[a-z0-9._-]+", name):
+            continue
+        # Only the lock path, package name, and exact version cross the trust
+        # boundary. In particular, resolved URLs and integrity/config fields
+        # are deliberately omitted.
+        packages[path] = {"name": name, "version": version}
+    if len(packages) == 1:
+        # For lockfile v1, recover flat dependency records if available.
+        def add_legacy(records: object, prefix: str = "node_modules/") -> None:
+            if not isinstance(records, dict):
+                return
+            for name, record in records.items():
+                if not isinstance(name, str) or not isinstance(record, dict):
+                    continue
+                version = record.get("version")
+                path = prefix + name
+                if isinstance(version, str) and _EXACT_NPM_PIN.fullmatch(version):
+                    packages[path] = {"name": name, "version": version}
+                add_legacy(record.get("dependencies"), path + "/node_modules/")
+
+        add_legacy(original_lock.get("dependencies", {}))
+    if len(packages) == 1:
+        return None
+    # npm's bulk advisory lookup examines every package record in the lock;
+    # retaining the complete locked package set preserves transitive findings.
+    return {
+        "name": "scanner-audit-input",
+        "version": "0.0.0",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": packages,
+    }
+
+
+async def _run_trusted_audit(command: Sequence[str], *, cwd: Path) -> CommandOutcome:
+    """Run scanner-owned metadata lookup with a clean temporary environment."""
+    with tempfile.TemporaryDirectory(prefix="selfheal-audit-") as temp_name:
+        temp = Path(temp_name)
+        env = _scanner_tool_environment(temp, temp / "tmp")
+        process: asyncio.subprocess.Process | None = None
+        stdout_task: asyncio.Task[tuple[bytes, bool]] | None = None
+        stderr_task: asyncio.Task[tuple[bytes, bool]] | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(cwd),
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            assert process.stdout is not None and process.stderr is not None
+
+            async def read_capped(stream: asyncio.StreamReader) -> tuple[bytes, bool]:
+                captured = bytearray()
+                truncated = False
+                while chunk := await stream.read(64 * 1024):
+                    remaining = MAX_AUDIT_OUTPUT_BYTES - len(captured)
+                    captured.extend(chunk[:remaining])
+                    truncated |= len(chunk) > remaining
+                return bytes(captured), truncated
+
+            stdout_task = asyncio.create_task(read_capped(process.stdout))
+            stderr_task = asyncio.create_task(read_capped(process.stderr))
+            _, (stdout, stdout_truncated), (stderr, stderr_truncated) = await asyncio.wait_for(
+                asyncio.gather(process.wait(), stdout_task, stderr_task),
+                timeout=COMMAND_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            if process is not None:
+                if process.returncode is None:
+                    process.kill()
+                await process.wait()
+            tasks = [task for task in (stdout_task, stderr_task) if task is not None]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            return CommandOutcome(False, True, "advisory lookup timed out")
+        except OSError as exc:
+            return CommandOutcome(False, False, str(exc))
+        output = stdout.decode(errors="replace")
+        return CommandOutcome(
+            process.returncode == 0,
+            False,
+            output or stderr.decode(errors="replace"),
+            resource_limited=stdout_truncated or stderr_truncated,
+        )
+
+
+async def _audit_python(app_dir: Path) -> tuple[list[FindingDraft], list[str]]:
+    pins = _python_audit_pins(app_dir)
+    if not pins:
+        return [], ["audit: skipped: no exact Python dependency pins available"]
+    python = await _ensure_scanner_tools_venv()
+    with tempfile.TemporaryDirectory(prefix="selfheal-pip-audit-") as temp_name:
+        root = Path(temp_name)
+        req = root / "requirements.txt"
+        req.write_text("\n".join(pins) + "\n", encoding="utf-8")
+        outcome = await _run_trusted_audit(
+            [
+                str(python),
+                "-m",
+                "pip_audit",
+                "--no-deps",
+                "--requirement",
+                str(req),
+                "--format",
+                "json",
+            ],
+            cwd=root,
+        )
+    if outcome.timed_out:
+        return [], ["audit: skipped: pip-audit timed out"]
+    if outcome.resource_limited:
+        return [], ["audit: skipped: pip-audit output exceeded the safe capture limit"]
+    if not outcome.output.strip() or not outcome.output.lstrip().startswith("{"):
+        return [], ["audit: skipped: pip-audit returned no JSON advisory results"]
+    return parse_pip_audit_json(outcome.output), []
+
+
+async def _audit_npm(app_dir: Path) -> tuple[list[FindingDraft], list[str]]:
+    lock = _npm_audit_lock(app_dir)
+    npm = shutil.which("npm")
+    if lock is None:
+        return [], ["audit: skipped: no exact npm dependency pins available"]
+    if npm is None:
+        return [], ["audit: skipped: npm is not installed"]
+    with tempfile.TemporaryDirectory(prefix="selfheal-npm-audit-") as temp_name:
+        root = Path(temp_name)
+        (root / "package.json").write_text(
+            json.dumps({"name": "scanner-audit-input", "version": "0.0.0", "private": True}),
+            encoding="utf-8",
+        )
+        (root / "package-lock.json").write_text(json.dumps(lock), encoding="utf-8")
+        user_config = root / "npmrc-user"
+        global_config = root / "npmrc-global"
+        user_config.write_text("", encoding="utf-8")
+        global_config.write_text("", encoding="utf-8")
+        outcome = await _run_trusted_audit(
+            [
+                npm,
+                "audit",
+                "--json",
+                "--package-lock-only",
+                "--ignore-scripts",
+                "--registry=https://registry.npmjs.org/",
+                f"--userconfig={user_config}",
+                f"--globalconfig={global_config}",
+            ],
+            cwd=root,
+        )
+    if outcome.timed_out:
+        return [], ["audit: skipped: npm audit timed out"]
+    if outcome.resource_limited:
+        return [], ["audit: skipped: npm audit output exceeded the safe capture limit"]
+    if not outcome.output.strip() or not outcome.output.lstrip().startswith("{"):
+        return [], ["audit: skipped: npm audit returned no JSON advisory results"]
+    try:
+        result = json.loads(outcome.output)
+    except json.JSONDecodeError:
+        return [], ["audit: skipped: npm audit returned invalid JSON"]
+    if isinstance(result, dict) and result.get("error"):
+        error = result["error"]
+        code = error.get("code", "unknown error") if isinstance(error, dict) else "unknown error"
+        return [], [f"audit: skipped: npm audit failed ({code})"]
+    return parse_npm_audit_json(outcome.output), []
+
+
 def compute_health_score(drafts: list[FindingDraft], *, tests_passed: bool | None) -> int:
     """0-100, a simple deterministic heuristic (not a "correctness" score):
     start at 100, subtract a per-finding penalty by severity, subtract 20
@@ -383,6 +762,22 @@ def _skip_reason(name: str, check: Check) -> str:
     return f"{name}: skipped: tool not installed ({check.requires})"
 
 
+_MISSING_DEPENDENCY_MARKERS = (
+    "modulenotfounderror",
+    "no module named",
+    "cannot find module",
+    "err_module_not_found",
+    "no such file or directory",
+    "command not found",
+    "is not recognized as an internal or external command",
+)
+
+
+def _missing_test_dependency(output: str) -> bool:
+    lowered = output.lower()
+    return any(marker in lowered for marker in _MISSING_DEPENDENCY_MARKERS)
+
+
 async def _run_profile_checks(
     profile: ToolProfile, app_dir: Path, test_command: str, notify: ProgressCallback
 ) -> tuple[list[FindingDraft], bool | None, list[str]]:
@@ -397,17 +792,23 @@ async def _run_profile_checks(
     skipped: list[str] = []
     tests_passed: bool | None = None
 
-    await notify("installing dependencies", 10)
-    if profile.install and _tool_available(profile.install, app_dir):
-        await _run(profile.install.command, cwd=app_dir, timeout=INSTALL_TIMEOUT_SECONDS)
-    elif profile.install:
-        skipped.append(_skip_reason("install", profile.install))
+    await notify("checking dependency installation policy", 10)
+    if profile.install:
+        skipped.append(
+            "install: skipped: repository dependency installs can execute package scripts; "
+            "no offline wheel/cache staging is configured"
+        )
 
     await notify("running tests", 35)
     if _tool_available(profile.test, app_dir):
         outcome = await _run(test_command, cwd=app_dir)
-        tests_passed = outcome.ok and not outcome.timed_out
-        if not tests_passed:
+        if outcome.sandbox_unavailable:
+            skipped.append(f"tests: skipped: {outcome.output}")
+        elif _missing_test_dependency(outcome.output):
+            skipped.append("tests: skipped: a declared test dependency is unavailable offline")
+        else:
+            tests_passed = outcome.ok and not outcome.timed_out
+        if tests_passed is False:
             drafts.append(
                 FindingDraft(
                     category=FindingCategory.TEST,
@@ -427,7 +828,9 @@ async def _run_profile_checks(
         pass
     elif _tool_available(profile.lint, app_dir):
         outcome = await _run(profile.lint.command, cwd=app_dir)
-        if not outcome.ok:
+        if outcome.sandbox_unavailable:
+            skipped.append(f"lint: skipped: {outcome.output}")
+        elif not outcome.ok:
             drafts.append(
                 FindingDraft(
                     category=FindingCategory.LINT,
@@ -444,24 +847,8 @@ async def _run_profile_checks(
     await notify("checking dependencies for vulnerabilities", 85)
     if profile.audit is None:
         skipped.append(f"audit: skipped: no standard {profile.build_tool} audit command")
-    elif _tool_available(profile.audit, app_dir):
-        outcome = await _run(profile.audit.command, cwd=app_dir, timeout=INSTALL_TIMEOUT_SECONDS)
-        marker = profile.audit_vulnerable_marker
-        vulnerable = (marker in outcome.output) if marker else not outcome.ok
-        if vulnerable:
-            drafts.append(
-                FindingDraft(
-                    category=FindingCategory.DEPENDENCY,
-                    severity=FindingSeverity.MEDIUM,
-                    tool=profile.audit.requires.rsplit("/", 1)[-1],
-                    message=(
-                        f"`{profile.audit.command}` reported vulnerabilities:\n"
-                        f"{outcome.output[-2000:]}"
-                    ),
-                )
-            )
     else:
-        skipped.append(_skip_reason("audit", profile.audit))
+        skipped.append("audit: skipped: no safe metadata-only adapter for this ecosystem")
 
     return drafts, tests_passed, skipped
 
@@ -502,22 +889,28 @@ async def run_scan(
 
     await notify("installing dependencies", 10)
     if app.language == "python":
-        venv_python = await _ensure_app_venv(app_dir)
+        venv_python = await _ensure_scanner_tools_venv()
         if has_pyproject or has_requirements:
-            install_cmd = "-e ." if has_pyproject else "-r requirements.txt"
-            await _run(
-                f'"{venv_python}" -m pip install --quiet {install_cmd}',
-                cwd=app_dir,
-                timeout=INSTALL_TIMEOUT_SECONDS,
+            skipped.append(
+                "install: skipped: project dependencies are not installed because package "
+                "build hooks execute repository-controlled code and sandbox egress is disabled"
             )
     elif app.language == "javascript" and (app_dir / "package.json").exists():
-        await _run("npm install", cwd=app_dir, timeout=INSTALL_TIMEOUT_SECONDS)
+        skipped.append(
+            "install: skipped: npm lifecycle scripts are not run and sandbox egress is disabled"
+        )
 
     await notify("running tests", 35)
     test_cmd = f'"{venv_python}" -m pytest -q' if venv_python else app.test_command
-    test_outcome = await _run(test_cmd, cwd=app_dir)
-    tests_passed = test_outcome.ok and not test_outcome.timed_out
-    if not tests_passed:
+    scanner_mounts = (venv_python.parent.parent,) if venv_python else ()
+    test_outcome = await _run(test_cmd, cwd=app_dir, read_only_paths=scanner_mounts)
+    if test_outcome.sandbox_unavailable:
+        skipped.append(f"tests: skipped: {test_outcome.output}")
+    elif _missing_test_dependency(test_outcome.output):
+        skipped.append("tests: skipped: a test dependency is unavailable offline")
+    else:
+        tests_passed = test_outcome.ok and not test_outcome.timed_out
+    if tests_passed is False:
         drafts.append(
             FindingDraft(
                 category=FindingCategory.TEST,
@@ -537,8 +930,12 @@ async def run_scan(
                 f'"{venv_python}" -m ruff check --output-format=json .',
                 cwd=app_dir,
                 merge_stderr=False,
+                read_only_paths=scanner_mounts,
             )
-            drafts.extend(parse_ruff_json(lint_outcome.output))
+            if lint_outcome.sandbox_unavailable:
+                skipped.append(f"lint: skipped: {lint_outcome.output}")
+            else:
+                drafts.extend(parse_ruff_json(lint_outcome.output))
         else:
             await _run(app.lint_command, cwd=app_dir)
 
@@ -548,24 +945,22 @@ async def run_scan(
             f'"{venv_python}" -m mypy . --ignore-missing-imports --output json',
             cwd=app_dir,
             merge_stderr=False,
+            read_only_paths=scanner_mounts,
         )
-        drafts.extend(parse_mypy_json(type_outcome.output))
+        if type_outcome.sandbox_unavailable:
+            skipped.append(f"type-check: skipped: {type_outcome.output}")
+        else:
+            drafts.extend(parse_mypy_json(type_outcome.output))
 
     await notify("checking dependencies for vulnerabilities", 85)
-    if venv_python and (has_requirements or has_pyproject):
-        audit_target = "-r requirements.txt" if has_requirements else ""
-        audit_outcome = await _run(
-            f'"{venv_python}" -m pip_audit {audit_target} --format json',
-            cwd=app_dir,
-            timeout=INSTALL_TIMEOUT_SECONDS,
-            merge_stderr=False,
-        )
-        drafts.extend(parse_pip_audit_json(audit_outcome.output))
+    if app.language == "python" and (has_requirements or has_pyproject):
+        audit_drafts, audit_skipped = await _audit_python(app_dir)
+        drafts.extend(audit_drafts)
+        skipped.extend(audit_skipped)
     elif app.language == "javascript" and (app_dir / "package.json").exists():
-        audit_outcome = await _run(
-            "npm audit --json", cwd=app_dir, timeout=INSTALL_TIMEOUT_SECONDS, merge_stderr=False
-        )
-        drafts.extend(parse_npm_audit_json(audit_outcome.output))
+        audit_drafts, audit_skipped = await _audit_npm(app_dir)
+        drafts.extend(audit_drafts)
+        skipped.extend(audit_skipped)
 
     return await _finish_scan(session, app, drafts, tests_passed, skipped, notify)
 
@@ -580,13 +975,9 @@ async def _run_static_only_scan(
     """A scan for an app whose manifest names a heavy/ML dependency
     (torch/tensorflow/transformers/chromadb/CUDA-class packages, see
     `_HEAVY_DEPENDENCY_NAMES`): never installs the app's own dependencies
-    and never executes its tests. Lint and dependency-audit still run where
-    they don't require the app's deps to be installed -- `pip-audit -r
-    requirements.txt` and `npm audit` both resolve vulnerabilities from the
-    manifest/lockfile alone, and ruff is purely syntactic -- using the same
-    small scanner-tools venv every Python app already gets (pytest/ruff/
-    mypy/pip-audit themselves are not heavy; only the *app's own*
-    dependencies are ever skipped)."""
+    and never executes its tests. Static lint runs inside the repository
+    sandbox when available; metadata-only audits can still run for Python
+    and npm manifests."""
     drafts: list[FindingDraft] = [
         FindingDraft(
             category=FindingCategory.DEPENDENCY,
@@ -595,7 +986,7 @@ async def _run_static_only_scan(
             message=(
                 f"Static-only scan: this app depends on {', '.join(heavy_deps)}, which this "
                 "project never installs (torch/tensorflow/transformers/chromadb/CUDA-class "
-                "packages are always skipped). Lint and dependency-audit ran where possible; "
+                "packages are always skipped). Static lint ran where possible; "
                 "the test suite was not executed."
             ),
         )
@@ -612,33 +1003,28 @@ async def _run_static_only_scan(
 
     if app.language == "python" and (has_requirements or has_pyproject):
         await notify("running linter (static-only)", 40)
-        venv_python = await _ensure_app_venv(app_dir)
+        venv_python = await _ensure_scanner_tools_venv()
         lint_outcome = await _run(
             f'"{venv_python}" -m ruff check --output-format=json .',
             cwd=app_dir,
             merge_stderr=False,
+            read_only_paths=(venv_python.parent.parent,),
         )
         drafts.extend(parse_ruff_json(lint_outcome.output))
 
-        await notify("checking dependencies for vulnerabilities (static-only)", 80)
-        audit_target = "-r requirements.txt" if has_requirements else ""
-        audit_outcome = await _run(
-            f'"{venv_python}" -m pip_audit {audit_target} --format json',
-            cwd=app_dir,
-            timeout=INSTALL_TIMEOUT_SECONDS,
-            merge_stderr=False,
-        )
-        drafts.extend(parse_pip_audit_json(audit_outcome.output))
+        await notify("checking dependencies for vulnerabilities", 80)
+        audit_drafts, audit_skipped = await _audit_python(app_dir)
+        drafts.extend(audit_drafts)
+        skipped.extend(audit_skipped)
     elif app.language == "javascript" and has_package_json:
         skipped.append("lint: skipped: static-only scan (lint may need installed node_modules)")
-        await notify("checking dependencies for vulnerabilities (static-only)", 80)
-        audit_outcome = await _run(
-            "npm audit --json", cwd=app_dir, timeout=INSTALL_TIMEOUT_SECONDS, merge_stderr=False
-        )
-        drafts.extend(parse_npm_audit_json(audit_outcome.output))
+        await notify("checking dependencies for vulnerabilities", 80)
+        audit_drafts, audit_skipped = await _audit_npm(app_dir)
+        drafts.extend(audit_drafts)
+        skipped.extend(audit_skipped)
     else:
         skipped.append("lint: skipped: static-only scan, no supported manifest for this language")
-        skipped.append("audit: skipped: static-only scan, no supported manifest for this language")
+        skipped.append("audit: skipped: no safe metadata-only adapter for this language")
 
     return await _finish_scan(session, app, drafts, None, skipped, notify)
 

@@ -218,14 +218,18 @@ async def run_heal_job_suggest(
         base_branch = "main"
         if is_connected_app:
             assert app is not None
-            push_remote = (
-                f"https://x-access-token:{settings.github_token}@github.com/{app.github_repo}.git"
-            )
+            push_remote = f"https://github.com/{app.github_repo}.git"
             repo_info = await github.get_repo()
             base_branch = str(repo_info.get("default_branch") or "main")
         else:
             push_remote = remote
-        await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+        await commit_and_push(
+            worktree_path,
+            branch,
+            message=commit_msg,
+            remote=push_remote,
+            github_token=settings.github_token if is_connected_app else None,
+        )
 
         evidence = RemoteVerifyEvidence(
             heal_job_id=job_id,

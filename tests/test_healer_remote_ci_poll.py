@@ -208,17 +208,29 @@ async def test_poll_retries_once_on_a_real_ci_failure_and_pushes_a_new_commit(
         real_create = remote_ci_poll.create_worktree_for_connected_app_branch
 
         async def _redirect_create(
-            name: str, br: str, *, source_dir: Path, github_remote_url: str
+            name: str,
+            br: str,
+            *,
+            source_dir: Path,
+            github_remote_url: str,
+            github_token: str | None = None,
         ) -> Path:
-            del github_remote_url
+            del github_remote_url, github_token
             return await real_create(
                 name, br, source_dir=source_dir, github_remote_url=str(bare_remote)
             )
 
         real_push = remote_ci_poll.commit_and_push
 
-        async def _redirect_push(path: Path, br: str, *, message: str, remote: str) -> None:
-            del remote
+        async def _redirect_push(
+            path: Path,
+            br: str,
+            *,
+            message: str,
+            remote: str,
+            github_token: str | None = None,
+        ) -> None:
+            del remote, github_token
             await real_push(path, br, message=message, remote=str(bare_remote))
 
         monkeypatch.setattr(

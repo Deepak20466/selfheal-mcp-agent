@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import os
 import uuid
 from pathlib import Path
 
 import pytest
 
 from healer.worktree import (
+    WorktreeError,
+    _run_git,
     branch_name_for,
     commit_and_push,
     create_worktree,
@@ -50,6 +54,58 @@ async def _git_run(*args: str, cwd: str = str(REPO_ROOT)) -> None:
 
 def test_branch_name_is_short_and_job_scoped() -> None:
     assert branch_name_for("abcdef0123456789fingerprint", 42) == "autofix/abcdef012345-42"
+
+
+async def test_git_credentials_stay_out_of_argv_and_error_messages(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    token = "test-github-token-out-of-argv"
+    encoded = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
+    header = f"AUTHORIZATION: basic {encoded}"
+    captured: dict[str, object] = {}
+
+    class _FailedGit:
+        returncode = 128
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", f"authentication failed {token} {encoded} {header}".encode()
+
+        def kill(self) -> None:
+            raise AssertionError("unexpected timeout")
+
+        async def wait(self) -> int:
+            return self.returncode
+
+    async def fake_create_subprocess_exec(*args: str, **kwargs: object) -> _FailedGit:
+        captured["args"] = args
+        captured["env"] = kwargs["env"]
+        return _FailedGit()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    with pytest.raises(WorktreeError) as exc_info:
+        await _run_git(
+            ["push", "https://github.com/acme/repo.git", "main"],
+            cwd=tmp_path,
+            github_token=token,
+        )
+
+    assert token not in " ".join(captured["args"])
+    env = captured["env"]
+    assert isinstance(env, dict)
+    auth_index = int(env["GIT_CONFIG_COUNT"]) - 1
+    assert env[f"GIT_CONFIG_KEY_{auth_index}"] == "http.https://github.com/.extraheader"
+    assert env[f"GIT_CONFIG_VALUE_{auth_index}"] == header
+    assert env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_CONFIG_VALUE_0"] == ""
+    assert env["GIT_CONFIG_VALUE_1"] == "false"
+    assert env["GIT_CONFIG_VALUE_2"] == os.devnull
+    if os.name == "nt":
+        assert env["GIT_CONFIG_KEY_3"] == "core.autocrlf"
+        assert env["GIT_CONFIG_VALUE_3"] == "true"
+    assert token not in str(exc_info.value)
+    assert encoded not in str(exc_info.value)
+    assert header not in str(exc_info.value)
 
 
 async def _seed_fake_remote_main(remote: str) -> None:
@@ -212,7 +268,14 @@ async def test_commit_and_push_retries_a_timed_out_push_once(
 
     calls: list[tuple[str, float | None]] = []
 
-    async def fake_run_git(args: list[str], *, cwd: Path, timeout_s: float | None = None) -> None:
+    async def fake_run_git(
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout_s: float | None = None,
+        github_token: str | None = None,
+    ) -> None:
+        del cwd, github_token
         calls.append((args[0], timeout_s))
         if args[0] == "push" and sum(1 for c, _ in calls if c == "push") == 1:
             raise worktree.WorktreeError("git push timed out")
@@ -230,7 +293,14 @@ async def test_commit_and_push_gives_up_after_one_retry(
 ) -> None:
     from healer import worktree
 
-    async def always_fail(args: list[str], *, cwd: Path, timeout_s: float | None = None) -> None:
+    async def always_fail(
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout_s: float | None = None,
+        github_token: str | None = None,
+    ) -> None:
+        del cwd, timeout_s, github_token
         if args[0] == "push":
             raise worktree.WorktreeError("git push timed out")
 

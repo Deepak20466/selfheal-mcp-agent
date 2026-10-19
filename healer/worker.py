@@ -66,7 +66,7 @@ from core.scanner import detect_heavy_dependencies
 from healer import backend_chain
 from healer.circuit_breaker import global_hourly_circuit_open
 from healer.findings_actions import SUGGEST_MODE_ACTION
-from healer.mcp_client import MCPToolClient, connect_http
+from healer.mcp_client import MCPToolClient, connect_http_reconnecting
 from healer.remote_verify import run_heal_job_remote_verify
 from healer.suggest_mode import run_heal_job_suggest
 from mcp_server.github_client import GitHubClient, GitHubClientError
@@ -398,7 +398,7 @@ async def run_worker() -> None:
     logger.info("worker.ai_chain", chain=settings.ai_chain_list)
     mcp_url = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
 
-    async with connect_http(mcp_url) as mcp, HealJobListener() as listener:
+    async with connect_http_reconnecting(mcp_url) as mcp, HealJobListener() as listener:
         logger.info("worker.started", mcp_url=mcp_url)
         while True:
             # backend=None -> resolved per job from settings.ai_chain_list

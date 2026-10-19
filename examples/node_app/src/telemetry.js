@@ -5,13 +5,14 @@
 //   SELFHEAL_INGEST_TOKEN  (this app's ingest token from monitored_apps)
 const { NodeSDK } = require("@opentelemetry/sdk-node");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
+const { resourceFromAttributes } = require("@opentelemetry/resources");
 const { SimpleSpanProcessor } = require("@opentelemetry/sdk-trace-base");
 
 const endpoint = process.env.SELFHEAL_OTLP_ENDPOINT || "http://localhost:8002";
 const token = process.env.SELFHEAL_INGEST_TOKEN || "";
 
 const sdk = new NodeSDK({
-  serviceName: "node_app",
+  resource: resourceFromAttributes({ "service.name": "node_app" }),
   // Simple (unbatched) processor: an error span is exported immediately.
   spanProcessors: [
     new SimpleSpanProcessor(

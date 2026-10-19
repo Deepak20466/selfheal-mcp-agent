@@ -64,6 +64,16 @@ mcp:
 healer:
   port: 8000
 
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
 resources:
   requests:
     cpu: 50m

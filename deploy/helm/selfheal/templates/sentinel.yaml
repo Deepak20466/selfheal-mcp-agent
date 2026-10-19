@@ -28,6 +28,8 @@ spec:
             # and reads sentinel's ingest, not the prober loop), but a real
             # gap worth fixing in sentinel/app.py itself in a future change,
             # not routed around here.
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
             requests: {{ toYaml .Values.resources.requests | nindent 14 }}
             limits: {{ toYaml .Values.resources.limits | nindent 14 }}

@@ -5,6 +5,8 @@ GitHub network call (respx mocks the one HTTP call `check_repo_access` makes).
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
@@ -20,6 +22,94 @@ from core.repo_connect import (
     select_subproject,
     slugify_app_name,
 )
+
+
+async def test_clone_errors_never_include_credentialed_remote_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import core.repo_connect as repo_connect_module
+
+    token = "not-a-real-token"
+
+    class _FailedClone:
+        returncode = 128
+
+        async def communicate(self):
+            return b"", (
+                "fatal: Authentication failed for "
+                f"'https://x-access-token:{token}@github.com/acme/private.git'"
+            ).encode()
+
+        def kill(self):
+            raise AssertionError("unexpected timeout")
+
+        async def wait(self):
+            return self.returncode
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return _FailedClone()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    with pytest.raises(RepoConnectError) as exc_info:
+        await repo_connect_module._run_git(
+            ["clone", f"https://x-access-token:{token}@github.com/acme/private.git"],
+            cwd=tmp_path,
+        )
+
+    assert token not in str(exc_info.value)
+
+
+async def test_clone_passes_github_token_outside_git_argv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    import base64
+    import os
+
+    import core.repo_connect as repo_connect_module
+
+    calls: list[tuple[tuple[str, ...], dict[str, str]]] = []
+
+    class _SuccessfulGit:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((args, kwargs["env"]))
+        return _SuccessfulGit()
+
+    monkeypatch.setattr(repo_connect_module, "CONNECTED_APPS_ROOT", tmp_path)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    token = "test-github-token-not-for-argv"
+
+    destination = await repo_connect_module.clone_repo(
+        "acme/private", "private", github_token=token
+    )
+
+    assert destination == tmp_path / "private"
+    assert len(calls) == 2
+    clone_args, clone_env = calls[0]
+    assert token not in " ".join(clone_args)
+    assert clone_args[clone_args.index("--depth") + 2] == "https://github.com/acme/private.git"
+    expected_header = "AUTHORIZATION: basic " + base64.b64encode(
+        f"x-access-token:{token}".encode()
+    ).decode("ascii")
+    auth_index = int(clone_env["GIT_CONFIG_COUNT"]) - 1
+    assert clone_env[f"GIT_CONFIG_KEY_{auth_index}"] == "http.https://github.com/.extraheader"
+    assert clone_env[f"GIT_CONFIG_VALUE_{auth_index}"] == expected_header
+    assert clone_env["GIT_CONFIG_GLOBAL"] == os.devnull
+    assert clone_env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert clone_env["GIT_CONFIG_VALUE_0"] == ""
+    assert clone_env["GIT_CONFIG_KEY_1"] == "core.fsmonitor"
+    assert clone_env["GIT_CONFIG_VALUE_1"] == "false"
+    assert clone_env["GIT_CONFIG_KEY_2"] == "core.hooksPath"
+    assert clone_env["GIT_CONFIG_VALUE_2"] == os.devnull
+    if os.name == "nt":
+        assert clone_env["GIT_CONFIG_KEY_3"] == "core.autocrlf"
+        assert clone_env["GIT_CONFIG_VALUE_3"] == "true"
+    assert f"GIT_CONFIG_VALUE_{auth_index}" not in calls[1][1]
 
 
 @pytest.mark.parametrize(

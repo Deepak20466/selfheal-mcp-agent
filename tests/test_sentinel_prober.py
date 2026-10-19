@@ -1,5 +1,4 @@
-"""The sentinel prober catches the two silent bugs (off-by-one, timezone)
-as contract violations, and confirms the healthy cases still pass.
+"""The sentinel prober detects the remaining off-by-one demo defect.
 
 This branch (PR #10) is the healer's own auto-fix for the timezone bug, so
 the timezone case has moved from "violated" to "passed" here — main's copy
@@ -15,7 +14,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.target_app import seed_data
 from core.models import ContractViolation
 from sentinel.fingerprint import fingerprint_contract_violation
 from sentinel.prober import persist_results, probe_once
@@ -51,12 +49,17 @@ async def test_persist_results_writes_contract_violations(
         pytest.skip("off-by-one demo bug already fixed; nothing to persist")
     await persist_results(db_session, results)
 
-    stmt = select(ContractViolation)
+    # Other integration tests intentionally commit their own violations via
+    # session_scope(), so querying the whole shared test table makes this
+    # assertion depend on test order. Scope it to this probe's fingerprint.
+    fingerprint = fingerprint_contract_violation("/items/top", "top_items_by_rating")
+    stmt = select(ContractViolation).where(ContractViolation.fingerprint == fingerprint)
     violations = (await db_session.execute(stmt)).scalars().all()
     endpoints = {v.endpoint for v in violations}
 
-    assert "/items/top" in endpoints
-    assert f"/orders/{seed_data.TIMEZONE_ORDER_ID}/delivery-estimate" in endpoints
+    # The timezone bug is already repaired on this branch. Persist the
+    # remaining off-by-one violation without expecting the fixed case to fail.
+    assert endpoints == {"/items/top"}
     for violation in violations:
         assert violation.file_path == "apps/target_app/bugs.py"
         assert violation.line_number > 0

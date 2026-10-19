@@ -39,6 +39,104 @@ def _app(local_repo_path: str, name: str = "testapp") -> MonitoredApp:
     )
 
 
+def test_python_audit_pins_reject_unpinned_urls_and_options(tmp_path) -> None:
+    from core.scanner import _python_audit_pins
+
+    (tmp_path / "requirements.txt").write_text(
+        "safe_pkg==1.2.3\nrange_pkg>=2\n-e git+https://example.invalid/pkg\n"
+        "--index-url https://evil.invalid/simple\nurl_pkg @ https://evil.invalid/pkg.whl\n"
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["other_pkg==4.5.6", '
+        "\"marked_pkg==1.0; python_version > '3.9'\"]\n"
+    )
+    assert _python_audit_pins(tmp_path) == ["other_pkg==4.5.6", "safe_pkg==1.2.3"]
+
+
+def test_python_audit_reads_registry_lockfiles_for_transitives(tmp_path) -> None:
+    from core.scanner import _python_audit_pins
+
+    (tmp_path / "uv.lock").write_text(
+        'version = 1\n[[package]]\nname = "direct"\nversion = "1.0.0"\n'
+        '[[package]]\nname = "transitive"\nversion = "2.3.4"\n'
+        '[[package]]\nname = "git-only"\nversion = "0.1.0"\n'
+        'source = { git = "https://example.invalid/repo.git", rev = "abc" }\n'
+    )
+    assert _python_audit_pins(tmp_path) == ["direct==1.0.0", "transitive==2.3.4"]
+
+
+def test_npm_audit_lock_uses_only_exact_manifest_versions(tmp_path) -> None:
+    from core.scanner import _npm_audit_lock
+
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "dependencies": {
+                    "safe": "1.2.3",
+                    "range": "^2.0.0",
+                    "url": "https://evil.invalid/pkg",
+                },
+                "devDependencies": {"dev-safe": "0.4.1"},
+            }
+        )
+    )
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "demo", "version": "1.0.0"},
+                    "node_modules/safe": {
+                        "version": "1.2.3",
+                        "resolved": "https://evil.invalid/tarball",
+                    },
+                    "node_modules/transitive": {
+                        "version": "2.3.4",
+                        "resolved": "https://registry.npmjs.org/transitive.tgz",
+                    },
+                    "node_modules/ranged": {"version": "link:../ranged", "link": True},
+                },
+            }
+        )
+    )
+    lock = _npm_audit_lock(tmp_path)
+    assert lock is not None
+    assert lock["packages"]["node_modules/safe"] == {"name": "safe", "version": "1.2.3"}
+    assert lock["packages"]["node_modules/transitive"] == {"name": "transitive", "version": "2.3.4"}
+    assert "node_modules/ranged" not in lock["packages"]
+    assert all("evil.invalid" not in json.dumps(package) for package in lock["packages"].values())
+
+
+@pytest.mark.asyncio
+async def test_npm_audit_reports_registry_errors_as_skipped(tmp_path, monkeypatch) -> None:
+    from core.scanner import CommandOutcome, _audit_npm
+
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"safe": "1.2.3"}}))
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps({"packages": {"node_modules/safe": {"version": "1.2.3"}}})
+    )
+    monkeypatch.setattr("core.scanner.shutil.which", lambda name: "npm.exe")
+
+    async def registry_error(*args, **kwargs):
+        return CommandOutcome(False, False, '{"error":{"code":"ENOAUDIT"}}')
+
+    monkeypatch.setattr("core.scanner._run_trusted_audit", registry_error)
+    findings, skipped = await _audit_npm(tmp_path)
+    assert findings == []
+    assert skipped == ["audit: skipped: npm audit failed (ENOAUDIT)"]
+
+
+@pytest.mark.asyncio
+async def test_trusted_audit_marks_oversized_json_as_limited(tmp_path, monkeypatch) -> None:
+    from core.scanner import _run_trusted_audit
+
+    monkeypatch.setattr("core.scanner.MAX_AUDIT_OUTPUT_BYTES", 32)
+    outcome = await _run_trusted_audit([sys.executable, "-c", "print('x' * 100)"], cwd=tmp_path)
+    assert outcome.ok is True
+    assert outcome.resource_limited is True
+    assert len(outcome.output) == 32
+
+
 def test_app_dir_rejects_a_path_outside_connected_apps_root() -> None:
     app = _app("apps/target_app")  # inside the repo, but not connected_apps/
     with pytest.raises(ScanError, match="outside connected_apps"):
@@ -66,6 +164,25 @@ def test_app_dir_rejects_a_missing_directory() -> None:
     with pytest.raises(ScanError, match="does not exist"):
         _app_dir(app)
     assert not (CONNECTED_APPS_ROOT / "does-not-exist-app").exists()
+
+
+def test_scanner_tool_setup_uses_private_environment(tmp_path, monkeypatch) -> None:
+    from core.scanner import _scanner_tool_environment
+
+    monkeypatch.setenv("USERPROFILE", "host-user-profile")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-only-value")
+    monkeypatch.setenv("PIP_INDEX_URL", "https://host-index.invalid/simple")
+    root = tmp_path / "trusted-tools"
+    temp = tmp_path / "setup-temp"
+
+    env = _scanner_tool_environment(root, temp)
+
+    assert env["USERPROFILE"] == str(root / ".setup-home")
+    assert env["HOME"] == str(root / ".setup-home")
+    assert env["TEMP"] == str(temp)
+    assert env["PIP_CONFIG_FILE"]
+    assert "AWS_ACCESS_KEY_ID" not in env
+    assert "PIP_INDEX_URL" not in env
 
 
 def test_parse_ruff_json() -> None:
@@ -207,9 +324,8 @@ async def test_run_scan_skips_install_and_tests_for_a_heavy_dependency(
     tmp_path, monkeypatch
 ) -> None:
     """A requirements.txt naming torch must never trigger a real install or
-    test execution -- confirmed here by checking the resulting scanner venv
-    (which IS still created, for ruff/pip-audit) never has torch importable,
-    since the app's own requirements.txt was never installed into it."""
+    test execution -- confirmed here by checking the trusted scanner venv
+    never has torch importable, since app requirements are not installed."""
     import uuid
 
     from core.db import session_scope
@@ -236,21 +352,21 @@ async def test_run_scan_skips_install_and_tests_for_a_heavy_dependency(
         )
         session.add(app)
         await session.flush()
+        monkeypatch.setattr("core.scanner.SCANNER_TOOLS_ROOT", tmp_path / "trusted-scanner-tools")
         summary = await run_scan(session, app)
         app_id = app.id
 
     try:
         assert summary.tests_passed is None
         assert any("heavy dependency" in s for s in summary.skipped_checks)
-        venv_python = (
-            app_dir / ".selfheal_venv" / "Scripts" / "python.exe"
-            if sys.platform == "win32"
-            else app_dir / ".selfheal_venv" / "bin" / "python"
-        )
+        from core.scanner import _scanner_venv_python
+
+        tools_python = _scanner_venv_python()
+        assert app_dir not in tools_python.parents
         import asyncio
 
         process = await asyncio.create_subprocess_exec(
-            str(venv_python),
+            str(tools_python),
             "-m",
             "pip",
             "list",
@@ -265,20 +381,18 @@ async def test_run_scan_skips_install_and_tests_for_a_heavy_dependency(
                 await session.delete(row)
 
 
-async def test_run_scan_isolates_a_real_python_app_in_its_own_venv(tmp_path, monkeypatch) -> None:
-    """Real, un-mocked integration test: creates a fresh per-app venv, installs
-    the scanner's own tools into it, and runs a real pytest/ruff/mypy pass
-    against a tiny fixture project. This is deliberately not just parser unit
-    tests -- it's what actually caught a real bug (pytest itself was missing
-    from `_SCANNER_TOOLS`, so every Python app's test run failed with "No
-    module named pytest" even though its own dependencies installed fine).
+async def test_run_scan_uses_a_trusted_scanner_venv(tmp_path, monkeypatch) -> None:
+    """Real, un-mocked integration test: creates a trusted scanner venv outside
+    the connected repository, mounts it read-only, and runs a real
+    pytest/ruff/mypy pass against a tiny fixture project. This is deliberately
+    not just parser unit tests: it exercises venv creation and sandbox access.
     Slow (creates a real venv + installs 4 packages, ~60-120s) but worth it:
     mocking the subprocess calls would never have caught that bug.
     """
     import uuid
 
     from core.db import session_scope
-    from core.scanner import run_scan
+    from core.scanner import _scanner_venv_python, run_scan
 
     # A real, committed row (session_scope(), not the rollback-wrapped
     # db_session fixture) in the shared test DB -- name and ingest_token are
@@ -298,6 +412,7 @@ async def test_run_scan_isolates_a_real_python_app_in_its_own_venv(tmp_path, mon
 
     monkeypatch.setattr("core.scanner.CONNECTED_APPS_ROOT", tmp_path)
     monkeypatch.setattr("core.scanner.REPO_ROOT", tmp_path.parent)
+    monkeypatch.setattr("core.scanner.SCANNER_TOOLS_ROOT", tmp_path / "trusted-scanner-tools")
 
     async with session_scope() as session:
         app = MonitoredApp(
@@ -317,12 +432,9 @@ async def test_run_scan_isolates_a_real_python_app_in_its_own_venv(tmp_path, mon
 
     try:
         assert summary.tests_passed is True
-        venv_python = (
-            app_dir / ".selfheal_venv" / "Scripts" / "python.exe"
-            if sys.platform == "win32"
-            else app_dir / ".selfheal_venv" / "bin" / "python"
-        )
-        assert venv_python.exists()
+        tools_python = _scanner_venv_python()
+        assert tools_python.is_file()
+        assert app_dir not in tools_python.parents
     finally:
         async with session_scope() as session:
             row = await session.get(MonitoredApp, app_id)

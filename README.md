@@ -4,7 +4,43 @@ Python · FastAPI · PostgreSQL · MCP · Docker · Kubernetes-tested CI · GitH
 
 [![k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml)
 
+## Validation snapshot — 2026-10-19
+
+This is a terminal-first engineering project, not a production certification.
+The latest real 20-scenario Codex benchmark verified 20/20 repairs, up from
+8/20 (+12 repairs, +60 percentage points); one scenario needed a regression
+retry. The fresh disposable-PostgreSQL suite passed 633 tests, with 3
+platform or already-fixed-demo skips and 3 CLI prompt warnings. A fresh
+`.[dev]` environment passed `pip-audit --local`; the existing global Python environment still has
+advisories. The full evidence is in
+[`VERIFICATION.md`](VERIFICATION.md). Ruff, formatting, mypy, npm tests inside
+Windows AppContainer, npm audit, Actionlint, Hadolint, Helm lint/render, the
+Render schema check, and an MCP initialize/tools-list handshake passed.
+The project dependency resolution is clean, though the active global Python
+environment still contains stale vulnerable packages. Gitleaks found no
+history leaks; its working-tree scan reported two redacted matches in test
+bytecode.
+
+The feature branch is published without a pull request, merge, or deployment.
+Claude Code was installed but unauthenticated; Gemini CLI was unavailable. Linux Bubblewrap
+was not exercised. Provider CLI and host-side Git subprocesses remain outside
+the project's AppContainer.
+See [`VERIFICATION.md`](VERIFICATION.md),
+[`docs/architecture.md`](docs/architecture.md), and
+[`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md) for measured results and
+remaining limits.
+
 ## Highlights
+
+### Engineering evidence
+
+| AI Engineer | Python Developer | DevOps Engineer |
+|---|---|---|
+| MCP tool-connected repair agents with scoped tools, structured provider output parsing, and a measured 20-scenario Codex benchmark (20/20 verified on this fixture set). | Async FastAPI and SQLAlchemy services on PostgreSQL, resilient worker/MCP connections, and a 633-pass PostgreSQL-backed test suite. Ruff and mypy checks are included. | Least-privilege GitHub Actions, credential-filtered Git subprocesses, Windows AppContainer verification, and Docker/Helm configuration validated by CI and static checks. Kubernetes execution is covered by the repository's CI workflow. |
+
+These results describe this repository's tested paths and fixture benchmark.
+The audit records unverified providers, Linux sandbox limits, and deployment
+boundaries in [`VERIFICATION.md`](VERIFICATION.md).
 
 - **Docker** — containerized: multi-stage, non-root images for all 4 pods
   ([`deploy/docker/`](deploy/docker/)).
@@ -222,13 +258,13 @@ one of **seven** interchangeable backends, selected by `AI_BACKEND` in `.env`:
 
 | `AI_BACKEND` | Module | Auth | Status |
 |---|---|---|---|
-| `claude_cli` (default) | `healer/agent_free.py` | local Claude Code CLI, your Claude subscription login | **live-verified** (real PRs — see below) |
-| `codex_cli` | `healer/agent_codex.py` | local OpenAI Codex CLI, your ChatGPT/API login | **documented-only, untested live** — see caveat below |
-| `gemini_cli` | `healer/agent_gemini.py` | local Google Gemini CLI, your Google account login | **documented-only, untested live** — see caveat below |
-| `api` | `healer/runtime_agent.py` + `healer/ci_agent.py` | `ANTHROPIC_API_KEY`, official `anthropic` SDK | tested (mocked), no real end-to-end PR yet — see CLAUDE.md Phase 4 |
-| `groq_api` | `healer/api_adapters.py` (`GroqClient`) | `GROQ_API_KEY`, free tier | **live-verified** (real HTTP tool-calling round trip — see below) |
-| `openrouter_api` | `healer/api_adapters.py` (`OpenRouterClient`) | `ANTHROPIC_API_KEY` (reused — see below), OpenRouter free tier | **live-verified** (real HTTP tool-calling round trip — see below) |
-| `gemini_api` | `healer/api_adapters.py` (`GeminiApiClient`) | `GEMINI_API_KEY`, free tier | **blocked** — every real key tried has failed live with a Google-side error; kept in the code, not in this project's own default chains — see caveat below |
+| `claude_cli` (default) | `healer/agent_free.py` | local Claude Code CLI, your Claude subscription login | Historical real PRs; **SKIPPED in the 2026-10-19 audit** because CLI was unauthenticated |
+| `codex_cli` | `healer/agent_codex.py` | local OpenAI Codex CLI, your ChatGPT/API login | Live 20-scenario benchmark: 20/20 diagnosis labels and repairs; see [benchmark](docs/benchmark.md) |
+| `gemini_cli` | `healer/agent_gemini.py` | local Google Gemini CLI, your Google account login | **SKIPPED** in the 2026-10-19 audit; executable unavailable |
+| `api` | `healer/runtime_agent.py` + `healer/ci_agent.py` | `ANTHROPIC_API_KEY`, official `anthropic` SDK | Mock-tested; no live call in this audit |
+| `groq_api` | `healer/api_adapters.py` (`GroqClient`) | `GROQ_API_KEY`, free tier | Historical live HTTP round trip; not rerun in this audit |
+| `openrouter_api` | `healer/api_adapters.py` (`OpenRouterClient`) | `ANTHROPIC_API_KEY` (reused — see below), OpenRouter free tier | Historical live HTTP round trip; not rerun in this audit |
+| `gemini_api` | `healer/api_adapters.py` (`GeminiApiClient`) | `GEMINI_API_KEY`, free tier | Earlier live attempts failed; not revalidated in this audit |
 
 ### AI fallback chains (`AI_CHAIN`/`CHAT_CHAIN`)
 
@@ -256,15 +292,14 @@ OpenRouter key at https://openrouter.ai/keys. `openrouter_api` deliberately
 reuses `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` (rather than adding new
 `OPENROUTER_*` settings) since OpenRouter accepts the same kind of bearer
 key there; set `ANTHROPIC_MODEL` to a real, free, tool-calling-capable
-OpenRouter model slug — `openrouter/free` (OpenRouter's own free-tier
-auto-router) is confirmed live-verified: it declares `tools`/`tool_choice`
-support in `GET https://openrouter.ai/api/v1/models` and a real
-tool-calling round trip against it returned a genuine `tool_calls`
-response. Query that endpoint live before picking a different model —
-don't guess a slug from training data (see CLAUDE.md's Phase 4 log for why
-this matters: free-tier slugs drift and get deprecated constantly).
+OpenRouter model slug. In an earlier live check, `openrouter/free` declared
+`tools`/`tool_choice` support and returned a real tool-calling response. That
+check was not repeated during the 2026-10-19 audit; query OpenRouter's model
+endpoint before choosing a current slug.
 
-`gemini_api` is **blocked**, not merely unverified: get a free key at
+### Historical live API checks (not rerun during the 2026-10-19 audit)
+
+Earlier attempts found `gemini_api` **blocked**: get a free key at
 https://aistudio.google.com/apikey if you want to retry it yourself. Since
 2026-05-28 AI Studio issues "auth keys" starting with `AQ.` (the legacy
 `AIzaSy...` format is being phased out); both are sent as the
@@ -286,9 +321,10 @@ key itself and confirm the Generative Language API is enabled for that
 project. Because neither key format has worked, `gemini_api` is left out
 of this project's own default `AI_CHAIN`/`CHAT_CHAIN`.
 
-`groq_api` and `openrouter_api` both remain **live-verified** —
-`scripts/check_ai_backends.py` returns a real `'pong'` HTTP response for
-each every time it's been tried.
+Earlier sessions got a real `'pong'` response from `groq_api` and
+`openrouter_api` using `scripts/check_ai_backends.py`. Those live calls were
+not repeated in this audit; their current credentials and provider behavior
+remain unverified here.
 
 ### Privacy guard: secret scrubbing for AI backend payloads
 
@@ -361,9 +397,11 @@ principle.
 running a CLI unattended, continuously, on a server is a different usage
 pattern than interactive use, and should be checked against the relevant
 provider's terms before running that way in production for real. **API
-mode is the intended production option** for a server that runs
+mode is the intended option** for a server that runs
 autonomously; the CLI backends are meant for local development and demos
-where a human is around.
+where a human is around. This project is not ready for unattended production
+repair: see the measured repair rate and isolation limits in
+[`VERIFICATION.md`](VERIFICATION.md).
 
 ## Terminal CLI
 
@@ -497,8 +535,16 @@ Equivalent to `selfheal up`, for reference or debugging a single pod:
 
 pytest always points at a throwaway `selfheal_test` database and mocks the
 Anthropic API, every CLI backend's subprocess (Claude Code/Codex/Gemini),
-and GitHub — see CLAUDE.md for details. **358 tests, typically 357-358
-passing** as of the last commit — the occasional single failure is a known,
+and GitHub — see CLAUDE.md for details. The 2026-10-19 audit ran 105 focused
+database-free tests in an earlier focused run; the final audit also ran the
+full suite against a disposable PostgreSQL 16.2 instance without Docker.
+See `VERIFICATION.md` for the exact final count, disposable PostgreSQL
+instructions, and platform-specific skips. The suite helper requires the
+isolated `pgserver` package; CI also runs Python/Node
+dependency audits and validates the independent FastAPI fixture benchmark.
+**The 358-test count below
+is historical, from the 2026-09-29 full-suite run.** It typically had 357-358
+passing — the occasional single failure was a known,
 pre-existing Windows-only flake in the Windows `ProactorEventLoop`'s
 connection teardown under pytest-asyncio's session-scoped loop (shows up as
 `RuntimeError: Event loop is closed` during a test's own DB-connection
@@ -1051,4 +1097,17 @@ directory; it was removed entirely in terminal-only v1.0 Step 1 (see
 
 ## Benchmark
 
-**Clean benchmark: in progress. See [docs/benchmark.md](docs/benchmark.md).** The full write-up of the first run (0/2, with root causes: pinned demo tests and a `git push` timeout, both fixed since) is there. The all-time and AI-attempted success rates reported by `selfheal metrics` are unaffected.
+Run the independent FastAPI fixture validator and evaluate the recorded live
+20-scenario Codex benchmark:
+
+```powershell
+python scripts/benchmark_fastapi.py validate
+python scripts/benchmark_fastapi.py evaluate benchmarks/results/codex-full-2026-10-19-run5.json
+```
+
+The fixture validator confirms all 20 intentional failures fail before the
+reference repair and pass afterward. In the live run, all 20 diagnosis labels
+matched and all 20 generated repairs passed patch and regression gates. This
+fixed fixture result does not establish unattended reliability for arbitrary
+repositories. The detailed outcomes, token counts, timings, limitations, and
+older historical benchmark are in [`docs/benchmark.md`](docs/benchmark.md).

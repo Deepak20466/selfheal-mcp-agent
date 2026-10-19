@@ -48,6 +48,8 @@ import os
 import subprocess
 import sys
 
+from core.process_env import sanitized_subprocess_env
+
 logger_name = __name__
 
 
@@ -119,7 +121,13 @@ def windows_shim_command(resolved: str, rest_args: list[str]) -> str:
     return f'cmd.exe /d /s /c "{inner}"'
 
 
-def strip_env_vars(extra_stripped: frozenset[str]) -> dict[str, str]:
-    """`os.environ` with `extra_stripped` (case-insensitive) removed."""
+def strip_env_vars(
+    extra_stripped: frozenset[str], *, allow_secret_names: frozenset[str] = frozenset()
+) -> dict[str, str]:
+    """Sanitized process env, additionally omitting named backend variables."""
     stripped_upper = {name.upper() for name in extra_stripped}
-    return {key: value for key, value in os.environ.items() if key.upper() not in stripped_upper}
+    return {
+        key: value
+        for key, value in sanitized_subprocess_env(allow_secret_names=allow_secret_names).items()
+        if key.upper() not in stripped_upper
+    }

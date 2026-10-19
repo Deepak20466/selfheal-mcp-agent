@@ -13,6 +13,9 @@ on:
         required: true
         default: "production"
 
+permissions:
+  contents: read
+
 jobs:
   rollback:
     runs-on: ubuntu-latest

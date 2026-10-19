@@ -230,12 +230,13 @@ async def _retry_one(job_id: int) -> None:
         log_excerpt = await _failing_log_excerpt(github, sha)
 
         worktree_name = f"heal-{job_id}-retry-{attempt_count + 1}"
-        push_remote = f"https://x-access-token:{settings.github_token}@github.com/{github_repo}.git"
+        push_remote = f"https://github.com/{github_repo}.git"
         worktree_path = await create_worktree_for_connected_app_branch(
             worktree_name,
             branch,
             source_dir=REPO_ROOT / "connected_apps" / app_name,
             github_remote_url=push_remote,
+            github_token=settings.github_token,
         )
         try:
             prompt = (
@@ -291,7 +292,13 @@ async def _retry_one(job_id: int) -> None:
                 f"Auto-fix retry (CI-verified): PR #{pr_number} CI failure\n\n"
                 f"heal_job #{job_id}, fingerprint {fingerprint}"
             )
-            await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+            await commit_and_push(
+                worktree_path,
+                branch,
+                message=commit_msg,
+                remote=push_remote,
+                github_token=settings.github_token,
+            )
 
             async with session_scope() as session:
                 row = await session.get(HealJob, job_id)

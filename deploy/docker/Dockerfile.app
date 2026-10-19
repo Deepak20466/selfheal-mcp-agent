@@ -23,11 +23,14 @@ COPY mcp_server ./mcp_server
 COPY healer ./healer
 COPY cli ./cli
 COPY scripts ./scripts
+# The package's runtime/development dependencies are bounded in pyproject.toml.
+# The base pip is upgraded so image builds receive current installer fixes.
+# hadolint ignore=DL3013
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
 FROM python:3.11-slim AS runtime
 
-RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
+RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home --home-dir /home/app --shell /usr/sbin/nologin app
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --from=builder /build /app
@@ -36,9 +39,11 @@ RUN chown -R app:app /app /home/app
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
-USER app
+USER 10001:10001
 EXPOSE 8001
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-    CMD python /app/http_healthcheck.py APP_PORT 8001
+    CMD ["python", "/app/http_healthcheck.py", "APP_PORT", "8001"]
 
+# Shell expansion preserves runtime port overrides.
+# hadolint ignore=DL3025
 CMD ["sh", "-c", "uvicorn apps.target_app.main:app --host 0.0.0.0 --port ${APP_PORT:-8001}"]

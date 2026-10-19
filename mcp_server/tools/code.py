@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import session_scope
+from core.git_env import git_subprocess_env
 from core.models import HealJob, HealJobType, MonitoredApp
 from mcp_server import git_utils
 from mcp_server.audit import audited_tool
@@ -33,6 +34,8 @@ from mcp_server.sandbox import (
     to_repo_relative,
 )
 from mcp_server.tools._exceptions import ToolError
+
+GIT_SEARCH_TIMEOUT_SECONDS = 30.0
 
 _NOISE_DIR_PREFIXES = (
     ".git/",
@@ -103,18 +106,39 @@ async def read_file(
 @audited_tool(mcp, "search_code")
 async def search_code(pattern: str, max_results: int = 100) -> list[dict[str, Any]]:
     """Regex search across tracked files (`git grep -nIE`), never matches gitignored files."""
+    if not isinstance(pattern, str) or len(pattern) > 4096 or "\x00" in pattern:
+        raise ToolError("pattern must be text of at most 4096 characters")
+    if (
+        isinstance(max_results, bool)
+        or not isinstance(max_results, int)
+        or not 1 <= max_results <= 1000
+    ):
+        raise ToolError("max_results must be an integer between 1 and 1000")
+
+    env, _ = git_subprocess_env()
     process = await asyncio.create_subprocess_exec(
         "git",
         "grep",
         "-nIE",
         "--max-count",
         str(max_results),
+        "-e",
         pattern,
+        "--",
         cwd=str(REPO_ROOT),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await process.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(), timeout=GIT_SEARCH_TIMEOUT_SECONDS
+        )
+    except TimeoutError as exc:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise ToolError(f"search_code timed out after {GIT_SEARCH_TIMEOUT_SECONDS:g}s") from exc
 
     if process.returncode == 1:  # git grep: no matches
         return []

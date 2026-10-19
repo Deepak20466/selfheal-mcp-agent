@@ -1,81 +1,156 @@
-# Verification
+# Verification report
 
-Run by `scripts/verify_all.py` against the live local system (4 pods running,
-real Postgres, real GitHub), the full pytest suite, and CI on `main` (green).
-No real AI heal runs were made: the healer was started with
-`AI_BACKEND=api ANTHROPIC_API_KEY=invalid ANTHROPIC_BASE_URL=http://127.0.0.1:9`
-so any seeded-bug job that got claimed would fail closed instead of spending
-real AI budget or opening an unwanted PR.
+**Current audit:** 2026-10-19
+**Workspace:** `selfheal-mcp-agent` on Windows 11 / Python 3.11.9
+**Database:** disposable local PostgreSQL 16.2, loopback only
+**Publication:** feature branch only; no PR, merge, deployment, or workflow dispatch
 
-**Terminal-only v1.0 (Steps 1-7) pass — 2026-09-29**: no browser, no web UI
-anywhere in this repo (removed in Step 1). Every check below either talks to
-the JSON/Socket.io API directly (`httpx`), calls MCP tools over the real
-`mcp` protocol, or shells out to the actual `selfheal` CLI entry point
-(`python -m cli.main ...`) — nothing here drives a browser.
+The dated 2026-09-29 live-system report is preserved in
+[`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
+It is historical evidence and is superseded by this report for the current
+workspace status.
 
-Last run: 2026-09-29, local pods only (no public tunnel / admin password, so
-the tunnel-and-login-gated checks below are SKIPPED, not FAILED) —
-**68 PASS, 1 FAIL (RAM budget, known, see below), 18 SKIPPED**.
+## Result matrix
 
-## ✅ Works (verified live)
+| Check | Status | Result |
+|---|---|---|
+| Ruff lint | PASS | `python -m ruff check .` |
+| Ruff formatting | PASS | `python -m ruff format --check .`; 217 files already formatted |
+| Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
+| Full pytest suite | PASS | Fresh disposable PostgreSQL 16.2 cluster: 633 passed, 3 skipped, 3 warnings in 657.22 seconds |
+| Post-suite PostgreSQL smoke | PASS | After setting Alembic `path_separator = os`, the database helper ran migrations and 3 focused tests passed with no startup deprecation warning. |
+| PostgreSQL migrations and integration | PASS | Fresh PostgreSQL 16.2 cluster; migrations 0001–0007 applied, demo seed completed, separate `selfheal_app` and `selfheal_test` databases |
+| Pytest skips | SKIPPED | Linux Bubblewrap integration and venv-only Windows sandbox integration are unavailable in this base-Python Windows run; one capture case skips because its seeded bug is already fixed |
+| Pytest warnings | WARN | Three `getpass` terminal echo warnings from mocked CLI login tests; no assertion failures |
+| Python dependency audit | PASS in fresh venv; WARN in global interpreter | Fresh venv installed with `.[dev]`; `pip-audit --local` found no known vulnerabilities. The active global interpreter audit found 91 advisory entries across 8 installed packages and was not upgraded. |
+| Node example tests | PASS | `npm test` passed 2/2 inside Windows AppContainer; tests use in-process handlers and no sockets |
+| npm audit | PASS | 0 known vulnerabilities |
+| Actionlint | PASS | Temporary checksum-verified actionlint 1.7.12 checked all workflow YAML; workflows were not dispatched |
+| Hadolint | PASS | Temporary checksum-verified Hadolint 2.15.1 checked all four Dockerfiles |
+| Helm | PASS (static) | Temporary Helm 4.3.1 strict chart lint; render produced 14 objects and rendered YAML parsed |
+| Render Blueprint | PASS (schema) | Official Render JSON Schema validation passed; Render CLI unavailable and no service created |
+| MCP stdio protocol | PASS | Initialize/list-tools handshake; protocol 2025-11-25 and 20 tools |
+| Windows sandbox boundaries | PASS | AppContainer/Job Object tests blocked outside filesystem access, loopback, inherited secrets, common credential files, and `.git`; tested process limits, timeout cleanup, and read-only trusted runtime access |
+| Provider CLI OS isolation | WARN / unverified | Codex used its own read-only mode; provider CLI processes were not inside the project's AppContainer, and their filesystem-read boundary and prompt-injection behavior were not independently verified |
+| Host-side Git operations | WARN / limited | Fixed direct-argv Git operations now have timeouts and filtered environments, but are not AppContainer-isolated; clone/push remain explicit network-bearing control-plane operations |
+| Linux sandbox | SKIPPED | Bubblewrap path is implemented but not exercised on this Windows host |
+| Node runtime in sandbox | PASS (limited) | `node -e` ran inside AppContainer |
+| npm in Windows sandbox | PASS (limited) | Node and npm were staged in the workspace; `npm test` passed 2 tests. Node `--test` worker mode timed out, so the example script runs its `node:test` file directly. |
+| Gitleaks current workspace | WARN | Two redacted matches in generated test bytecode; no suppression was added. |
+| Gitleaks history | PASS | 108 commits scanned; no leaks found |
+| Benchmark fixture | PASS | All 20 broken baseline tests failed; all 20 passed after applying the separate reference patch |
+| Live Codex AI benchmark | PASS (fixture scope) | 20/20 diagnoses and 20/20 final repairs passed; S20 used one regression retry. This fixed benchmark does not demonstrate arbitrary-repository reliability. |
+| Concurrent worker claim | PASS (targeted) | Two PostgreSQL sessions verified a second worker skips the job row locked by the first; no high-volume concurrency stress was run. |
+| GitHub API rate-limit response | PASS (mocked; limited) | Mocked 403/429 PR writes surfaced without replaying the mutating request. GitHub Retry-After backoff and queued recovery are not implemented. |
+| Claude Code CLI | SKIPPED | CLI present, but authentication status reported `loggedIn: false` |
+| Gemini CLI | SKIPPED | `gemini` executable unavailable |
+| Live API providers | SKIPPED | No API provider credentials used; mocked adapter tests ran in pytest |
+| GitHub automation | PASS (mock/local; limited) | Mocked and local-bare-repository coverage for failure detection, investigation, patch generation, regression gates, duplicate prevention, retries, and rollback. GitHub 403/429 errors are surfaced without replay; Retry-After recovery and high-volume concurrent job stress remain unverified. |
+| Live GitHub PR | SKIPPED | No PR was created; this publication uses a feature branch only |
+| Docker build | SKIPPED | Docker was not installed and was not installed for this audit |
+| Kubernetes / cloud deployment | SKIPPED | No cluster, VM, or Render service used; static validation only |
 
-| What | Evidence |
-|---|---|
-| All 4 pods start and answer health checks | app, sentinel, healer `/healthz` 200; MCP pod reachable |
-| `selfheal` CLI: entry point runs, `status --json` sees all 4 pods up | `python -m cli.main status --json` |
-| 7 seeded bugs trigger; errors stored with the right file and line | e.g. `zero` -> `bugs.py:32` |
-| Silent bugs (off-by-one, timezone) caught by the contract prober | 1 violation flagged this run |
-| Heal jobs get queued for triggered bugs; circuit breaker state readable | 20 recent jobs |
-| 13 read-only MCP tools respond against real data; `run_tests` runs in a real worktree | verify_all |
-| Write outside an app's allowed scope rejected by `propose_patch` | verify_all |
-| `AI_BACKEND`/`AI_CHAIN` backend selection: `claude_cli`, `codex_cli`, `gemini_cli`, `api`, `gemini_api`, `groq_api`, `openrouter_api` all pick the right runner; a bad value fails at startup | fresh process per value (selection only, no CLI/HTTP call made) |
-| `groq_api` backend: real HTTP tool-calling round trip | `scripts/check_ai_backends.py` — `PASS`, real response `'pong'` |
-| `openrouter_api` backend: real HTTP tool-calling round trip (`openrouter/free`) | `scripts/check_ai_backends.py` — `PASS`, real response `'pong'`; a separate direct call with a tool definition returned a genuine `tool_calls` response |
-| Daily budget cap pauses the healer | $999 spend vs $2 cap -> paused |
-| Local deploy, then forced-failure rollback (marker flips back) | `local_deploy.py` |
-| CI green on `main` | latest `ci.yml` run: success |
-| One real AI-produced fix PR (runtime/silent bug) | PR #10 (free mode, Claude Code CLI) |
-| One real AI CI-fix on a PR, end to end | PR #14 |
-| Remote-verification mode (`run_heal_job_remote_verify`), run live for the first time, against a real connected heavy-dependency repo | Ran twice (job 373, job 374) against `multi-agent-workspace`: routing, the real Claude CLI call, and the real GitHub call all worked; the AI itself didn't converge on a working diff within its turn budget, and surfaced a real crash bug in `healer/worker.py` (fixed — see CLAUDE.md 2026-09-29) confirmed fixed by the second live run failing the job cleanly instead of killing the worker |
-| Real-world bug fix (not planted) on a connected external repo | [multi-agent-workspace PR #1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) — `cryptography>=49.0.0`, 3 real CVEs; target repo's own CI failed at an unrelated pre-existing step (`ModuleNotFoundError: No module named 'psycopg'`), not this diff — see README's "Proof: a real-world bug fix" section |
-| No Docker files in the repo | scan |
-| Packaging: `python -m build` produces a valid wheel + sdist (v1.0.0) | `ai_self_healing-1.0.0-{py3-none-any.whl,tar.gz}`; wheel installs and runs standalone in a throwaway venv (see CLAUDE.md Step 6) |
-| OTLP ingest: token required (401 without), JSON and gzipped protobuf accepted, error stored against the right app | verify_all |
-| **Node (Express) example**: seeded `TypeError` captured over OpenTelemetry at `examples/node_app/src/users.js:15`; scan flags the failing test | `scripts/demo_examples.py` (run by verify_all) |
-| **Go example**: seeded divide-by-zero panic captured over OpenTelemetry at `examples/go_app/calc.go:12`; scan flags the failing test, `govulncheck` reported as skipped (not installed) | same |
-| Per-language stack-trace parsers, scanner detection, patch-guard test-skip rejection, onboarding file per language | verify_all + pytest |
-| Privacy guard: MCP tool RESULTS are scrubbed before reaching any AI backend, not just logged args | Real (unmocked) test against the live `audited_tool` wrapper: `tests/test_mcp_audit.py::test_audited_tool_scrubs_the_returned_result_not_just_logged_args`; not re-proven by verify_all since no live tool call in this system naturally echoes a secret back to contrive a fresh live case (see CLAUDE.md Step 5) |
-## ⚠️ Built but not verified live
+## PostgreSQL test reproduction
 
-| What | Why |
-|---|---|
-| GitHub Copilot Chat (Agent mode, VS Code) against mcp-pod | `.vscode/mcp.json` is written to the documented VS Code MCP schema and validated as JSON, but a real Copilot Chat session has not yet been run against it |
-| Codex CLI and Gemini CLI backends: running a fix | Neither CLI is installed here; built from public docs, mocked tests only. Only backend *selection* was verified |
-| `api` (Anthropic SDK) backend: real PR | Mocked Anthropic client only; no API key/billing used |
-| `gemini_api` backend: running a fix, or even the tiny live probe — **now BLOCKED, not just unverified, and removed from this project's own default AI_CHAIN/CHAT_CHAIN** | First key tried was `AQ.`-format; `scripts/check_ai_backends.py` got `401 ACCESS_TOKEN_TYPE_UNSUPPORTED` even via the correct `x-goog-api-key` header — matches several reports on Google's own AI Developer Forum of the same failure for `AQ.`-format keys specifically. A follow-up `AIzaSy`-format key instead got `400 API_KEY_INVALID` on the plainest possible call (`GET /v1beta/models`) — a key-specific problem (wrong project / API not enabled / bad copy), not the `AQ.` bug. Neither key has worked yet; not a code bug in either case — see CLAUDE.md Step 5 and its 2026-09-29 follow-ups |
-| Login, `/api/prs`, `/api/backends`, per-app `auto_merge` PATCH, chat, metrics, `/api/apps` through the real API | Needs the admin password (only a hash exists) and a public tunnel; both absent this run. Covered by pytest, and by an earlier session's real Cloudflare-tunnel pass (see below) |
-| Signed CI webhook over the public internet | Tunnel not running this pass. Verified earlier through a Cloudflare tunnel; covered by pytest now |
-| Fresh CI-fix run | Costs AI usage; PR #14 is the earlier real run |
-| Rollback/cancel/rerun MCP tools against real GitHub | Destructive; mocked tests only |
-| Prompt-injection resistance | Mocked test only, not a live model |
-| Cloud VM deploy (`provision_vm.sh`, systemd, Caddy, `deploy.yml`) | No VM available; only the local equivalent ran |
-| Connected-repo "Fix" PR and onboarding PR | Only the enqueue step was run live in an earlier session; no real fix PR on an external repo |
-| Scheduled health-check workflow | Needs a public URL; skips cleanly without one |
-| `selfheal prepare`/`--onboard`/`--suggest`/`selfheal audit` (monorepo support, "make repo fixable") | Unit- and integration-tested (mocked AI/GitHub, real git worktrees/`git apply`/`run_tests` round trip) -- see the pending live demo run against a real connected repo for real-world confirmation |
-| Remote-verify PR CI polling + retry (`healer/remote_ci_poll.py`) | Mocked-tests only (respx for GitHub, a scripted fake CLI response applying a real `git apply`+push to a throwaway local bare repo, same pattern as `test_healer_remote_verify.py`) -- never run against a real connected repo's real GitHub Actions failure; needs a real connected repo with heavy dependencies and a real CI failure on its PR to verify live |
+The helper installs PostgreSQL tooling outside the project and creates a new
+loopback-only database cluster under the operating system temp directory for
+each run. On PowerShell, install the helper into a temporary target and run:
 
-## ❌ Not built
+```powershell
+$auditVenv = Join-Path $env:TEMP "selfheal-audit-venv"
+python -m venv $auditVenv
+& "$auditVenv\Scripts\python.exe" -m pip install -e ".[dev]"
+& "$auditVenv\Scripts\python.exe" -m pip install --target "$env:TEMP\selfheal-pgserver-audit" pgserver==0.1.4
+$env:PYTHONPATH = "$env:TEMP\selfheal-pgserver-audit;$env:PYTHONPATH"
+& "$auditVenv\Scripts\python.exe" scripts/test_with_ephemeral_postgres.py
+```
 
-| What | Note |
-|---|---|
-| Live capture/scan for Java, C#, PHP, Ruby | Parsers, scanner detection and anti-cheat are unit-tested only; no example app or toolchain run for these (see the README support table) |
-| CI-fix for connected external repos | Runtime-fix only |
-| Idle RAM under 300 MB | Not met: 535.8 MB measured on Windows this run; documented Windows-vs-Linux gap (see README), not measured on Linux |
-| Real PyPI publish | `release.yml` builds + attaches a GitHub Release on every `v*` tag; the actual `pypi-publish` job is gated on a `PYPI_API_TOKEN` repo secret nobody has configured yet, so it has never run for real |
+The helper creates a random SCRAM password and a fresh `selfheal_test`
+database in its temporary cluster, runs the ordinary pytest suite, then stops
+the server and removes that run's temp directory. It does not require Docker or a
+developer PostgreSQL service.
 
-## Notes from earlier sessions (still accurate)
+The final run reported:
 
-- Headed Chrome via Playwright sometimes crashed the renderer tab during the old web-UI era's testing — moot now that the web UI is gone entirely (terminal-only v1.0, Step 1).
-- Known gap (not fixed): healer-pod opens its MCP connection once at startup and never reconnects, so restarting mcp-pod makes the CLI/chat return errors until healer-pod is restarted.
-- This machine has a broken 32-bit Git (`C:\Program Files (x86)\Git`, "BUG (fork bomb)") first on PowerShell's PATH; pods started from PowerShell inherit it and the git-based MCP tools fail until a working Git is first on PATH.
-- Earlier, with a real Cloudflare tunnel and a real admin password: 69 PASS, 1 FAIL, 9 SKIPPED, and every login/dashboard/chat/rollback-confirmation/metrics/apps/sign-out check passed through the browser API (pre-dates the web UI's removal; the underlying `/api/*` routes are unchanged).
+```text
+633 passed, 3 skipped, 3 warnings in 657.22s
+Disposable PostgreSQL: PostgreSQL 16.2
+```
+
+Migrations 0001 through 0007 and deterministic demo seeding completed before
+pytest started. The skips are the Linux-only Bubblewrap test, the Windows
+integration requiring a virtual-environment Python interpreter, and a
+capture demo whose seeded bug is already fixed. The warning summary consists of
+three terminal echo warnings from tests exercising CLI login prompts. The
+fresh environment's `pip-audit --local` reported no known vulnerabilities;
+the unpublished local project itself is not available from PyPI for advisory
+matching.
+
+An earlier retained directory,
+`C:\Users\K Deepak\AppData\Local\Temp\selfheal-pytest-postgres-ezjyprr3`,
+contained a stale `postmaster.pid`; its recorded process was not running and
+the recorded port was not listening. I left it untouched. The successful
+fresh runs used unique temp directories and cleaned them up normally.
+
+## Benchmark evidence
+
+See [`docs/benchmark.md`](docs/benchmark.md) for the complete scenario table
+and reproduction commands. Raw results are in
+[`benchmarks/results/codex-full-2026-10-19-run5.json`](benchmarks/results/codex-full-2026-10-19-run5.json).
+
+- 20 of 20 diagnosis labels matched.
+- 20 of 20 final model-generated repairs passed both patch-scope and
+  regression checks, an improvement of 12 repairs (+60 percentage points)
+  from the previous 8/20 result.
+- S20 used one regression retry, for 21 model generations total.
+- Average end-to-end attempt time was 15.8649 seconds.
+- CLI-reported token counts: 336,069 input, 12,544 cached input, 6,090 output.
+- Dollar cost was not reported by the CLI; it is unknown, not zero.
+- No scenario was skipped and no manual intervention occurred.
+
+The model did not see or apply the reference solution. All attempts ran against
+disposable copies. The final benchmark completed with exit code 0. Its result
+is limited to this fixed fixture set.
+
+## Isolation and deployment limits
+
+Windows untrusted-command execution uses an AppContainer without network
+capabilities and a Job Object. Commands run with a filtered environment,
+workspace snapshot, resource limits, and no unrestricted native fallback.
+The tests exercised filesystem, network, credential, process, timeout, and
+cleanup boundaries. The Linux Bubblewrap implementation still requires an
+integration run on a non-root Linux worker.
+
+The Node example's sandboxed `npm test` passed using in-process request and
+error handlers, without loopback sockets. The fixed scanner bootstrap runs
+trusted tool installation outside the connected repository, using fixed
+wheel-only packages, a private temporary home, and no inherited credentials.
+Secrets in arbitrary filenames or ordinary source contents cannot be
+recognized by filename exclusions.
+
+The project AppContainer does not wrap Codex/Claude/Gemini orchestration
+processes; those tools need their own network connection to the provider.
+Codex's read-only setting and the Claude/Gemini tool configurations are
+provider-level controls, and only Codex was used live. Fixed host-side Git
+metadata and patch operations use direct argv, filtered Git environments,
+and timeouts, but still parse repository data outside the OS sandbox.
+
+GitHub automation was tested with mocks and a local bare repository; no live
+GitHub changes were made. Dockerfiles, Helm, Actions, and Render configuration
+received static validation. Image builds, Kubernetes API validation, live
+health checks, deployment, and rollback were not run.
+
+## Readiness
+
+This project has materially stronger local security and regression evidence,
+but it is **not production-ready for unattended repair of arbitrary
+repositories**. The latest fixed-set benchmark verified 20/20 repairs, but
+that small fixture result does not establish performance on arbitrary code.
+Linux isolation remains unverified; provider CLI filesystem isolation and
+host-side Git execution need additional verification; the global developer
+interpreter has stale vulnerable packages; and live GitHub and deployment
+flows remain unverified. The current-tree Gitleaks matches are limited to
+generated test bytecode and were not suppressed.
+
+See [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md) for source changes,
+security findings, integration status, and a resume-ready summary.

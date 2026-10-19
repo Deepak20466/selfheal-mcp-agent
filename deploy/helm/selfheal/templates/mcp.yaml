@@ -26,6 +26,8 @@ spec:
             - containerPort: {{ .Values.mcp.port }}
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:
             requests: {{ toYaml .Values.resources.requests | nindent 14 }}
             limits: {{ toYaml .Values.resources.limits | nindent 14 }}
