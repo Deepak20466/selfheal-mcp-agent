@@ -1,5 +1,12 @@
 # AI repair benchmark
 
+> **Historical result, not current production evidence:** this benchmark ran
+> with Codex CLI before the provider CLI fail-closed gate was merged in PR #21.
+> Provider CLI benchmark execution is currently blocked until Linux OS
+> containment is implemented and independently verified. The 20/20 result
+> below remains valid for the recorded fixture run; it does not establish an
+> isolated live repair workflow or arbitrary-repository reliability.
+
 | Run detail | Value |
 |---|---|
 | Date | 2026-10-19 |
