@@ -69,7 +69,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Linux Bubblewrap sandbox and POSIX process cleanup | PASS (PR #19 CI) | Ubuntu 22.04 installed Bubblewrap and passed namespace preflight; `tests/test_cli_process_tree.py` passed both tests in the [PR CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). This is hosted-runner integration evidence, not a kernel-escape assessment. |
 | MCP credential-path filtering | PASS (known filenames only) | Full local suite passed. Filtering does not identify secrets in arbitrary filenames or ordinary source text. |
 | Provider CLI OS containment | FAIL / unverified | Codex/Claude/Gemini orchestration processes are not wrapped in the project's OS sandbox; provider-specific isolation is not independently proven. |
-| MCP HTTP authentication and network policy | PARTIAL (implementation added; CI pending) | Non-loopback HTTP requires a 32-character bearer token; Helm injects it from a Secret and restricts MCP ingress to healer pods. MCP egress permits PostgreSQL, DNS, and public TCP 443 outside private/reserved IPv4 ranges. The public HTTPS allowance is not destination-filtered; live CNI enforcement remains unverified. |
+| MCP HTTP authentication and network policy | PASS (hosted chart/auth check; enforcement limited) | Hosted k8s CI observed 401 without a token and a non-401 MCP response with the configured token, and checked the healer-only ingress selector and MCP port. Actual CNI enforcement and egress destinations were not tested. Public TCP 443 remains broad. [Run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Prompt injection / malicious repository instructions | SKIPPED (live) | Unit-level untrusted-data and patch-guard tests exist; no adversarial live provider run was performed. |
 | GitHub live repair workflow / rate limits | SKIPPED | Mock/local-bare-repository tests only. |
 | Independent repository reliability | SKIPPED | The 20-case benchmark uses one synthetic repository, not three independent repositories. |
@@ -93,9 +93,9 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Python dependency audit | PASS | Upgraded only the isolated test venv to pip 26.2.1; `pip-audit --local` found no known vulnerabilities. The repository package is local and not published to PyPI. |
 | Node example tests | PASS | `npm ci --ignore-scripts` followed by `npm test` passed 2/2; `npm audit` found 0 vulnerabilities. |
 | npm audit | PASS | 0 known vulnerabilities |
-| Actionlint | PASS | Temporary checksum-verified actionlint 1.7.12 checked all workflow YAML; branch push triggers automatic CI |
+| GitHub Actions | PASS | Both required PR checks passed: [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557149) and [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Hadolint | PASS | Temporary checksum-verified Hadolint 2.15.1 checked all four Dockerfiles |
-| Helm | PENDING hosted CI | Helm and Kubernetes CLIs are not installed locally; hosted k8s CI will lint, render, and deploy to its ephemeral kind cluster. |
+| Helm and Kubernetes chart | PASS (hosted kind) | Helm lint, render, install, migration/readiness checks, MCP auth check, and recovery smoke tests passed in ephemeral kind. No production cluster was used; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Render Blueprint | PASS (schema) | Official Render JSON Schema validation passed; Render CLI unavailable and no service created |
 | MCP stdio protocol | PASS | Initialize/list-tools handshake; protocol 2025-11-25 and 20 tools |
 | Windows sandbox boundaries | PASS | AppContainer/Job Object tests blocked outside filesystem access, loopback, inherited secrets, common credential files, and `.git`; tested process limits, timeout cleanup, and read-only trusted runtime access |
@@ -203,10 +203,10 @@ provider-level controls, and only Codex was used live. Fixed host-side Git
 metadata and patch operations use direct argv, filtered Git environments,
 and timeouts, but still parse repository data outside the OS sandbox.
 
-GitHub automation was tested with mocks and a local bare repository; no live
-GitHub changes were made. Dockerfiles, Helm, Actions, and Render configuration
-received static validation. Image builds, Kubernetes API validation, live
-health checks, deployment, and rollback were not run.
+The application-driven repair-to-PR workflow was not run against GitHub. The
+hardening branch itself was published as PR #20, whose CI and ephemeral kind
+checks passed. No production deployment, live CNI enforcement test, health
+monitoring, backup/restore, or rollback was performed.
 
 ## Readiness
 
