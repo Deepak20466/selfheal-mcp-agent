@@ -58,6 +58,16 @@ class SandboxUnavailableError(RuntimeError):
     """Raised when the host cannot provide the requested OS sandbox."""
 
 
+def _bubblewrap_permission_denied(output: str) -> bool:
+    """Identify Bubblewrap startup failures caused by host namespace policy."""
+    return bool(
+        re.search(
+            r"(?im)^bwrap:.*(?:operation not permitted|permission denied)",
+            output,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class SandboxLimits:
     timeout_seconds: float
@@ -359,6 +369,15 @@ async def run_untrusted_command(
         else:
             raise SandboxUnavailableError(
                 f"No enforced repository-code sandbox is implemented for {sys.platform}"
+            )
+        if (
+            sys.platform.startswith("linux")
+            and result.return_code != 0
+            and _bubblewrap_permission_denied(result.output)
+        ):
+            raise SandboxUnavailableError(
+                "Bubblewrap namespace creation was denied by the host: "
+                + scrub_text(result.output[-1000:])
             )
         return {
             "passed": result.return_code == 0

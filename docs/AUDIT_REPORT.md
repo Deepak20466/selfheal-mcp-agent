@@ -164,7 +164,7 @@ The GitHub automation suite uses mocks and a local bare repository. It covers
 failure detection, investigation, patch generation, regression gates,
 duplicate prevention, retry behavior, and rollback handling. Workflow
 permissions were reviewed and set explicitly to least privilege; `actionlint`
-validated workflow syntax. No live workflow dispatch, PR creation, merge, or
+validated workflow syntax. No manual workflow dispatch, PR creation, merge, or
 external rollback was attempted. Publication is limited to a feature branch;
 it does not create a PR. Live PR creation remains unverified and requires
 separate authorization. The
@@ -190,7 +190,7 @@ job stress was not exercised.
 | Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
 | Python dependency audit | PASS in fresh venv; WARN in global interpreter | A clean temporary venv installed with `.[dev]` and `pip-audit --local` found no known vulnerabilities; the unpublished local project is skipped because it has no PyPI release to match. The active global interpreter audit found 91 advisory entries across 8 installed packages, including stale project transitive packages and unrelated tooling; that interpreter was not upgraded. The project does not commit a lockfile for transitive dependencies. |
 | Node tests and audit | PASS | `npm test` passed 2/2 inside AppContainer; `npm audit` found 0 vulnerabilities. The tests use in-process handlers and no sockets. |
-| GitHub Actions | PASS (static) | Temporary actionlint 1.7.12 binary passed all workflow YAML. Jobs were not dispatched on GitHub. |
+| GitHub Actions | PASS (static) | Temporary actionlint 1.7.12 binary passed all workflow YAML. Branch publication triggers the live CI workflow. |
 | Dockerfiles | PASS (static) | Temporary Hadolint 2.15.1 passed all four Dockerfiles. No Docker installation or image build was performed. |
 | Helm | PASS (static) | Helm 4.3.1 strict lint passed; render produced 14 Kubernetes objects and rendered YAML parsed. No cluster/API server was used. |
 | Render Blueprint | PASS (schema) | `render.yaml` conforms to the official Render JSON Schema using Draft 2020-12 validation. Render CLI was unavailable; no cloud resource was created. |

@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
-from scripts import run_ai_benchmark
+from mcp_server.execution_sandbox import SandboxUnavailableError
+from scripts import benchmark_fastapi, run_ai_benchmark
 from scripts.benchmark_fastapi import _select_recorded_run, evaluate_attempts, load_scenarios
 from scripts.run_ai_benchmark import _scrub_patch_text, _validate_and_apply_patch
+
+
+def test_fixture_validation_reports_unavailable_sandbox_as_skip(monkeypatch) -> None:
+    async def unavailable(_cwd):
+        raise SandboxUnavailableError("host denied Bubblewrap namespace creation")
+
+    monkeypatch.setattr(benchmark_fastapi, "_run_regressions", unavailable)
+    report = asyncio.run(benchmark_fastapi.validate_fixtures())
+
+    assert report["fixture_validation"] == "SKIPPED"
+    assert "host denied" in report["skip_reason"]
 
 
 def test_benchmark_contains_twenty_unique_contract_scenarios() -> None:

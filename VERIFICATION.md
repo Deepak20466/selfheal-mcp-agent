@@ -3,7 +3,7 @@
 **Current audit:** 2026-10-19
 **Workspace:** `selfheal-mcp-agent` on Windows 11 / Python 3.11.9
 **Database:** disposable local PostgreSQL 16.2, loopback only
-**Publication:** feature branch only; no PR, merge, deployment, or workflow dispatch
+**Publication:** feature branch only; no PR, merge, or deployment. The branch push triggers automatic CI.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -25,7 +25,7 @@ workspace status.
 | Python dependency audit | PASS in fresh venv; WARN in global interpreter | Fresh venv installed with `.[dev]`; `pip-audit --local` found no known vulnerabilities. The active global interpreter audit found 91 advisory entries across 8 installed packages and was not upgraded. |
 | Node example tests | PASS | `npm test` passed 2/2 inside Windows AppContainer; tests use in-process handlers and no sockets |
 | npm audit | PASS | 0 known vulnerabilities |
-| Actionlint | PASS | Temporary checksum-verified actionlint 1.7.12 checked all workflow YAML; workflows were not dispatched |
+| Actionlint | PASS | Temporary checksum-verified actionlint 1.7.12 checked all workflow YAML; branch push triggers automatic CI |
 | Hadolint | PASS | Temporary checksum-verified Hadolint 2.15.1 checked all four Dockerfiles |
 | Helm | PASS (static) | Temporary Helm 4.3.1 strict chart lint; render produced 14 objects and rendered YAML parsed |
 | Render Blueprint | PASS (schema) | Official Render JSON Schema validation passed; Render CLI unavailable and no service created |

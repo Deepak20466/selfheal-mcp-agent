@@ -16,8 +16,16 @@ from mcp_server.execution_sandbox import (
     MAX_FILE_BYTES,
     MAX_MEMORY_BYTES,
     MAX_PROCESSES,
+    _bubblewrap_permission_denied,
     run_untrusted_command,
 )
+
+
+def test_bubblewrap_host_namespace_denial_is_recognized() -> None:
+    assert _bubblewrap_permission_denied(
+        "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted"
+    )
+    assert not _bubblewrap_permission_denied("bwrap: unknown option --fake")
 
 
 def test_snapshot_excludes_git_and_common_credential_files(tmp_path: Path) -> None:
