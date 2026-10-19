@@ -47,8 +47,10 @@ import contextlib
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from core.process_env import sanitized_subprocess_env
+from core.provider_auth import PROVIDER_ALLOWED_TOOLS, issue_provider_token
 
 logger_name = __name__
 
@@ -72,6 +74,46 @@ def require_provider_cli_sandbox(provider: str) -> None:
         f"{provider} CLI execution is disabled: no verified OS sandbox currently "
         "contains the provider process, its descendants, and network access"
     )
+
+
+def provider_mcp_token(
+    secret: str | None,
+    *,
+    cwd: Path,
+    timeout_seconds: float,
+    allowed_tools: str | None = None,
+    heal_job_id: int | None = None,
+    run_id: int | None = None,
+) -> str | None:
+    """Mint a short lived MCP token scoped to this CLI and its worktree."""
+    if not secret:
+        raise CLISandboxUnavailableError(
+            "provider CLI execution requires MCP_AUTH_TOKEN to issue a scoped MCP capability"
+        )
+    tools = PROVIDER_ALLOWED_TOOLS
+    if allowed_tools is not None:
+        requested = {
+            item.strip().removeprefix("mcp__selfheal__")
+            for item in allowed_tools.split(",")
+            if item.strip()
+        }
+        if "*" in requested or "mcp__selfheal__*" in requested:
+            requested = set(PROVIDER_ALLOWED_TOOLS)
+        tools = frozenset(requested).intersection(PROVIDER_ALLOWED_TOOLS)
+    if run_id is not None and allowed_tools is None:
+        tools = tools | {"rerun_workflow"}
+    lifetime = min(max(int(timeout_seconds) + 120, 60), 900)
+    try:
+        return issue_provider_token(
+            secret,
+            worktree=cwd.resolve().name,
+            tools=frozenset(tools),
+            heal_job_id=heal_job_id,
+            run_id=run_id,
+            ttl_seconds=lifetime,
+        )
+    except ValueError as exc:
+        raise CLISandboxUnavailableError(str(exc)) from exc
 
 
 class CLINotFoundError(CLIError):

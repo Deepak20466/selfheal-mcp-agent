@@ -31,6 +31,7 @@ from sqlalchemy import select
 from core.config import settings as core_settings
 from core.db import session_scope
 from core.models import AuditLog, Error, HealJob, HealJobStatus, HealJobType, OpenResolvedStatus
+from core.provider_auth import verify_provider_token
 from healer import agent_free
 from healer.agent_free import (
     ClaudeCLIMalformedOutputError,
@@ -60,6 +61,7 @@ def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr("healer.agent_free.shutil.which", lambda _name: None)
     monkeypatch.setattr("healer.agent_free.require_provider_cli_sandbox", lambda _provider: None)
+    monkeypatch.setattr(core_settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef")
 
 
 # --- A fake asyncio subprocess, for run_claude_cli's own unit tests ---------
@@ -142,6 +144,7 @@ async def test_run_claude_cli_success_parses_result_and_usage(
 
     assert len(fake.calls) == 1
     argv = list(fake.calls[0]["args"])
+    provider_config = Path(argv[argv.index("--mcp-config") + 1])
     assert argv[0] == "claude"
     assert argv[1:] == [
         "-p",
@@ -151,7 +154,7 @@ async def test_run_claude_cli_success_parses_result_and_usage(
         "--tools",
         "",
         "--mcp-config",
-        str(REPO_ROOT / ".mcp.json"),
+        str(provider_config),
         "--strict-mcp-config",
         "--allowedTools",
         "mcp__selfheal__*",
@@ -182,6 +185,7 @@ async def test_run_claude_cli_success_parses_result_and_usage(
     )
     for key in stripped_keys:
         assert key not in env
+    assert not await asyncio.to_thread(provider_config.exists)
 
 
 async def test_run_claude_cli_wraps_a_windows_cmd_shim_correctly(
@@ -212,6 +216,14 @@ async def test_run_claude_cli_wraps_a_windows_cmd_shim_correctly(
     )
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_shell", fake)
+    captured_args: list[str] = []
+    build_command = agent_free._windows_shim_command
+
+    def capture_command(resolved: str, args: list[str]) -> str:
+        captured_args.extend(args)
+        return build_command(resolved, args)
+
+    monkeypatch.setattr(agent_free, "_windows_shim_command", capture_command)
 
     await run_claude_cli("prompt", cwd=REPO_ROOT)
 
@@ -230,7 +242,7 @@ async def test_run_claude_cli_wraps_a_windows_cmd_shim_correctly(
         "--tools",
         "",
         "--mcp-config",
-        str(REPO_ROOT / ".mcp.json"),
+        captured_args[captured_args.index("--mcp-config") + 1],
         "--strict-mcp-config",
         "--allowedTools",
         "mcp__selfheal__*",
@@ -271,7 +283,9 @@ async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("ANTHROPIC_MODEL", "should-not-leak-either")
     monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
+    monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "github-app-key-must-not-leak")
     monkeypatch.setenv("DATABASE_URL", "postgresql://test:secret@localhost/db")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "mcp-bearer-must-not-leak")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
 
@@ -281,8 +295,10 @@ async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
     assert "ANTHROPIC_API_KEY" not in env
     assert "ANTHROPIC_MODEL" not in env
     assert "GITHUB_TOKEN" not in env
+    assert "GITHUB_APP_PRIVATE_KEY" not in env
     assert "DATABASE_URL" not in env
-    assert env["MCP_AUTH_TOKEN"] == "unit-test-mcp-token-0123456789abcdef"
+    assert "MCP_AUTH_TOKEN" not in env
+    assert "MCP_PROVIDER_TOKEN" not in env
 
 
 def test_claude_mcp_config_uses_runtime_url_and_environment_token() -> None:
@@ -290,6 +306,40 @@ def test_claude_mcp_config_uses_runtime_url_and_environment_token() -> None:
     server = config["mcpServers"]["selfheal"]
     assert server["url"] == "${MCP_CLIENT_URL:-http://127.0.0.1:8003/mcp}"
     assert server["headers"]["Authorization"] == "Bearer ${MCP_AUTH_TOKEN:-}"
+
+
+async def test_run_claude_cli_uses_short_lived_scoped_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "unit-test-mcp-token-0123456789abcdef"
+    monkeypatch.setattr(core_settings, "mcp_auth_token", secret)
+    captured: dict[str, Any] = {}
+
+    @dataclass
+    class _InspectConfigExec(_FakeExec):
+        async def __call__(self, *args: Any, **kwargs: Any) -> _FakeProcess:
+            argv = list(args)
+            config_path = Path(argv[argv.index("--mcp-config") + 1])
+            captured["config_path"] = config_path
+            config_text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
+            captured["config"] = json.loads(config_text)
+            captured["env"] = kwargs["env"]
+            return await super().__call__(*args, **kwargs)
+
+    fake = _InspectConfigExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    await run_claude_cli("prompt", cwd=REPO_ROOT)
+
+    server = captured["config"]["mcpServers"]["selfheal"]
+    token = server["headers"]["Authorization"].removeprefix("Bearer ")
+    claims = verify_provider_token(token, secret)
+    assert claims is not None
+    assert claims["worktree"] == REPO_ROOT.name
+    assert "propose_patch" not in claims["tools"]
+    assert "run_tests" not in claims["tools"]
+    assert "MCP_AUTH_TOKEN" not in captured["env"]
+    assert not await asyncio.to_thread(captured["config_path"].exists)
 
 
 async def test_run_claude_cli_is_error_result_still_parses(monkeypatch: pytest.MonkeyPatch) -> None:

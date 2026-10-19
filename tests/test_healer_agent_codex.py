@@ -36,6 +36,7 @@ from core.models import (
     HealJobType,
     OpenResolvedStatus,
 )
+from core.provider_auth import verify_provider_token
 from healer import agent_codex
 from healer.agent_codex import (
     CLIMalformedOutputError,
@@ -63,6 +64,7 @@ def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     and never copy a real user CODEX_HOME auth file into a test subprocess."""
     monkeypatch.setattr("healer.agent_codex.shutil.which", lambda _name: None)
     monkeypatch.setattr("healer.cli_common.require_provider_cli_sandbox", lambda _provider: None)
+    monkeypatch.setattr(core_settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef")
     isolated_codex_home = tmp_path / "source-codex-home"
     isolated_codex_home.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(isolated_codex_home))
@@ -230,13 +232,23 @@ async def test_run_codex_cli_writes_selfheal_only_mcp_config(
     fake = _CapturingFakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
 
-    await run_codex_cli("prompt", cwd=REPO_ROOT)
+    await run_codex_cli("prompt", cwd=REPO_ROOT, heal_job_id=17, run_id=23)
 
     config_text = captured["config_text"]
     assert "[mcp_servers.selfheal]" in config_text
     assert f"http://127.0.0.1:{core_settings.mcp_port}/mcp" in config_text
-    assert 'env_http_headers = { Authorization = "MCP_AUTH_TOKEN" }' in config_text
+    assert 'env_http_headers = { Authorization = "MCP_PROVIDER_TOKEN" }' in config_text
     assert "unit-test-mcp-token" not in config_text
+    claims = verify_provider_token(
+        fake.calls[0]["kwargs"]["env"]["MCP_PROVIDER_TOKEN"],
+        "unit-test-mcp-token-0123456789abcdef",
+    )
+    assert claims is not None
+    assert claims["worktree"] == REPO_ROOT.name
+    assert claims["heal_job_id"] == 17
+    assert claims["run_id"] == 23
+    assert {"propose_patch", "run_tests", "rerun_workflow"}.issubset(claims["tools"])
+    assert "MCP_AUTH_TOKEN" not in fake.calls[0]["kwargs"]["env"]
     assert 'sandbox_mode = "read-only"' in config_text
     assert 'approval_policy = "never"' in config_text
 
@@ -272,7 +284,9 @@ async def test_run_codex_cli_strips_env_vars(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("GEMINI_API_KEY", "should-not-leak-either")
     monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
+    monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "github-app-key-must-not-leak")
     monkeypatch.setenv("DATABASE_URL", "postgresql://test:secret@localhost/db")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "mcp-bearer-must-not-leak")
     monkeypatch.setenv("OPENAI_API_KEY", "codex-provider-key-is-allowed")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
@@ -283,7 +297,9 @@ async def test_run_codex_cli_strips_env_vars(monkeypatch: pytest.MonkeyPatch) ->
     assert "ANTHROPIC_API_KEY" not in env
     assert "GEMINI_API_KEY" not in env
     assert "GITHUB_TOKEN" not in env
+    assert "GITHUB_APP_PRIVATE_KEY" not in env
     assert "DATABASE_URL" not in env
+    assert "MCP_AUTH_TOKEN" not in env
     assert env["OPENAI_API_KEY"] == "codex-provider-key-is-allowed"
 
 

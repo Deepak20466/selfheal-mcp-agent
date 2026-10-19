@@ -108,6 +108,7 @@ from healer.cli_common import (
     CLIUsageLimitError,
     is_windows_shim,
     kill_process_tree,
+    provider_mcp_token,
     strip_env_vars,
     windows_shim_command,
 )
@@ -201,7 +202,7 @@ def _codex_config_dir(mcp_config_dir: Path) -> None:
         f'url = "{_MCP_HTTP_URL}"\n'
     )
     if settings.mcp_auth_token:
-        config_toml += 'env_http_headers = { Authorization = "MCP_AUTH_TOKEN" }\n'
+        config_toml += 'env_http_headers = { Authorization = "MCP_PROVIDER_TOKEN" }\n'
     (mcp_config_dir / "config.toml").write_text(config_toml, encoding="utf-8")
 
 
@@ -230,6 +231,8 @@ async def run_codex_cli(
     max_turns: int | None = None,
     timeout_s: int | None = None,
     cli_path: str | None = None,
+    heal_job_id: int | None = None,
+    run_id: int | None = None,
 ) -> CLIResult:
     """Run one non-interactive `codex exec` turn and parse its JSONL result stream.
 
@@ -255,8 +258,15 @@ async def run_codex_cli(
 
         rest_args = ["exec", "-", "--json", "--ephemeral", "-c", f"max_turns={turns}"]
         env = strip_env_vars(_STRIPPED_ENV_VARS, allow_secret_names=frozenset({"OPENAI_API_KEY"}))
-        if settings.mcp_auth_token:
-            env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
+        provider_token = provider_mcp_token(
+            settings.mcp_auth_token,
+            cwd=cwd,
+            timeout_seconds=timeout,
+            heal_job_id=heal_job_id,
+            run_id=run_id,
+        )
+        if provider_token:
+            env["MCP_PROVIDER_TOKEN"] = provider_token
         env["MCP_CLIENT_URL"] = _MCP_HTTP_URL
         env["CODEX_HOME"] = str(codex_home)
         subprocess_kwargs: dict[str, Any] = {
@@ -592,7 +602,7 @@ async def run_heal_job_codex(
             )
 
             try:
-                cli_result = await run_codex_cli(prompt, cwd=worktree_path)
+                cli_result = await run_codex_cli(prompt, cwd=worktree_path, heal_job_id=job_id)
             except CLINotLoggedInError as exc:
                 async with session_scope() as session:
                     await _record_cli_invocation(
@@ -804,7 +814,9 @@ async def run_ci_heal_job_codex(
         outcome = "failed"
 
         try:
-            cli_result = await run_codex_cli(prompt, cwd=worktree_path)
+            cli_result = await run_codex_cli(
+                prompt, cwd=worktree_path, heal_job_id=job_id, run_id=run_id
+            )
             async with session_scope() as session:
                 await _record_cli_invocation(
                     session, heal_job_id=job_id, cli_result=cli_result, error=None

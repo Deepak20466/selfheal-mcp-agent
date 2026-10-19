@@ -2,7 +2,46 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23 requires review. PR #24's `test` and `k8s` checks passed; no production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; both hosted CI runs and Calico-backed Kubernetes passed on `60c490c`. No production deployment occurred.
+
+## Provider MCP capability follow-up — PR #25, 2026-10-19
+
+Branch `feature/provider-mcp-capability-2026-10-19` (head commit
+[`60c490c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/60c490c270282014960e1dd2b211cb2c6e5ea02c)) adds HMAC-signed
+provider tokens that expire within 15 minutes. Each token limits MCP calls to
+an explicit tool set and binds patch/test requests to the caller's heal job and
+worktree. CI repair tokens may rerun only the associated workflow run. A
+PostgreSQL unique nonce claim enforces at-most-once use across MCP processes;
+the request fails closed when that store is unavailable. A claim remains
+consumed if the downstream operation fails, so retries require a new token.
+Provider CLIs no longer receive the healer's full MCP bearer token or GitHub
+App private key in their environment/config. The MCP server enforces these
+limits on HTTP requests. GitHub Actions checkouts disable persisted
+credentials, and release write access is isolated to an artifact-only job.
+The DNS filter permits exact configured internal services and their
+release-namespace FQDNs; unlisted `*.svc.cluster.local` lookups are refused.
+Regression tests enforce the workflow and DNS boundaries. The regular
+developer `.mcp.json` configuration is unchanged.
+
+Focused provider checks passed: **53 passed** across MCP auth/provider-gate
+tests and Codex, Claude Code, and Gemini launcher tests; the Postgres-backed
+rerun-claim integration case was excluded locally because no database is
+available. The wider offline security subset passed **64 tests** with **3
+skipped**. Full-repository Ruff
+lint and formatting passed; full CI-scope mypy passed for **89 Python files**.
+The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities**.
+The 20-scenario fixture validator passed: all broken baselines failed and all
+reference repairs passed. On `60c490c`, hosted PostgreSQL-backed CI passed
+**737 tests, 5 skipped, and 3 warnings** in both triggers ([run 1](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297047540), [run 2](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297054189)). Both runs completed a disposable PostgreSQL 16 backup/restore round trip: Alembic migrations and probe data were dumped, restored, and checked. The Calico-backed Kubernetes run passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297055395)), covering Helm validation/install, exact service DNS behavior including denial of an unlisted absolute in-cluster name, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
+
+PR #25 is open against PR #24's branch. Its two CI runs and Calico-backed
+Kubernetes run passed on source head `60c490c`.
+
+This is an authorization boundary improvement, not provider process isolation.
+The provider CLI gate still fails closed; no live repair-to-PR flow, three
+repository trials, provider egress test, or deployment verification was run.
+The CI drill validates backup/restore mechanics in a disposable PostgreSQL
+service; production backup/restore and rollback have not been tested.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).

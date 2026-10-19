@@ -31,6 +31,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The workflow builds and runs PR-controlled images. Keep the
+          # checkout token out of Git config and all subsequent containers.
+          persist-credentials: false
 
       - name: Build pod images
         run: |
@@ -207,6 +211,12 @@ jobs:
               print("DNS filter passed: unlisted external DNS names are refused")
           else:
               raise AssertionError("cluster DNS resolved an unlisted external hostname")
+          try:
+              socket.gethostbyname("unlisted.default.svc.cluster.local.")
+          except socket.gaierror:
+              print("DNS filter passed: unlisted in-cluster services are refused")
+          else:
+              raise AssertionError("DNS filter resolved an unlisted in-cluster service")
           with urllib.request.urlopen("https://api.github.com", timeout=15) as response:
               assert response.status == 200, f"GitHub API through allowlisted proxy returned {response.status}"
           tls_context = ssl.create_default_context()

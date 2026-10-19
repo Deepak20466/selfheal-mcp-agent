@@ -31,6 +31,7 @@ from sqlalchemy import select
 from core.config import settings as core_settings
 from core.db import session_scope
 from core.models import AuditLog, Error, HealJob, HealJobStatus, HealJobType, OpenResolvedStatus
+from core.provider_auth import verify_provider_token
 from healer import agent_gemini
 from healer.agent_gemini import (
     CLIMalformedOutputError,
@@ -52,6 +53,7 @@ from mcp_server.server import mcp
 def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("healer.agent_gemini.shutil.which", lambda _name: None)
     monkeypatch.setattr("healer.cli_common.require_provider_cli_sandbox", lambda _provider: None)
+    monkeypatch.setattr(core_settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef")
 
 
 @dataclass
@@ -175,12 +177,22 @@ async def test_run_gemini_cli_writes_isolated_settings_restricted_to_selfheal(
         payload = json.loads(settings_path.read_text(encoding="utf-8"))
         assert payload["tools"]["core"] == []
         assert payload["mcp"]["allowed"] == ["selfheal"]
+        token = payload["mcpServers"]["selfheal"]["headers"]["Authorization"].removeprefix(
+            "Bearer "
+        )
         assert payload["mcpServers"] == {
             "selfheal": {
                 "httpUrl": f"http://127.0.0.1:{core_settings.mcp_port}/mcp",
-                "headers": {"Authorization": "Bearer unit-test-mcp-token-0123456789abcdef"},
+                "headers": {"Authorization": f"Bearer {token}"},
             }
         }
+        claims = verify_provider_token(token, "unit-test-mcp-token-0123456789abcdef")
+        assert claims is not None
+        assert claims["worktree"] == tmp_path.name
+        assert "propose_patch" not in claims["tools"]
+        assert "run_tests" not in claims["tools"]
+        assert "MCP_AUTH_TOKEN" not in kwargs["env"]
+        assert "MCP_PROVIDER_TOKEN" not in kwargs["env"]
         return await fake(*args, **kwargs)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", inspect_isolated_settings)
@@ -197,6 +209,9 @@ async def test_run_gemini_cli_strips_env_vars(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("OPENAI_API_KEY", "should-not-leak-either")
+    monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
+    monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", "github-app-key-must-not-leak")
+    monkeypatch.setenv("MCP_AUTH_TOKEN", "mcp-bearer-must-not-leak")
     monkeypatch.setenv("GOOGLE_API_KEY", "google-key-must-not-leak")
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-key-must-not-leak")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
@@ -209,6 +224,9 @@ async def test_run_gemini_cli_strips_env_vars(
     assert "OPENAI_API_KEY" not in env
     assert "GOOGLE_API_KEY" not in env
     assert "GEMINI_API_KEY" not in env
+    assert "GITHUB_TOKEN" not in env
+    assert "GITHUB_APP_PRIVATE_KEY" not in env
+    assert "MCP_AUTH_TOKEN" not in env
 
 
 async def test_run_gemini_cli_is_error_result_still_parses(

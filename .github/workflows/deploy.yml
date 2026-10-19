@@ -17,6 +17,8 @@ jobs:
       DEPLOY_HOST_CONFIGURED: ${{ secrets.DEPLOY_HOST != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Report deploy started
         if: always() && vars.HEALER_WEBHOOK_URL != ''

@@ -17,8 +17,13 @@ def _query(name: str, query_type: int = 1) -> bytes:
 
 def test_dns_filter_allows_exact_external_hosts_and_cluster_services() -> None:
     allow = frozenset({"api.github.com", "api.anthropic.com"})
-    internal = frozenset({"selfheal-mcp"})
+    internal = frozenset({"selfheal-mcp", "selfheal-mcp.default.svc.cluster.local"})
     assert query_is_allowed(_query("api.github.com"), allowed_hosts=allow, internal_hosts=internal)
+    assert query_is_allowed(
+        _query("selfheal-mcp.default.svc.cluster.local"),
+        allowed_hosts=allow,
+        internal_hosts=internal,
+    )
     assert query_is_allowed(
         _query("selfheal-mcp.default.svc.cluster.local"),
         allowed_hosts=allow,
@@ -34,6 +39,11 @@ def test_dns_filter_rejects_unlisted_names_and_query_types() -> None:
     )
     assert not query_is_allowed(
         _query("private.api.github.com"), allowed_hosts=allow, internal_hosts=internal
+    )
+    assert not query_is_allowed(
+        _query("unlisted.default.svc.cluster.local"),
+        allowed_hosts=allow,
+        internal_hosts=internal,
     )
     assert not query_is_allowed(
         _query("api.github.com", query_type=16),

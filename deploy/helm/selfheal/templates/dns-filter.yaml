@@ -24,8 +24,14 @@ spec:
               value: {{ required "dns.upstreamServiceIP must be the cluster DNS Service IP" .Values.dns.upstreamServiceIP | quote }}
             - name: ALLOWED_HOSTS
               value: {{ join "," .Values.egress.allowedHosts | quote }}
+            {{- $internalHosts := list "selfheal-app" "selfheal-sentinel" "selfheal-mcp" "selfheal-healer" "selfheal-postgres" "selfheal-egress" -}}
+            {{- $internalNames := list -}}
+            {{- range $host := $internalHosts -}}
+            {{- $internalNames = append $internalNames $host -}}
+            {{- $internalNames = append $internalNames (printf "%s.%s.svc.cluster.local" $host $.Release.Namespace) -}}
+            {{- end }}
             - name: INTERNAL_HOSTS
-              value: "selfheal-app,selfheal-sentinel,selfheal-mcp,selfheal-healer,selfheal-postgres,selfheal-egress"
+              value: {{ join "," $internalNames | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

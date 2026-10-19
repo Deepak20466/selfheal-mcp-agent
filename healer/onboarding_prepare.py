@@ -286,7 +286,9 @@ async def run_onboarding_prepare(
     try:
         prompt = _onboarding_prompt(report=report, worktree=worktree_name, heal_job_id=job_id)
         try:
-            cli_result = await agent_free.run_claude_cli(prompt, cwd=worktree_path)
+            cli_result = await agent_free.run_claude_cli(
+                prompt, cwd=worktree_path, heal_job_id=job_id
+            )
         except agent_free.ClaudeCLIError as exc:
             async with session_scope() as session:
                 await agent_free._record_cli_invocation(
