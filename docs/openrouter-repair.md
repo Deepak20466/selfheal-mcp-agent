@@ -69,9 +69,12 @@ repository's default branch and its security checks pass. It also requires:
 3. Add repository variable `OPENROUTER_FREE_MODEL` with a model ID ending in
    `:free`. Each inference run verifies the ID and its zero prices against
    OpenRouter's current public model catalog.
-4. Protect the default branch with a ruleset that requires at least one human
-   approval and passing CI before merge. The repair workflow never approves or
-   merges a PR.
+4. Protect the default branch so changes require a PR and all required CI and
+   security checks pass. GitHub will not count the sole maintainer's approval
+   on their own PR, so a solo-maintainer repository must use zero required
+   approving reviews. The owner must manually inspect each PR and explicitly
+   authorize any merge; a passing check is not merge approval. Automatic merges
+   remain disabled. The repair workflow never approves or merges a PR.
 5. **Only after steps 1–4 and the hosted security checks pass, and immediately
    before the authorized disposable-repository trial, add the key as a
    repository Actions secret named `OPENROUTER_API_KEY`.** Create/use an
@@ -97,8 +100,9 @@ The workflow itself never approves or merges a PR.
 After the implementation is reviewed and merged, the owner can authorize three
 disposable public repositories. Seed each with a small Python source bug and a
 failing `unittest`, copy the reviewed controller/workflow and allowlist entry,
-then configure the three repository variables and `OPENROUTER_API_KEY` secret
-as described above. Push the intentionally failing baseline. Record the
+then configure the three repository variables and, immediately before each
+trial, the `OPENROUTER_API_KEY` secret as described above. Keep repair disabled
+until the trial is ready. Push the intentionally failing baseline. Record the
 following GitHub Actions sequence for each repository:
 
 1. The baseline `CI` run fails and its run ID is captured.
@@ -109,8 +113,10 @@ following GitHub Actions sequence for each repository:
    boundary probes, and runs the regression suite offline.
 5. If the first patch fails its regression suite, show the single bounded retry
    and the passing retry. No API/rate-limit error is retried.
-6. The trusted PR job verifies the tested patch hash and opens a PR. Show that
-   it remains unmerged, then show the normal PR CI passing.
+6. The trusted PR job verifies the tested patch hash and opens a PR. If GitHub
+   holds Actions runs created by `GITHUB_TOKEN` for approval, have the owner
+   approve the workflow run. Show the PR's normal CI passing, then leave it
+   unmerged unless the owner separately authorizes a merge.
 
 Do not use fixtures or prerecorded model output as evidence. A passing unit
 test of the controller is not a live model demonstration. Preserve the three
@@ -125,7 +131,10 @@ At implementation head `e2795fb`, focused tests passed locally (34 passed,
 passed the Bubblewrap egress/DNS, filesystem, test-suite read-only, and secret
 probes; PostgreSQL recovery, Node and dependency checks, Ruff, strict mypy, and
 the full pytest suite also passed. Hosted [Calico/kind checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316530109)
-passed. The source repository has no `OPENROUTER_API_KEY`, no repair enablement
-variables, and PR creation through `GITHUB_TOKEN` is disabled. No OpenRouter
+passed. The source repository has no `OPENROUTER_API_KEY` and PR creation through
+`GITHUB_TOKEN` is disabled. The disposable fixtures have the currently listed
+zero-price `cohere/north-mini-code:free` model variable and repair disabled; no
+controller workflow or OpenRouter secret is installed there. No OpenRouter
 completion or live repair-to-PR demonstration has run. Keep the workflow dormant
-until the required reviews/merge and authorization of the disposable trials.
+until the owner reviews and explicitly authorizes the source PR merges and then
+authorizes each disposable trial.

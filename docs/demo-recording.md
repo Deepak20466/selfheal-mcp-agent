@@ -12,8 +12,10 @@ PR; it never merges.
 2. The owner explicitly authorizes three disposable public repositories.
 3. Each repository is allowlisted, has Actions enabled, and is configured to
    let the job-scoped GITHUB_TOKEN create PRs. Protect the default branch with
-   at least one human approval and required CI checks. Leave automatic merging
-   off.
+   PR-only changes and required CI checks. For this solo-maintainer demo, set
+   the required approval count to zero because GitHub will not accept an
+   author's approval of their own PR. The owner must still inspect each repair
+   PR and explicitly authorize any merge; automatic merging stays off.
 4. Copy the reviewed controller and workflow to the default branch. Add the
    exact repository allowlist entry and set `SELFHEAL_REPAIR_ENABLED=true` plus
    `OPENROUTER_FREE_MODEL` to a currently listed zero-price `:free` model.
@@ -48,7 +50,9 @@ For each repository, show the complete timeline in GitHub Actions:
    secret separation. Show the fixed regression command and nonzero test count.
 5. Show the trusted PR job rechecking the patch hash and creating the repair PR.
    Leave it open for human review.
-6. Show the repair PR's normal CI passing. Capture the CI run URL and PR URL.
+6. If GitHub holds Actions runs from a `GITHUB_TOKEN`-created PR for approval,
+   have the owner approve the workflow run. Then show the repair PR's normal CI
+   passing. Capture the CI run URL and PR URL.
 
 If the first candidate fails its regression suite, record the single correction
 attempt and the final passing result. Rate-limit and inference errors are not
@@ -72,10 +76,13 @@ and [Kubernetes checks](https://github.com/Deepak20466/selfheal-mcp-agent/action
 Three authorized public fixtures now exist: [demo 01](https://github.com/Deepak20466/selfheal-e2e-demo-01),
 [demo 02](https://github.com/Deepak20466/selfheal-e2e-demo-02), and
 [demo 03](https://github.com/Deepak20466/selfheal-e2e-demo-03). Their initial
-CI passed; their `main` branches require passing `test` CI and one human review.
+CI passed; their `main` branches require passing `test` CI, enforce PR-only
+changes, and block force pushes and deletion. Required approval count is zero
+for the sole maintainer; the owner must manually review and authorize merges.
 Actions has read-only default workflow permissions, only GitHub-owned
 SHA-pinned actions allowed, and the narrowly scoped PR-creation setting enabled.
-No controller workflow, repair variables, or OpenRouter secret is installed in
-these fixtures yet. No model completion or live repair run has occurred. The
-source PR stack still needs its required human reviews and merges before the
-reviewed controller can be copied into the fixtures.
+The selected `:free` model variable is set but the repair enablement variable is
+`false`. No controller workflow or OpenRouter secret is installed in these
+fixtures yet. No model completion or live repair run has occurred. The source
+PR stack still needs the owner's manual review and explicit merge authorization
+before the reviewed controller can be copied into the fixtures.
