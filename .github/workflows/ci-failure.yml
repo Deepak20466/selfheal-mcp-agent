@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The workflow_run notifier uses the default-branch script and only
+          # needs the checkout contents; no Git credential should persist.
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:

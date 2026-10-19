@@ -37,6 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # CI runs pull-request-controlled code. Do not persist the temporary
+          # read token into the checkout's Git config where tests could read it.
+          persist-credentials: false
           # Full history, not the default shallow (depth=1) clone: several
           # healer tests (test_healer_worktree.py, test_healer_ci_agent.py,
           # test_healer_runtime_agent.py) push real commits from this

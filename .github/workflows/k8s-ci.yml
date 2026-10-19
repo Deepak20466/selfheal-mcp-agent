@@ -31,6 +31,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The workflow builds and runs PR-controlled images. Keep the
+          # checkout token out of Git config and all subsequent containers.
+          persist-credentials: false
 
       - name: Build pod images
         run: |
