@@ -345,6 +345,13 @@ async def run_untrusted_command(
             child_command: str | list[str] = command.replace(str(source), str(workspace))
         else:
             child_command = [argument.replace(str(source), str(workspace)) for argument in command]
+        if sys.platform.startswith("linux"):
+            if isinstance(child_command, str):
+                child_command = child_command.replace(str(workspace), "/workspace")
+            else:
+                child_command = [
+                    argument.replace(str(workspace), "/workspace") for argument in child_command
+                ]
 
         if os.name == "nt":
             result = await asyncio.to_thread(
