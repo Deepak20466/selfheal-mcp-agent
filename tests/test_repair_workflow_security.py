@@ -16,6 +16,13 @@ def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
     workflow_path = ROOT / ".github" / "workflows" / "repair-pr.yml"
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
+    assert "sandbox-preflight" in jobs["infer-initial"]["needs"]
+    preflight = jobs["sandbox-preflight"]
+    assert preflight["permissions"] == {"contents": "read"}
+    assert "secrets." not in str(preflight)
+    assert "OPENROUTER_API_KEY" not in str(preflight)
+    assert "verify_repair_sandbox.py" in str(preflight)
+    assert "sandbox-preflight" in jobs["create-repair-pr"]["needs"]
     assert jobs["infer-initial"]["permissions"] == {"contents": "read", "actions": "read"}
     assert jobs["infer-retry"]["permissions"] == {"contents": "read", "actions": "read"}
     assert jobs["test-initial"]["permissions"] == {"contents": "read"}
@@ -56,9 +63,14 @@ def test_pr_job_is_downstream_of_successful_isolated_regression_and_never_merges
     assert set(events) == {"workflow_run"}
     assert events["workflow_run"]["workflows"] == ["CI"]
     create = workflow["jobs"]["create-repair-pr"]
-    assert {"test-initial", "test-retry", "infer-initial", "infer-retry", "prepare"} == set(
-        create["needs"]
-    )
+    assert {
+        "test-initial",
+        "test-retry",
+        "infer-initial",
+        "infer-retry",
+        "prepare",
+        "sandbox-preflight",
+    } == set(create["needs"])
     assert "gh pr merge" not in (ROOT / ".github" / "workflows" / "repair-pr.yml").read_text()
     assert "selfheal/repair-" in (ROOT / ".github" / "workflows" / "repair-pr.yml").read_text()
 
