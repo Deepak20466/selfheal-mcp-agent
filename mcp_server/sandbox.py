@@ -242,7 +242,7 @@ def _is_link_or_reparse_point(path: Path) -> bool:
     if callable(is_junction) and is_junction():
         return True
     try:
-        attributes = path.lstat().st_file_attributes
-    except (AttributeError, OSError):
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
         return False
     return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
