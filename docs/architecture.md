@@ -119,11 +119,29 @@ The Helm chart routes healer and MCP external HTTPS through the
 the configured GitHub and provider API hosts. It rejects other hostnames,
 non-443 CONNECT requests, TLS ClientHello SNI values that do not match the
 CONNECT host, encrypted ClientHello, and DNS answers containing private or
-special-use addresses; then it connects directly to a validated address. NetworkPolicies limit app,
-sentinel, healer, MCP, migration, and PostgreSQL egress to their required DNS
-and in-cluster destinations; only healer and MCP may reach the gateway.
-PostgreSQL ingress is limited to the healer, MCP, sentinel, and migration job.
-Production enforcement depends on a CNI that applies these policies.
+special-use addresses; then it connects directly to a validated address.
+NetworkPolicies limit app, sentinel, healer, MCP, migration, and PostgreSQL
+egress to their required DNS and in-cluster destinations; only healer and MCP
+may reach the gateway. PostgreSQL ingress permits the app, healer, MCP,
+sentinel, and migration job. The app connection is further restricted by
+PostgreSQL database privileges as described below. Production network-policy
+enforcement depends on a CNI that applies these policies.
+
+## Kubernetes database separation
+
+The target app receives only the `target-app-database-url` value, for the
+separate `selfheal_target_app` database and `selfheal_app` role. A trusted
+migration Job receives both the control-plane and target-app URLs: it creates
+the target role with `NOSUPERUSER`, `NOCREATEDB`, and `NOCREATEROLE`, creates
+the target database, removes `PUBLIC` database privileges, grants the target
+role access to its database, then migrates and seeds both databases. The
+control-plane URL is not injected into the app pod.
+
+The hosted kind check verifies the app's database name and role, confirms the
+role's non-administrator flags, and confirms that it cannot connect to the
+control-plane database. Both databases still run on the same PostgreSQL
+server; this is logical database and role isolation, not a separate database
+server or failure domain.
 
 The chart runs a separate DNS-filter service. Workload pods use its reserved
 ClusterIP as their only nameserver, and their NetworkPolicies allow DNS only to
@@ -138,9 +156,10 @@ The hosted Calico-backed kind workflow tests an allowed GitHub request, TCP
 reachability to the configured provider hosts, refusal of an unlisted external
 name, denied direct DNS access to CoreDNS, denial of a non-allowlisted HTTPS
 host, blocked direct egress around the gateway, and denied access from an
-unselected pod to MCP, PostgreSQL, and the proxy. This proves the configured
-policy path in that ephemeral cluster only. The proxy permits public IPv4 TCP
-443 at the NetworkPolicy layer; the application gateway checks the exact
+unselected pod to MCP, PostgreSQL, and the proxy. It also checks that the app
+cannot connect to the control-plane database. These checks prove the
+configured policy path in that ephemeral cluster only. The proxy permits
+public IPv4 TCP 443 at the NetworkPolicy layer; the application gateway checks the exact
 CONNECT hostname and requires matching TLS SNI. It does not inspect encrypted
 HTTP paths, and an allowed service can still carry data through its normal API
 protocol. Production enforcement depends on a CNI that applies Kubernetes

@@ -113,3 +113,11 @@ resistance. See
 [architecture.md](architecture.md#trust-boundaries) for the full limits.
 Avoid placing the token in shell history or process arguments; supply it
 through your secret-management workflow.
+
+The monitored app receives the separate `postgres.targetAppDatabase` URL using
+`postgres.targetAppUsername` and `postgres.targetAppPassword`. The migration
+Job also receives the target-app URL while it provisions the restricted role
+and migrates/seeds both databases. The app does not receive the control-plane
+URL; trusted backend workloads do. The chart's committed PostgreSQL values are
+disposable CI defaults; set unique credentials through your deployment
+secret-management process before using a real environment.
