@@ -2,10 +2,10 @@
 
 **Project:** `selfheal-mcp-agent`
 **Audit date:** 2026-10-19
-**Scope:** PR #23 and the repository-authorization follow-up stacked on it, test infrastructure,
-subprocess isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD
-configuration, dependencies, and deployment manifests. Earlier findings and
-merged follow-ups are identified as historical below.
+**Scope:** PR #23 and the repository-authorization follow-up stacked on it,
+test infrastructure, subprocess isolation, AI benchmark, GitHub automation,
+provider CLIs, CI/CD configuration, dependencies, and deployment manifests.
+Earlier findings and merged follow-ups are identified as historical below.
 
 ## Executive assessment
 
@@ -27,8 +27,10 @@ certification.
 
 ## Repository authorization follow-up — 2026-10-19
 
-Feature branch `security/production-readiness-2026-10-19` adds an exact,
-case-insensitive `GITHUB_ALLOWED_REPOSITORIES` setting for authorized
+Feature branch `security/production-readiness-2026-10-19` is published as
+[PR #24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), stacked
+on PR #23. It adds an exact, case-insensitive
+`GITHUB_ALLOWED_REPOSITORIES` setting for authorized
 repositories. When unset, only `GITHUB_REPO` is authorized. GitHub App tokens
 are minted per repository and per REST-operation permission; unsupported
 operation paths fail closed. The response is checked against the requested
@@ -41,7 +43,8 @@ formatting, strict mypy (88 source files), and `git diff --check` passed. A
 fresh temporary venv audit found no known vulnerabilities in installed
 dependencies after upgrading its bootstrap `pip`; the unpublished local
 package was skipped. Node tests passed 2/2 with no npm advisories. Helm lint
-and YAML rendering passed with 27 objects. This branch's hosted CI is pending.
+and YAML rendering passed with 27 objects. PR #24's test check is running;
+its Kubernetes check has not reported a result yet.
 
 This change narrows repository access and App-token permissions but does not
 separate GitHub credentials from the repair worker: the current Helm chart

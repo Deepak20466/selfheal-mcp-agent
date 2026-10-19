@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) is open and requires review. The repository-authorization follow-up is on feature branch `security/production-readiness-2026-10-19`, based on PR #23; its PR and hosted checks are pending. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23 requires review. PR #24's test check is running; no production deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -21,7 +21,9 @@ completed with deployment steps skipped. No production deployment occurred.
 
 ## Repository authorization follow-up — 2026-10-19
 
-Feature branch `security/production-readiness-2026-10-19` is stacked on PR #23.
+Feature branch `security/production-readiness-2026-10-19` is published as
+[PR #24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), stacked
+on PR #23.
 It adds an exact, case-insensitive `GITHUB_ALLOWED_REPOSITORIES` list, with
 `GITHUB_REPO` as the single-repository fallback, and mints GitHub App tokens
 with the minimum mapped permission for each REST operation. Unmapped API
@@ -37,12 +39,13 @@ passed. A temporary clean venv dependency audit reported no known
 vulnerabilities among installed dependencies; the unpublished local package
 was skipped. Node tests passed **2/2** and `npm audit` found **0
 vulnerabilities**. Helm lint and template/YAML rendering passed for **27
-objects**. Hosted CI for this branch is pending publication.
+objects**. PR #24's hosted test check is running; its Kubernetes check has not
+reported a result yet.
 
 Provider CLI execution remains fail-closed. No provider isolation test, live
 repair-to-PR run, three-repository trial, GCP resource creation, deployment,
 production monitoring, database backup/restore, or rollback was performed.
-PR #23 remains open and requires review; neither PR is merged by this work.
+PR #23 remains open and requires review. PR #24 is also open and unmerged.
 
 Security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23)
 is open, unmerged, and requires review. The verified source commit is
