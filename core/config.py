@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     # reach the pod's real interface, not just its own loopback) needs this
     # widened to "0.0.0.0"; see deploy/docker/Dockerfile.mcp.
     mcp_host: str = "127.0.0.1"
+    # Shared internal bearer token for the streamable-HTTP MCP endpoint. A
+    # token is mandatory whenever MCP binds beyond loopback (enforced by
+    # mcp_server.server.run_http); native single-host installs may omit it.
+    mcp_auth_token: str | None = None
     # What healer-pod's own MCP client (worker.py, app.py's dashboard/chat
     # client) connects to. Defaults to loopback, matching the native/
     # systemd deployment where every pod shares one host. A containerized

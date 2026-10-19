@@ -73,11 +73,13 @@ limitations below remain despite the green checks.
 
 The readiness recommendation remains **NO-GO for unattended operation on
 untrusted repositories**. The provider CLI process itself is still outside the
-project OS sandbox; the containerized MCP HTTP service has no bearer auth or
-chart NetworkPolicy; and this follow-up did not run live hostile-repository,
-multi-repository, GitHub mutation, provider, or deployment-recovery scenarios.
-The main branch's Bubblewrap CI is useful platform evidence, but it does not
-establish kernel escape resistance or arbitrary-repository reliability.
+project OS sandbox. This follow-up adds MCP bearer authentication and a chart
+NetworkPolicy, but their cluster enforcement is pending CI and live deployment
+evidence; public TCP 443 egress is not destination-filtered. Live hostile
+repository, multi-repository, GitHub mutation, provider, and deployment-recovery
+scenarios remain to be verified. The main branch's Bubblewrap CI is useful
+platform evidence, but it does not establish kernel escape resistance or
+arbitrary-repository reliability.
 
 ## Scope and changes
 
@@ -241,13 +243,13 @@ job stress was not exercised.
 | Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
 | Python dependency audit | PASS in fresh venv; WARN in global interpreter | A clean temporary venv installed with `.[dev]` and `pip-audit --local` found no known vulnerabilities; the unpublished local project is skipped because it has no PyPI release to match. The active global interpreter audit found 91 advisory entries across 8 installed packages, including stale project transitive packages and unrelated tooling; that interpreter was not upgraded. The project does not commit a lockfile for transitive dependencies. |
 | Node tests and audit | PASS | `npm test` passed 2/2 inside AppContainer; `npm audit` found 0 vulnerabilities. The tests use in-process handlers and no sockets. |
-| GitHub Actions | PASS (static) | Temporary actionlint 1.7.12 binary passed all workflow YAML. Branch publication triggers the live CI workflow. |
+| GitHub Actions | PASS | PR #20's CI and k8s-ci checks passed: [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557149), [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Dockerfiles | PASS (static) | Temporary Hadolint 2.15.1 passed all four Dockerfiles. No Docker installation or image build was performed. |
-| Helm | PASS (static) | Helm 4.3.1 strict lint passed; render produced 14 Kubernetes objects and rendered YAML parsed. No cluster/API server was used. |
+| Helm and Kubernetes chart | PASS (hosted kind) | Helm lint, render, install, MCP bearer-auth checks, readiness, and pod-recovery smoke checks passed in [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). NetworkPolicy CNI enforcement and restricted-egress behavior were not tested; no production cluster was used. |
 | Render Blueprint | PASS (schema) | `render.yaml` conforms to the official Render JSON Schema using Draft 2020-12 validation. Render CLI was unavailable; no cloud resource was created. |
 | MCP protocol | PASS | Real stdio initialize/list-tools handshake returned protocol version 2025-11-25 and 20 tool names. No database-backed repair action was invoked. |
 | Secret scan | WARN (working tree); PASS (history) | The redacted Gitleaks working-tree scan found two matches in generated test `.pyc` files, not source or credential files. Gitleaks history scan checked 108 commits and found no leaks. No suppression was added. |
-| Kubernetes/deploy/rollback | SKIPPED | No local Docker, Kubernetes cluster, VM, or Render deployment was used. Static manifests and rollback workflow logic were reviewed; live health, logging/metrics, migrations, and rollback remain unverified. |
+| Kubernetes/deploy/rollback | PARTIAL | Ephemeral kind CI passed chart install, smoke, migration, readiness, and pod-recovery checks. Production health, monitoring, backup/restore, rollback, and CNI enforcement remain unverified. No production deployment was made. |
 
 ## Other audit findings and residual risks
 

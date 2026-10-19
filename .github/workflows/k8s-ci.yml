@@ -56,17 +56,43 @@ jobs:
         uses: azure/setup-helm@v4
 
       - name: Helm lint
-        run: helm lint deploy/helm/selfheal
+        run: helm lint deploy/helm/selfheal --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef
 
       - name: Helm template (dry-run render, catches templating errors before install)
-        run: helm template selfheal deploy/helm/selfheal --set image.tag=ci > /tmp/rendered.yaml
+        run: helm template selfheal deploy/helm/selfheal --set image.tag=ci --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef > /tmp/rendered.yaml
 
       - name: Helm install
         run: |
           set -euo pipefail
           helm install selfheal deploy/helm/selfheal \
             --wait --timeout 10m \
-            --set image.tag=ci
+            --set image.tag=ci \
+            --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef
+
+      - name: Verify MCP network policy and bearer authentication
+        run: |
+          set -euo pipefail
+          kubectl get networkpolicy selfheal-mcp
+          HEALER_POD=$(kubectl get pod -l app=selfheal-healer -o jsonpath='{.items[0].metadata.name}')
+          test "$(kubectl get networkpolicy selfheal-mcp -o jsonpath='{.spec.ingress[0].from[0].podSelector.matchLabels.app}')" = "selfheal-healer"
+          test "$(kubectl get networkpolicy selfheal-mcp -o jsonpath='{.spec.ingress[0].ports[0].port}')" = "8003"
+          kubectl exec "$HEALER_POD" -- python -c '
+          import os, urllib.error, urllib.request
+          url = os.environ["MCP_CLIENT_URL"]
+          request = urllib.request.Request(url, data=b"{}", headers={"Content-Type":"application/json"}, method="POST")
+          try:
+              urllib.request.urlopen(request, timeout=5)
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 401, f"expected unauthenticated MCP request to return 401, got {exc.code}"
+          else:
+              raise AssertionError("unauthenticated MCP request unexpectedly succeeded")
+          request.add_header("Authorization", "Bearer " + os.environ["MCP_AUTH_TOKEN"])
+          try:
+              urllib.request.urlopen(request, timeout=5)
+          except urllib.error.HTTPError as exc:
+              assert exc.code != 401, f"valid MCP bearer token was rejected: {exc.code}"
+          print("MCP bearer authentication passed")
+          '
 
       - name: Wait for the migration Job to complete
         run: |

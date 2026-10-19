@@ -298,6 +298,9 @@ async def run_claude_cli(
         for key, value in sanitized_subprocess_env().items()
         if key.upper() not in _STRIPPED_ANTHROPIC_ENV_VARS
     }
+    if settings.mcp_auth_token:
+        env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
+    env["MCP_CLIENT_URL"] = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
     subprocess_kwargs: dict[str, Any] = {
         "cwd": str(cwd),
         "env": env,

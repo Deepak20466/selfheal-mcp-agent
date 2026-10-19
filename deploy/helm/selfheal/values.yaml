@@ -47,6 +47,8 @@ env:
   anthropicBaseUrl: "http://127.0.0.1:9"
   githubToken: "ci-dummy-token"
   githubRepo: "owner/repo"
+  # Must be overridden with a unique random secret for every installation.
+  mcpAuthToken: ""
   sessionSecret: "ci-only-session-secret-not-a-real-secret"
   healerWebhookSecret: "ci-only-webhook-secret-not-a-real-secret"
   sentinelIngestToken: "ci-only-ingest-token"

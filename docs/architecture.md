@@ -108,12 +108,16 @@ not place the provider CLI inside AppContainer or Bubblewrap, and the POSIX
 descendant integration test passed on Ubuntu 22.04 in PR #19 CI. This is
 hosted-runner integration evidence, not a kernel-escape assessment.
 
-The native MCP HTTP listener defaults to loopback. The Docker image changes
-the bind address to `0.0.0.0`, and the Helm chart exposes it as a ClusterIP
-service without MCP bearer authentication or a NetworkPolicy. It is therefore
-not internet-published by the chart, but any pod that can reach the service
-can invoke MCP tools. Treat the cluster network as trusted until an
-authenticated transport or verified network policy restricts that path.
+The native MCP HTTP listener defaults to loopback. When HTTP authentication
+is configured, the `/mcp` endpoint requires a bearer token of at least 32
+characters; a non-loopback listener refuses to start without that token. The
+Helm chart requires the token through a Kubernetes Secret and deploys a
+NetworkPolicy that accepts MCP traffic only from healer pods. Its egress
+allows PostgreSQL, cluster DNS, and public TCP 443 while excluding private,
+link-local, and reserved IPv4 ranges. That HTTPS rule still permits connections
+to arbitrary public hosts, so it is not a destination allowlist or a complete
+data-exfiltration boundary. Kubernetes CNI enforcement and a cluster deployment
+have not yet been verified in this audit.
 
 The MCP server's Git metadata operations use direct, fixed argument lists and
 filtered Git environments rather than shell commands. Blame/log, patch

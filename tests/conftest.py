@@ -416,6 +416,12 @@ def fake_git_remote() -> Generator[str, None, None]:
             check=True,
             capture_output=True,
         )
+        subprocess.run(
+            ["git", "push", remote_name, "HEAD:refs/heads/main"],
+            cwd=str(REPO_ROOT),
+            check=True,
+            capture_output=True,
+        )
         try:
             yield remote_name
         finally:

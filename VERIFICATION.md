@@ -69,33 +69,33 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Linux Bubblewrap sandbox and POSIX process cleanup | PASS (PR #19 CI) | Ubuntu 22.04 installed Bubblewrap and passed namespace preflight; `tests/test_cli_process_tree.py` passed both tests in the [PR CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). This is hosted-runner integration evidence, not a kernel-escape assessment. |
 | MCP credential-path filtering | PASS (known filenames only) | Full local suite passed. Filtering does not identify secrets in arbitrary filenames or ordinary source text. |
 | Provider CLI OS containment | FAIL / unverified | Codex/Claude/Gemini orchestration processes are not wrapped in the project's OS sandbox; provider-specific isolation is not independently proven. |
-| MCP HTTP authentication and network policy | FAIL | Container configuration binds beyond loopback; the cluster service is internal, but no MCP bearer authentication or Kubernetes NetworkPolicy is configured. |
+| MCP HTTP authentication and network policy | PASS (hosted chart/auth check; enforcement limited) | Hosted k8s CI observed 401 without a token and a non-401 MCP response with the configured token, and checked the healer-only ingress selector and MCP port. Actual CNI enforcement and egress destinations were not tested. Public TCP 443 remains broad. [Run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Prompt injection / malicious repository instructions | SKIPPED (live) | Unit-level untrusted-data and patch-guard tests exist; no adversarial live provider run was performed. |
-| GitHub live repair workflow / rate limits | SKIPPED | Mock/local-bare-repository tests only. No disposable external repository writes were authorized for this security review. |
+| GitHub live repair workflow / rate limits | SKIPPED | Mock/local-bare-repository tests only. |
 | Independent repository reliability | SKIPPED | The 20-case benchmark uses one synthetic repository, not three independent repositories. |
 | Provider validation | PARTIAL | Codex fixed-fixture benchmark passed 20/20 previously. Claude is unauthenticated, Gemini CLI is unavailable, and live API providers were not tested. |
 | Deployment, health, backup/restore, rollback | SKIPPED | Static configuration checks only; no infrastructure or production database was used. |
-| Full PostgreSQL-backed suite (this branch) | PASS | Windows local: 656 passed, 7 skipped, 3 warnings in 642.46 seconds using disposable PostgreSQL 16.2. Ubuntu PR CI: 658 passed, 5 skipped, 3 warnings in 86.66 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). |
-| Production decision for unattended arbitrary-repository repair | **NO-GO** | Critical provider and MCP transport boundaries are unverified or absent, and live hostile-repository end-to-end evidence is missing. |
+| Full PostgreSQL-backed suite (this branch) | PASS | Windows, isolated PostgreSQL 16.2: 667 passed, 6 skipped, 3 warnings in 782.21 seconds. No Docker or host database installation. |
+| Production decision for unattended arbitrary-repository repair | **NO-GO** | Provider CLI OS containment remains unimplemented; live adversarial, multi-repository, GitHub mutation and deployment evidence is incomplete. MCP chart enforcement awaits hosted CI and live cluster validation. |
 
 ## Result matrix
 
 | Check | Status | Result |
 |---|---|---|
 | Ruff lint | PASS | `python -m ruff check .` |
-| Ruff formatting | PASS | `python -m ruff format --check .`; 220 files already formatted |
-| Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
-| Full pytest suite | PASS (current branch and merged main) | This branch: Ubuntu 22.04 GitHub-hosted PostgreSQL, 658 passed, 5 skipped, 3 warnings in 86.66 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). Windows local: 656 passed, 7 skipped, 3 warnings in 642.46 seconds. Merged-main CI: 634 passed, 4 skipped, 3 warnings; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454). |
+| Ruff formatting | PASS | `python -m ruff format --check .`; 222 files already formatted |
+| Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 88 source files |
+| Full pytest suite | PASS (this branch) | Windows, isolated PostgreSQL 16.2: 667 passed, 6 skipped, 3 warnings in 782.21 seconds. Merged-main CI before this branch: 634 passed, 4 skipped, 3 warnings; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39210118431). |
 | Post-suite PostgreSQL smoke | PASS | After setting Alembic `path_separator = os`, the database helper ran migrations and 3 focused tests passed with no startup deprecation warning. |
 | PostgreSQL migrations and integration | PASS | Fresh PostgreSQL 16.2 cluster; migrations 0001–0007 applied, demo seed completed, separate `selfheal_app` and `selfheal_test` databases |
 | Pytest skips | SKIPPED | Linux Bubblewrap integration and venv-only Windows sandbox integration are unavailable in this base-Python Windows run; one capture case skips because its seeded bug is already fixed |
 | Pytest warnings | WARN | Three `getpass` terminal echo warnings from mocked CLI login tests; no assertion failures |
-| Python dependency audit | PASS in fresh venv; WARN in global interpreter | Fresh venv installed with `.[dev]`; `pip-audit --local` found no known vulnerabilities. The active global interpreter audit found 91 advisory entries across 8 installed packages and was not upgraded. |
-| Node example tests | PASS | `npm test` passed 2/2 inside Windows AppContainer; tests use in-process handlers and no sockets |
+| Python dependency audit | PASS | Upgraded only the isolated test venv to pip 26.2.1; `pip-audit --local` found no known vulnerabilities. The repository package is local and not published to PyPI. |
+| Node example tests | PASS | `npm ci --ignore-scripts` followed by `npm test` passed 2/2; `npm audit` found 0 vulnerabilities. |
 | npm audit | PASS | 0 known vulnerabilities |
-| Actionlint | PASS | Temporary checksum-verified actionlint 1.7.12 checked all workflow YAML; branch push triggers automatic CI |
+| GitHub Actions | PASS | Both required PR checks passed: [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557149) and [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Hadolint | PASS | Temporary checksum-verified Hadolint 2.15.1 checked all four Dockerfiles |
-| Helm | PASS (static) | Temporary Helm 4.3.1 strict chart lint; render produced 14 objects and rendered YAML parsed |
+| Helm and Kubernetes chart | PASS (hosted kind) | Helm lint, render, install, migration/readiness checks, MCP auth check, and recovery smoke tests passed in ephemeral kind. No production cluster was used; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
 | Render Blueprint | PASS (schema) | Official Render JSON Schema validation passed; Render CLI unavailable and no service created |
 | MCP stdio protocol | PASS | Initialize/list-tools handshake; protocol 2025-11-25 and 20 tools |
 | Windows sandbox boundaries | PASS | AppContainer/Job Object tests blocked outside filesystem access, loopback, inherited secrets, common credential files, and `.git`; tested process limits, timeout cleanup, and read-only trusted runtime access |
@@ -104,7 +104,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Linux sandbox | PASS (PR #19 CI) | Ubuntu 22.04 Bubblewrap install and namespace preflight passed; Linux sandbox boundary tests and the new process-group descendant integration passed in [PR CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). |
 | Node runtime in sandbox | PASS (limited) | `node -e` ran inside AppContainer |
 | npm in Windows sandbox | PASS (limited) | Node and npm were staged in the workspace; `npm test` passed 2 tests. Node `--test` worker mode timed out, so the example script runs its `node:test` file directly. |
-| Gitleaks current workspace | WARN | Two redacted matches in generated test bytecode; no suppression was added. |
+| Gitleaks current workspace | WARN | Two redacted matches in generated test bytecode containing test mock strings; no source-file matches and no suppression was added. |
 | Gitleaks history | PASS | 108 commits scanned; no leaks found |
 | Benchmark fixture | PASS | All 20 broken baseline tests failed; all 20 passed after applying the separate reference patch |
 | Live Codex AI benchmark | PASS (fixture scope) | 20/20 diagnoses and 20/20 final repairs passed; S20 used one regression retry. This fixed benchmark does not demonstrate arbitrary-repository reliability. |
@@ -203,10 +203,10 @@ provider-level controls, and only Codex was used live. Fixed host-side Git
 metadata and patch operations use direct argv, filtered Git environments,
 and timeouts, but still parse repository data outside the OS sandbox.
 
-GitHub automation was tested with mocks and a local bare repository; no live
-GitHub changes were made. Dockerfiles, Helm, Actions, and Render configuration
-received static validation. Image builds, Kubernetes API validation, live
-health checks, deployment, and rollback were not run.
+The application-driven repair-to-PR workflow was not run against GitHub. The
+hardening branch itself was published as PR #20, whose CI and ephemeral kind
+checks passed. No production deployment, live CNI enforcement test, health
+monitoring, backup/restore, or rollback was performed.
 
 ## Readiness
 
@@ -215,11 +215,10 @@ but it is **not production-ready for unattended repair of arbitrary
 repositories**. The fixed-set benchmark covers 20 seeded failures in one
 synthetic repository, not three independent repositories. Provider CLI
 filesystem and process isolation remain unverified; host-side Git control
-operations are not OS-sandboxed; MCP HTTP is unauthenticated inside the
-container cluster; and live hostile-repository repair, provider recovery,
-rate-limit recovery, deployment health, and rollback were not verified in
-this follow-up. The global developer interpreter had stale vulnerable
-packages in the prior audit. The current-tree Gitleaks matches were limited
+operations are not OS-sandboxed; public HTTPS egress is not destination-filtered;
+and live hostile-repository repair, provider recovery, rate-limit recovery,
+deployment health, and rollback were not verified in this follow-up. The
+current-tree Gitleaks matches were limited
 to generated test bytecode and were not suppressed in the earlier scan.
 
 See [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md) for source changes,

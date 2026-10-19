@@ -156,7 +156,7 @@ async def run_heal_job(
 
     worktree_name = f"heal-{job_id}"
     branch = branch_name_for(fingerprint, job_id)
-    worktree_path = await create_worktree(worktree_name, branch)
+    worktree_path = await create_worktree(worktree_name, branch, remote=remote)
 
     attempts_summaries: list[str] = []
     previous_summary: str | None = None

@@ -2,7 +2,10 @@
   "mcpServers": {
     "selfheal": {
       "type": "http",
-      "url": "http://127.0.0.1:8003/mcp"
+      "url": "${MCP_CLIENT_URL:-http://127.0.0.1:8003/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${MCP_AUTH_TOKEN:-}"
+      }
     }
   }
 }

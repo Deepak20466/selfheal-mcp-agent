@@ -217,6 +217,7 @@ async def test_run_codex_cli_writes_selfheal_only_mcp_config(
     cleanup happens.
     """
     captured: dict[str, str] = {}
+    monkeypatch.setattr(core_settings, "mcp_auth_token", "unit-test-mcp-token-0123456789abcdef")
 
     @dataclass
     class _CapturingFakeExec(_FakeExec):
@@ -233,6 +234,8 @@ async def test_run_codex_cli_writes_selfheal_only_mcp_config(
     config_text = captured["config_text"]
     assert "[mcp_servers.selfheal]" in config_text
     assert f"http://127.0.0.1:{core_settings.mcp_port}/mcp" in config_text
+    assert 'env_http_headers = { Authorization = "MCP_AUTH_TOKEN" }' in config_text
+    assert "unit-test-mcp-token" not in config_text
     assert 'sandbox_mode = "read-only"' in config_text
     assert 'approval_policy = "never"' in config_text
 

@@ -94,9 +94,9 @@ If live provider or CI latency exceeds the target, preserve the real sequence an
 
 ## Recording setup
 
-No full-flow recording has been made because a screen recorder and video encoder are not available in the current environment. Use a screen recorder such as OBS Studio when recording is available:
+No full-flow recording has been made. This execution environment cannot control the Windows desktop or start/stop a screen recorder. The simplest local method is Windows Snipping Tool: press **Windows+Shift+R**, select the terminal/browser region, start recording, then stop with the Snipping Tool toolbar. Save the actual MP4 and review it before publishing:
 
-- Capture the terminal and GitHub PR in a 1920×1080, 30 fps recording; use a second display or window capture for the browser.
+- Capture the terminal and GitHub PR in 1920×1080; use a second display or record the browser segment separately if region selection cannot include both.
 - Disable desktop notifications and close unrelated tabs. Do not display `.env`, password prompts, token settings, browser profiles, personal email, or local absolute paths.
 - Keep `AUTO_MERGE=false`; do not merge the demo PR. Do not record real credentials or personal information.
 - Review the final export frame by frame and scan terminal text before uploading. Upload the actual full-flow MP4 to the repository's `docs/` folder, then replace the short-clip note and thumbnail link in `README.md` with that real file. Do not add a placeholder or invented external URL.

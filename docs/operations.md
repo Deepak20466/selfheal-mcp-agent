@@ -86,3 +86,13 @@ For connecting any-language apps and adding telemetry, follow [onboarding.md](on
 The test suite uses `TEST_DATABASE_URL`, not `DATABASE_URL`. Keep it pointed at a throwaway database. For the full PostgreSQL reproduction, exact skips, and dated results, see [VERIFICATION.md](../VERIFICATION.md). No Docker installation is required for the local process path.
 
 The repository also has Docker images and a Helm chart. Their Kubernetes workflow runs in GitHub Actions; this does not mean a local Kubernetes cluster or production deployment was verified. See [VERIFICATION.md](../VERIFICATION.md) for current coverage and limits.
+
+For Helm installs, set `env.mcpAuthToken` to a random value with at least 32
+characters. The chart stores it in a Kubernetes Secret and gives the same
+secret to the MCP server and healer. The chart's MCP NetworkPolicy accepts
+connections only from healer pods; MCP egress allows PostgreSQL, cluster DNS,
+and public TCP 443 while excluding private and reserved IPv4 ranges. Public
+HTTPS destinations are not allowlisted, and actual enforcement depends on the
+cluster's CNI plugin. See [architecture.md](architecture.md#trust-boundaries)
+for the limits of this boundary. Avoid placing the token in shell history or
+process arguments; supply it through your secret-management workflow.

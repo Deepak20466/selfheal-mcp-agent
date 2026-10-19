@@ -135,7 +135,7 @@ from mcp_server.sandbox import REPO_ROOT
 logger = structlog.get_logger(__name__)
 
 MAX_ATTEMPTS = 3
-_MCP_HTTP_URL = f"http://127.0.0.1:{settings.mcp_port}/mcp"
+_MCP_HTTP_URL = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
 
 # Codex authenticates via its own ChatGPT/API-key login; these are every
 # *other* backend's credential-style env var, stripped so a machine
@@ -194,6 +194,8 @@ def _codex_config_dir(mcp_config_dir: Path) -> None:
         f"[mcp_servers.selfheal]\n"
         f'url = "{_MCP_HTTP_URL}"\n'
     )
+    if settings.mcp_auth_token:
+        config_toml += 'env_http_headers = { Authorization = "MCP_AUTH_TOKEN" }\n'
     (mcp_config_dir / "config.toml").write_text(config_toml, encoding="utf-8")
 
 
@@ -244,6 +246,9 @@ async def run_codex_cli(
 
         rest_args = ["exec", "-", "--json", "--ephemeral", "-c", f"max_turns={turns}"]
         env = strip_env_vars(_STRIPPED_ENV_VARS, allow_secret_names=frozenset({"OPENAI_API_KEY"}))
+        if settings.mcp_auth_token:
+            env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
+        env["MCP_CLIENT_URL"] = _MCP_HTTP_URL
         env["CODEX_HOME"] = str(codex_home)
         subprocess_kwargs: dict[str, Any] = {
             "cwd": str(cwd),
