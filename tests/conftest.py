@@ -110,6 +110,30 @@ os.environ["DATABASE_URL"] = _test_database_url()
 os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-mock-do-not-use"
 os.environ["GITHUB_TOKEN"] = "github_pat_test-mock-do-not-use"
 os.environ["GITHUB_REPO"] = "test-org/test-repo"
+# Keep all mocked integration repositories inside an explicit test-only list.
+# This prevents a local `.env` allowlist from blocking fakes while retaining
+# the production behavior that rejects repositories outside the configured
+# list. Tests for the single-repository fallback override this setting directly.
+os.environ["GITHUB_ALLOWED_REPOSITORIES"] = ",".join(
+    (
+        "test-org/test-repo",
+        "acme/repo",
+        "acme/self-healing",
+        "acme/onboard",
+        "acme/heavy",
+        "acme/suggest",
+        "acme/some-app",
+        "acme/testapp",
+        "acme/mono",
+        "owner/repo",
+        "o/r",
+        "someone/their-repo",
+        "example/scratch",
+        "someone/public-repo",
+        "someone/readonly-repo",
+        "someone/no-perms-repo",
+    )
+)
 # gemini_api/groq_api (terminal-only v1.0 Step 4): same principle -- a real
 # key in the ambient .env/shell must never let a test reach the real Gemini/
 # Groq HTTP APIs. AI_CHAIN/CHAT_CHAIN are also cleared so a real .env's chain

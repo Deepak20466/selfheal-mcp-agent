@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) is open and requires review. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) is open and requires review. The repository-authorization follow-up is on feature branch `security/production-readiness-2026-10-19`, based on PR #23; its PR and hosted checks are pending. No production deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -18,6 +18,31 @@ The post-merge [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/action
 passed. The post-merge [Calico-backed Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386387)
 passed, and the [deploy workflow](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386390)
 completed with deployment steps skipped. No production deployment occurred.
+
+## Repository authorization follow-up — 2026-10-19
+
+Feature branch `security/production-readiness-2026-10-19` is stacked on PR #23.
+It adds an exact, case-insensitive `GITHUB_ALLOWED_REPOSITORIES` list, with
+`GITHUB_REPO` as the single-repository fallback, and mints GitHub App tokens
+with the minimum mapped permission for each REST operation. Unmapped API
+operations fail closed. The GitHub App token response is checked for the exact
+repository and requested permissions. This narrows authorization and token
+scope; it does not create a separate Git control-plane service. The chart still
+provides GitHub App credentials to the healer and MCP workloads.
+
+The full Windows suite passed against disposable PostgreSQL 16.2:
+**720 passed, 8 skipped, 3 `getpass` warnings in 712.03 seconds**. Ruff lint,
+format checking, strict mypy (**88 source files**), and `git diff --check`
+passed. A temporary clean venv dependency audit reported no known
+vulnerabilities among installed dependencies; the unpublished local package
+was skipped. Node tests passed **2/2** and `npm audit` found **0
+vulnerabilities**. Helm lint and template/YAML rendering passed for **27
+objects**. Hosted CI for this branch is pending publication.
+
+Provider CLI execution remains fail-closed. No provider isolation test, live
+repair-to-PR run, three-repository trial, GCP resource creation, deployment,
+production monitoring, database backup/restore, or rollback was performed.
+PR #23 remains open and requires review; neither PR is merged by this work.
 
 Security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23)
 is open, unmerged, and requires review. The verified source commit is
