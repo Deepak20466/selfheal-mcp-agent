@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -188,6 +190,34 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
 ) -> None:
     if os.geteuid() == 0 or not shutil.which("bwrap"):
         pytest.skip("Bubblewrap requires a non-root worker and an installed bwrap binary")
+
+    probe = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "bwrap",
+            "--unshare-all",
+            "--die-with-parent",
+            "--new-session",
+            "--ro-bind",
+            "/usr",
+            "/usr",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--",
+            "true",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if probe.returncode:
+        details = (probe.stderr or probe.stdout).strip()[-500:]
+        if "operation not permitted" in details.lower() or "permission denied" in details.lower():
+            pytest.skip(f"Bubblewrap namespaces unavailable in this runner: {details}")
+        pytest.fail(f"Bubblewrap preflight failed unexpectedly: {details}")
 
     source = tmp_path / "repo"
     source.mkdir()
