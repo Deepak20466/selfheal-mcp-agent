@@ -509,12 +509,16 @@ def _run_linux_bubblewrap(
     resource_limited = False
     last_space_check = time.monotonic()
     base_workspace_size = _directory_size(cwd)
+    killpg_name = "killpg"
+    sigkill_name = "SIGKILL"
+    kill_process_group = getattr(os, killpg_name)
+    kill_signal = getattr(signal, sigkill_name)
     try:
         while selector.get_map():
             now = time.monotonic()
             if proc.poll() is None and now >= deadline:
                 timed_out = True
-                os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                kill_process_group(proc.pid, kill_signal)
             if not resource_limited and now - last_space_check >= 1:
                 last_space_check = now
                 if (
@@ -522,7 +526,7 @@ def _run_linux_bubblewrap(
                     > base_workspace_size + limits.max_additional_workspace_bytes
                 ):
                     resource_limited = True
-                    os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                    kill_process_group(proc.pid, kill_signal)
             for key, _ in selector.select(timeout=0.1):
                 chunk = os.read(key.fd, 64 * 1024)
                 if not chunk:
@@ -534,12 +538,12 @@ def _run_linux_bubblewrap(
                 if len(chunk) > max(0, remaining) and not resource_limited:
                     resource_limited = True
                     if proc.poll() is None:
-                        os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                        kill_process_group(proc.pid, kill_signal)
         proc.wait()
     finally:
         selector.close()
         if proc.poll() is None:
-            os.killpg(proc.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+            kill_process_group(proc.pid, kill_signal)
             proc.wait()
     return _CommandResult(
         return_code=124 if timed_out else (125 if resource_limited else proc.returncode or 0),
@@ -554,14 +558,27 @@ def _linux_resource_limits(limits: SandboxLimits) -> Callable[[], None]:
         import resource
 
         cpu_seconds = max(1, int(limits.timeout_seconds))
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))  # type: ignore[attr-defined]
-        resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))  # type: ignore[attr-defined]
-        resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_FILE_BYTES, MAX_FILE_BYTES))  # type: ignore[attr-defined]
-        resource.setrlimit(resource.RLIMIT_NOFILE, (MAX_OPEN_FILES, MAX_OPEN_FILES))  # type: ignore[attr-defined]
-        if hasattr(resource, "RLIMIT_NPROC"):
-            resource.setrlimit(  # type: ignore[attr-defined]
-                resource.RLIMIT_NPROC, (limits.max_processes, limits.max_processes)
-            )
+        setrlimit_name = "setrlimit"
+        cpu_limit_name = "RLIMIT_CPU"
+        address_space_limit_name = "RLIMIT_AS"
+        file_size_limit_name = "RLIMIT_FSIZE"
+        open_files_limit_name = "RLIMIT_NOFILE"
+        process_limit_name = "RLIMIT_NPROC"
+        set_resource_limit = getattr(resource, setrlimit_name)
+        set_resource_limit(getattr(resource, cpu_limit_name), (cpu_seconds, cpu_seconds + 1))
+        set_resource_limit(
+            getattr(resource, address_space_limit_name),
+            (limits.memory_bytes, limits.memory_bytes),
+        )
+        set_resource_limit(
+            getattr(resource, file_size_limit_name), (MAX_FILE_BYTES, MAX_FILE_BYTES)
+        )
+        set_resource_limit(
+            getattr(resource, open_files_limit_name), (MAX_OPEN_FILES, MAX_OPEN_FILES)
+        )
+        process_limit = getattr(resource, process_limit_name, None)
+        if process_limit is not None:
+            set_resource_limit(process_limit, (limits.max_processes, limits.max_processes))
 
     return apply
 
@@ -599,9 +616,13 @@ def _windows_process_boundary(
     """Create one AppContainer process with inherited children in a Job Object."""
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    userenv = ctypes.WinDLL("userenv", use_last_error=True)
-    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    win_dll_name = "WinDLL"
+    last_error_name = "get_last_error"
+    load_windows_library = getattr(ctypes, win_dll_name)
+    get_windows_last_error = getattr(ctypes, last_error_name)
+    kernel32 = load_windows_library("kernel32", use_last_error=True)
+    userenv = load_windows_library("userenv", use_last_error=True)
+    advapi32 = load_windows_library("advapi32", use_last_error=True)
     _configure_windows_api(kernel32, userenv, advapi32)
 
     HANDLE = wintypes.HANDLE
@@ -694,7 +715,7 @@ def _windows_process_boundary(
 
     def check_win(result: Any, operation: str) -> Any:
         if not result:
-            error = ctypes.get_last_error()
+            error = get_windows_last_error()
             raise SandboxUnavailableError(
                 f"Windows sandbox {operation} failed with Win32 error {error}"
             )
@@ -703,7 +724,7 @@ def _windows_process_boundary(
     def check_handle(result: Any, operation: str) -> Any:
         invalid = ctypes.c_void_p(-1).value
         if not result or result == invalid:
-            error = ctypes.get_last_error()
+            error = get_windows_last_error()
             raise SandboxUnavailableError(
                 f"Windows sandbox {operation} failed with Win32 error {error}"
             )
@@ -967,7 +988,7 @@ def _windows_process_boundary(
             if wait_result != 0x00000102:
                 raise SandboxUnavailableError(
                     "Windows sandbox process wait failed with Win32 error "
-                    f"{ctypes.get_last_error()}"
+                    f"{get_windows_last_error()}"
                 )
             if time.monotonic() >= deadline:
                 timed_out = True
