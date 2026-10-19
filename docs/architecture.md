@@ -114,13 +114,16 @@ connection receives a short-lived HMAC-signed capability instead of the
 healer's bearer token. The capability expires within 15 minutes and limits
 calls to diagnosis, source inspection, sandboxed tests, and patch proposals for
 the caller's heal job and worktree. A CI repair may rerun only its recorded
-workflow run, at most once per live MCP process. The nonce replay cache is
-in-memory and resets on process restart, so durable single-use behavior is not
-established. Rollback, cancellation, other workflow mutations, and PR creation
-are not provider capabilities. MCP checks these limits on every HTTP request,
-including tool name, job, worktree, and run ID. These authorization checks
-reduce the provider's MCP authority; they do not contain the provider process
-or its network traffic, so the OS execution gate remains necessary.
+workflow run, at most once across MCP processes. PostgreSQL atomically claims
+the signed token nonce before the rerun reaches the tool; the claim survives
+process restarts and duplicate requests fail closed. If the database is
+unavailable, the rerun request is rejected. A claimed token stays consumed if
+the downstream operation fails, so this is at-most-once behavior rather than a
+retry guarantee. Rollback, cancellation, other workflow mutations, and PR
+creation are not provider capabilities. MCP checks these limits on every HTTP
+request, including tool name, job, worktree, and run ID. These authorization
+checks reduce the provider's MCP authority; they do not contain the provider
+process or its network traffic, so the OS execution gate remains necessary.
 
 The trusted healer and MCP workloads still hold GitHub App credentials for
 control-plane work. Repository test subprocesses do not inherit those values

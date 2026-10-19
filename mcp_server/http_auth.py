@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 import json
-import time
+import logging
+from datetime import UTC, datetime
 
+from sqlalchemy import delete
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from core.db import session_scope
+from core.models import ProviderTokenUse
 from core.provider_auth import (
     MAX_PROVIDER_MCP_BODY_BYTES,
     provider_request_allowed,
@@ -16,12 +20,49 @@ from core.provider_auth import (
     verify_provider_token,
 )
 
+logger = logging.getLogger(__name__)
+
+
+async def claim_provider_rerun_token(claims: dict[str, object]) -> bool:
+    """Atomically claim a provider rerun token in PostgreSQL across restarts."""
+    nonce = claims.get("nonce")
+    heal_job_id = claims.get("heal_job_id")
+    run_id = claims.get("run_id")
+    expires = claims.get("exp")
+    if (
+        not isinstance(nonce, str)
+        or isinstance(heal_job_id, bool)
+        or not isinstance(heal_job_id, int)
+        or heal_job_id < 1
+        or isinstance(run_id, bool)
+        or not isinstance(run_id, int)
+        or run_id < 1
+        or isinstance(expires, bool)
+        or not isinstance(expires, int)
+    ):
+        raise ValueError("Provider rerun claims are incomplete")
+    expires_at = datetime.fromtimestamp(expires, tz=UTC)
+    now = datetime.now(UTC)
+
+    async with session_scope() as session:
+        await session.execute(delete(ProviderTokenUse).where(ProviderTokenUse.expires_at <= now))
+        statement = (
+            postgresql_insert(ProviderTokenUse)
+            .values(
+                nonce=nonce,
+                heal_job_id=heal_job_id,
+                run_id=run_id,
+                expires_at=expires_at,
+            )
+            .on_conflict_do_nothing(index_elements=[ProviderTokenUse.nonce])
+            .returning(ProviderTokenUse.nonce)
+        )
+        result = await session.execute(statement)
+        return result.scalar_one_or_none() is not None
+
 
 class MCPBearerAuthMiddleware:
     """Authenticate healer requests and constrain short-lived provider sessions."""
-
-    _rerun_lock: asyncio.Lock
-    _used_rerun_tokens: dict[str, int]
 
     async def __call__(
         self,
@@ -105,18 +146,15 @@ class MCPBearerAuthMiddleware:
             await self._reject(send, 403, "provider tool capability denied")
             return
         if provider_request_uses_tool(request_body, "rerun_workflow"):
-            nonce = str(provider_claims["nonce"])
-            async with self._rerun_lock:
-                now = int(time.time())
-                self._used_rerun_tokens = {
-                    prior_nonce: expires_at
-                    for prior_nonce, expires_at in self._used_rerun_tokens.items()
-                    if expires_at > now
-                }
-                if nonce in self._used_rerun_tokens:
-                    await self._reject(send, 403, "provider rerun capability has already been used")
-                    return
-                self._used_rerun_tokens[nonce] = int(provider_claims["exp"])
+            try:
+                claimed = await claim_provider_rerun_token(provider_claims)
+            except Exception:
+                logger.exception("Provider rerun capability could not be claimed")
+                await self._reject(send, 503, "provider rerun capability is unavailable")
+                return
+            if not claimed:
+                await self._reject(send, 403, "provider rerun capability has already been used")
+                return
 
         replayed = False
 
@@ -136,8 +174,6 @@ class MCPBearerAuthMiddleware:
         self._token = token
         self._expected = f"Bearer {token}".encode()
         self._path = path
-        self._rerun_lock = asyncio.Lock()
-        self._used_rerun_tokens: dict[str, int] = {}
 
     @staticmethod
     async def _reject(

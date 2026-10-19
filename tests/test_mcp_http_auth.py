@@ -4,8 +4,12 @@ import json
 from typing import Any
 
 import pytest
+from sqlalchemy import delete
 
+from core.db import session_scope
+from core.models import ProviderTokenUse
 from core.provider_auth import PROVIDER_ALLOWED_TOOLS, issue_provider_token
+from mcp_server import http_auth
 from mcp_server.http_auth import MCPBearerAuthMiddleware
 from mcp_server.server import validate_http_auth
 
@@ -156,7 +160,9 @@ async def test_provider_token_cannot_call_mutating_github_or_deployment_tools() 
 
 
 @pytest.mark.asyncio
-async def test_provider_rerun_capability_is_bound_to_one_ci_run() -> None:
+async def test_provider_rerun_capability_is_bound_to_one_ci_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     token = issue_provider_token(
         "unit-test-token-0123456789abcdef",
         worktree="ci-heal-27-1",
@@ -170,6 +176,11 @@ async def test_provider_rerun_capability_is_bound_to_one_ci_run() -> None:
         "method": "tools/call",
         "params": {"name": "rerun_workflow", "arguments": {"run_id": 54}},
     }
+
+    async def claim_once(_claims: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(http_auth, "claim_provider_rerun_token", claim_once)
     messages, called, _ = await _request(
         [(b"authorization", f"Bearer {token}".encode())], body=json.dumps(request).encode()
     )
@@ -185,7 +196,7 @@ async def test_provider_rerun_capability_is_bound_to_one_ci_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_rerun_capability_is_single_use() -> None:
+async def test_provider_rerun_capability_is_single_use(monkeypatch: pytest.MonkeyPatch) -> None:
     secret = "unit-test-token-0123456789abcdef"
     token = issue_provider_token(
         secret,
@@ -196,6 +207,16 @@ async def test_provider_rerun_capability_is_single_use() -> None:
     )
     calls: list[bool] = []
     statuses: list[int] = []
+    claimed_nonces: set[str] = set()
+
+    async def claim_once(claims: dict[str, object]) -> bool:
+        nonce = str(claims["nonce"])
+        if nonce in claimed_nonces:
+            return False
+        claimed_nonces.add(nonce)
+        return True
+
+    monkeypatch.setattr(http_auth, "claim_provider_rerun_token", claim_once)
 
     async def app(scope: Any, receive: Any, send: Any) -> None:
         calls.append(True)
@@ -234,6 +255,75 @@ async def test_provider_rerun_capability_is_single_use() -> None:
     await send_request()
     assert statuses == [204, 403]
     assert calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_provider_rerun_fails_closed_when_nonce_store_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = issue_provider_token(
+        "unit-test-token-0123456789abcdef",
+        worktree="ci-heal-27-1",
+        heal_job_id=27,
+        tools=PROVIDER_ALLOWED_TOOLS | {"rerun_workflow"},
+        run_id=54,
+    )
+
+    async def unavailable(_claims: dict[str, object]) -> bool:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(http_auth, "claim_provider_rerun_token", unavailable)
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "rerun_workflow", "arguments": {"run_id": 54}},
+        }
+    ).encode()
+    messages, called, _ = await _request(
+        [(b"authorization", f"Bearer {token}".encode())], body=body
+    )
+    assert messages[0]["status"] == 503
+    assert not called
+
+
+@pytest.mark.asyncio
+async def test_provider_rerun_claim_persists_across_middleware_instances() -> None:
+    secret = "unit-test-token-0123456789abcdef"
+    token = issue_provider_token(
+        secret,
+        worktree="ci-heal-27-1",
+        heal_job_id=27,
+        tools=PROVIDER_ALLOWED_TOOLS | {"rerun_workflow"},
+        run_id=54,
+    )
+    claims = http_auth.verify_provider_token(token, secret)
+    assert claims is not None
+    nonce = str(claims["nonce"])
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "rerun_workflow", "arguments": {"run_id": 54}},
+        }
+    ).encode()
+
+    try:
+        first, first_called, _ = await _request(
+            [(b"authorization", f"Bearer {token}".encode())], body=body
+        )
+        second, second_called, _ = await _request(
+            [(b"authorization", f"Bearer {token}".encode())], body=body
+        )
+        assert first[0]["status"] == 204
+        assert first_called == [True]
+        assert second[0]["status"] == 403
+        assert not second_called
+    finally:
+        async with session_scope() as session:
+            await session.execute(delete(ProviderTokenUse).where(ProviderTokenUse.nonce == nonce))
 
 
 @pytest.mark.asyncio

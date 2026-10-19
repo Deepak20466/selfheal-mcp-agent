@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted `test` and `k8s` checks are queued. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its CI and Calico checks passed on `0e194dd`. The durable PostgreSQL rerun-claim change added after that run awaits hosted validation. No production deployment occurred.
 
 ## Provider MCP capability follow-up — PR #25, 2026-10-19
 
@@ -10,17 +10,20 @@ Branch `feature/provider-mcp-capability-2026-10-19` (source commit
 [`fb1597c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/fb1597cd10babe6c402c63d2e02ca9eb006c6156)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
-worktree. CI repair tokens may rerun only the associated workflow run, at most
-once per live MCP process. The replay cache is in-memory and resets on process
-restart, so durable single-use behavior is not established.
+worktree. CI repair tokens may rerun only the associated workflow run. A
+PostgreSQL unique nonce claim enforces at-most-once use across MCP processes;
+the request fails closed when that store is unavailable. A claim remains
+consumed if the downstream operation fails, so retries require a new token.
 Provider CLIs no longer receive the healer's full MCP bearer token or GitHub
 App private key in their environment/config. The MCP server enforces these
 limits on HTTP requests. The regular developer `.mcp.json` configuration is
 unchanged.
 
-Focused provider checks passed: **52 passed** across MCP auth/provider-gate
-tests and Codex, Claude Code, and Gemini launcher tests. The wider offline
-security subset passed **63 tests** with **3 skipped**. Full-repository Ruff
+Focused provider checks passed: **53 passed** across MCP auth/provider-gate
+tests and Codex, Claude Code, and Gemini launcher tests; the Postgres-backed
+rerun-claim integration case was excluded locally because no database is
+available. The wider offline security subset passed **64 tests** with **3
+skipped**. Full-repository Ruff
 lint and formatting passed; full CI-scope mypy passed for **89 Python files**.
 The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities**.
 The 20-scenario fixture validator passed: all broken baselines failed and all
@@ -30,7 +33,8 @@ here. No local PostgreSQL or Docker installation, provider call, GitHub repair
 operation, cloud resource, or deployment was made.
 
 PR #25 is open against PR #24's branch. Its hosted CI and Calico-backed
-Kubernetes workflows were queued when this report was updated.
+Kubernetes checks passed on docs-only head `0e194dd`; the PostgreSQL-backed
+rerun-claim integration test added afterward is still awaiting hosted CI.
 
 This is an authorization boundary improvement, not provider process isolation.
 The provider CLI gate still fails closed; no live repair-to-PR flow, three

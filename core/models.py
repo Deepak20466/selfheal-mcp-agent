@@ -3,7 +3,7 @@
 Table-by-table mapping to the spec:
   errors, error_occurrences, contract_violations, heal_jobs, fix_attempts,
   pipeline_runs, deployments, chat_sessions, chat_messages, rate_limits,
-  login_attempts, daily_spend, anomalies, audit_log.
+  login_attempts, daily_spend, anomalies, audit_log, provider_token_uses.
 
 Design notes (documented per SPEC.md's "pick the simplest robust option"):
   - All primary keys are `BigInteger` identity columns; the system has no
@@ -585,3 +585,16 @@ class AuditLog(TimestampMixin, Base):
         Index("ix_audit_log_action", "action"),
         Index("ix_audit_log_created_at", "created_at"),
     )
+
+
+class ProviderTokenUse(TimestampMixin, Base):
+    """Durable claims for one-time provider capabilities with external effects."""
+
+    __tablename__ = "provider_token_uses"
+
+    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
+    heal_job_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    run_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_provider_token_uses_expires_at", "expires_at"),)
