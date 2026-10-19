@@ -417,7 +417,17 @@ def _run_linux_bubblewrap(
     merge_stderr: bool,
     read_only_paths: Sequence[Path] = (),
 ) -> _CommandResult:
-    bubblewrap = shutil.which("bwrap")
+    # Resolve Bubblewrap only from root-owned system package locations. A
+    # caller-controlled PATH must not be able to substitute the executable
+    # that establishes the security boundary.
+    bubblewrap = next(
+        (
+            str(candidate)
+            for candidate in (Path("/usr/bin/bwrap"), Path("/bin/bwrap"))
+            if candidate.is_file() and os.access(candidate, os.X_OK)
+        ),
+        None,
+    )
     if not bubblewrap:
         raise SandboxUnavailableError("Bubblewrap (bwrap) is required; refusing native execution")
     if not hasattr(os, "geteuid") or os.geteuid() == 0:
@@ -511,6 +521,7 @@ def _run_linux_bubblewrap(
     if proc.stderr is not None:
         selector.register(proc.stderr, selectors.EVENT_READ)
     output = bytearray()
+    captured_bytes = 0
     deadline = time.monotonic() + limits.timeout_seconds
     timed_out = False
     resource_limited = False
@@ -539,8 +550,12 @@ def _run_linux_bubblewrap(
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
-                remaining = output_limit - len(output)
-                if remaining > 0:
+                remaining = output_limit - captured_bytes
+                captured_bytes += len(chunk)
+                # When stdout and stderr are requested separately, stdout is
+                # the machine-readable result (for example audit JSON). Drain
+                # stderr to avoid pipe deadlocks, but keep it out of output.
+                if key.fileobj is proc.stdout and remaining > 0:
                     output.extend(chunk[:remaining])
                 if len(chunk) > max(0, remaining) and not resource_limited:
                     resource_limited = True

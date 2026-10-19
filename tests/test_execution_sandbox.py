@@ -250,6 +250,7 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
     script = source / "probe.py"
     outside_secret = tmp_path / "outside-secret.txt"
     outside_marker = tmp_path / "outside-marker.txt"
+    child_marker = f"selfheal-bwrap-child-{tmp_path.name}"
     outside_secret.write_text("host-only-secret", encoding="utf-8")
     monkeypatch.setenv("SELFHEAL_SANDBOX_TEST_SECRET", "host-only-secret")
 
@@ -286,8 +287,13 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
             "    and limits['file'] <= int(sys.argv[6])\n"
             "    and limits['processes'] <= int(sys.argv[7])\n"
             ")\n"
-            "child = subprocess.Popen(['sleep', '30'])\n"
-            "payload = {'checks': checks, 'limits': limits, 'child_pid': child.pid}\n"
+            "child = subprocess.Popen(\n"
+            "    [sys.executable, '-c', 'import time; time.sleep(30)', sys.argv[8]]\n"
+            ")\n"
+            "payload = {\n"
+            "    'checks': checks, 'limits': limits,\n"
+            "    'child_marker': sys.argv[8], 'child_pid': child.pid,\n"
+            "}\n"
             "print(json.dumps(payload), flush=True)\n"
             "time.sleep(30)\n",
             encoding="utf-8",
@@ -304,6 +310,7 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
                 str(MAX_MEMORY_BYTES),
                 str(MAX_FILE_BYTES),
                 str(MAX_PROCESSES),
+                child_marker,
             ],
             cwd=source,
             timeout=4,
@@ -314,4 +321,8 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
     assert not outside_marker.exists()
     payload = json.loads(result["output"].splitlines()[0])
     assert all(payload["checks"].values()), payload
-    assert not psutil.pid_exists(payload["child_pid"])
+    assert payload["child_marker"] == child_marker
+    assert not any(
+        child_marker in " ".join(process.info.get("cmdline") or [])
+        for process in psutil.process_iter(["cmdline"])
+    )
