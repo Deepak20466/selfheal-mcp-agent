@@ -2,12 +2,12 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted CI and Calico-backed Kubernetes runs passed on `7d3a4ff`. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; both hosted CI runs and Calico-backed Kubernetes passed on `60c490c`. No production deployment occurred.
 
 ## Provider MCP capability follow-up — PR #25, 2026-10-19
 
 Branch `feature/provider-mcp-capability-2026-10-19` (head commit
-[`7d3a4ff`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7d3a4ff179f0915cefc1012ff6d6bdd24fb41fec)) adds HMAC-signed
+[`60c490c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/60c490c270282014960e1dd2b211cb2c6e5ea02c)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
 worktree. CI repair tokens may rerun only the associated workflow run. A
@@ -31,16 +31,17 @@ skipped**. Full-repository Ruff
 lint and formatting passed; full CI-scope mypy passed for **89 Python files**.
 The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities**.
 The 20-scenario fixture validator passed: all broken baselines failed and all
-reference repairs passed. Hosted PostgreSQL-backed CI passed **737 tests, 5
-skipped, and 3 warnings**, including the durable rerun-claim integration case
-and workflow credential/DNS regressions ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291930768)). The second CI trigger also passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291938764)). The Calico-backed Kubernetes run passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291938720)), covering Helm validation/install, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
+reference repairs passed. On `60c490c`, hosted PostgreSQL-backed CI passed
+**737 tests, 5 skipped, and 3 warnings** in both triggers ([run 1](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297047540), [run 2](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297054189)). Both runs completed a disposable PostgreSQL 16 backup/restore round trip: Alembic migrations and probe data were dumped, restored, and checked. The Calico-backed Kubernetes run passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39297055395)), covering Helm validation/install, exact service DNS behavior including denial of an unlisted absolute in-cluster name, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
 
 PR #25 is open against PR #24's branch. Its two CI runs and Calico-backed
-Kubernetes run passed on source head `7d3a4ff`.
+Kubernetes run passed on source head `60c490c`.
 
 This is an authorization boundary improvement, not provider process isolation.
 The provider CLI gate still fails closed; no live repair-to-PR flow, three
 repository trials, provider egress test, or deployment verification was run.
+The CI drill validates backup/restore mechanics in a disposable PostgreSQL
+service; production backup/restore and rollback have not been tested.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
