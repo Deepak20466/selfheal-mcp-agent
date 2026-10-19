@@ -221,6 +221,20 @@ def _mock_pr_comment(respx_mock: Any, *, pr_number: int) -> None:
     )
 
 
+def _mock_open_same_repo_pr(respx_mock: Any, *, pr_number: int, branch: str) -> None:
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/{REPO}/pulls/{pr_number}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "state": "open",
+                "merged": False,
+                "head": {"ref": branch, "repo": {"full_name": REPO}},
+                "base": {"ref": "main", "repo": {"full_name": REPO}},
+            },
+        )
+    )
+
+
 # --- Test A: a real fix, pushed to the PR branch -----------------------------
 
 _ZERO_DIV_TEST_FILE = "apps/target_app/test_ci_fix_zero_regression.py"
@@ -267,6 +281,7 @@ async def test_run_ci_heal_job_pushes_a_fix_and_leaves_the_job_in_flight(
     run = await _insert_pipeline_run(branch=pr_branch, pr_number=pr_number)
     _mock_github_run_and_logs(respx_mock, run_id=run.run_id)
     _mock_pr_comment(respx_mock, pr_number=pr_number)
+    _mock_open_same_repo_pr(respx_mock, pr_number=pr_number, branch=pr_branch)
 
     job = await _insert_ci_heal_job(pr_number=pr_number, source_pipeline_run_id=run.id)
 

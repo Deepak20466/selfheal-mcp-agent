@@ -155,11 +155,8 @@ class MonitoredApp(TimestampMixin, Base):
     auto_fix_high_severity: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    #: Terminal-only v1.0 Step 3: merge a heal_job's PR automatically once
-    #: the local full test suite AND GitHub CI both pass -- default OFF for
-    #: every app (a connected repo never defaults on; only this project's
-    #: own demo app is allowed to set it via config/monitored_apps.yaml).
-    #: See `healer/automerge.py`.
+    #: Legacy compatibility field. Automatic PR merging is disabled; this
+    #: setting is retained for existing configuration and database rows only.
     auto_merge: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -353,12 +350,12 @@ class HealJob(TimestampMixin, Base):
     )
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pr_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    #: NULL = use the app's own `monitored_apps.auto_merge`; True/False is a
-    #: one-time override set at fix-request time (`selfheal fix --auto-merge`).
+    #: Legacy compatibility field. Automatic merging is disabled; the healer
+    #: ignores this value and leaves all AI-generated PRs for manual review.
     auto_merge_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     #: Which AI_CHAIN/CHAT_CHAIN backend actually produced this job's fix
     #: (e.g. "claude_cli", "groq_api") -- None for jobs from before this
-    #: column existed. See healer/worker.py and healer/automerge.py.
+    #: column existed. Recorded for audit/attribution only.
     produced_by_backend: Mapped[str | None] = mapped_column(String(50), nullable=True)
     pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     app_id: Mapped[int | None] = mapped_column(

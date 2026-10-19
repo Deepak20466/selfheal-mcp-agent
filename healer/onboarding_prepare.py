@@ -21,8 +21,7 @@ own "must pass on the current code" requirement). A heavy-dependency app
 (`core.scanner.detect_heavy_dependencies`) can't run anything locally, so
 its onboarding PR is opened unverified-locally too, labeled the same
 "verified by CI, not locally" way `healer/remote_verify.py` already
-established, and never auto-merges either (same `auto_merge_override =
-False` mechanism, same `healer.automerge.effective_auto_merge` precedence).
+established. All generated PRs require human review and manual merging.
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ from typing import Any
 
 import structlog
 
-from core.config import settings
 from core.db import session_scope
 from core.models import HealJob, HealJobStatus, HealJobType, MonitoredApp
 from core.repo_health_check import PrepareReport, analyze_repo
@@ -342,7 +340,7 @@ async def run_onboarding_prepare(
                 branch,
                 message=commit_msg,
                 remote=push_remote,
-                github_token=settings.github_token,
+                github_token=await github.get_access_token(),
             )
         except WorktreeError as exc:
             # A real push failure (e.g. a token with insufficient repo

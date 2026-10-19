@@ -11,6 +11,8 @@ image:
     sentinel: selfheal-sentinel
     mcp: selfheal-mcp
     healer: selfheal-healer
+    egress: selfheal-egress-proxy
+    dns: selfheal-dns-filter
 
 # A plain Deployment using the official postgres:16-alpine image, not a
 # Helm subchart -- an earlier version of this chart depended on the Bitnami
@@ -28,6 +30,11 @@ postgres:
   username: selfheal
   password: selfheal
   database: selfheal
+  # The monitored demo app gets a separate database and a non-privileged
+  # role. It never receives the control-plane database credentials.
+  targetAppUsername: selfheal_app
+  targetAppPassword: selfheal_app_demo_only
+  targetAppDatabase: selfheal_target_app
   storage: 1Gi
   resources:
     requests:
@@ -47,6 +54,10 @@ env:
   anthropicBaseUrl: "http://127.0.0.1:9"
   githubToken: "ci-dummy-token"
   githubRepo: "owner/repo"
+  githubAppId: ""
+  githubAppInstallationId: ""
+  # Supply through an external secret store in real deployments.
+  githubAppPrivateKey: ""
   # Must be overridden with a unique random secret for every installation.
   mcpAuthToken: ""
   sessionSecret: "ci-only-session-secret-not-a-real-secret"
@@ -65,6 +76,26 @@ mcp:
   port: 8003
 healer:
   port: 8000
+egress:
+  port: 3128
+  # Exact hostnames only. The gateway rejects wildcards, non-443 CONNECT,
+  # private/reserved DNS answers, and destinations outside this list.
+  allowedHosts:
+    - api.github.com
+    - github.com
+    - api.anthropic.com
+    - api.openai.com
+    - generativelanguage.googleapis.com
+    - api.groq.com
+    - openrouter.ai
+dns:
+  # Reserve this unused address inside the cluster Service CIDR for the DNS
+  # filter Service. Set upstreamServiceIP to the kube-dns/CoreDNS ClusterIP.
+  filterServiceIP: ""
+  upstreamServiceIP: "10.96.0.10"
+security:
+  protectedBranches: "main,master,develop,trunk,production"
+  allowedPushBranches: "autofix/*,selfheal-onboarding/*"
 
 containerSecurityContext:
   allowPrivilegeEscalation: false

@@ -306,7 +306,7 @@ async def connect_repo(
     *,
     repo_url: str,
     name: str | None,
-    github_token: str,
+    github_token: str | None,
     sub_path: str | None = None,
 ) -> MonitoredApp:
     """The full "connect a repo" flow: verify access, pick a unique name,
@@ -331,6 +331,9 @@ async def connect_repo(
     if existing is not None:
         raise RepoConnectError(f"An app named {app_name!r} is already connected")
 
+    if github_token is None:
+        async with GitHubClient(repo=owner_repo) as client:
+            github_token = await client.get_access_token(owner_repo)
     local_path = await clone_repo(owner_repo, app_name, github_token=github_token)
 
     if sub_path is not None:

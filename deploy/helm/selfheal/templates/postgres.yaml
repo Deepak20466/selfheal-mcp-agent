@@ -20,6 +20,7 @@ spec:
     metadata:
       labels: {app: selfheal-postgres}
     spec:
+      automountServiceAccountToken: false
       restartPolicy: Always
       containers:
         - name: postgres

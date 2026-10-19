@@ -17,7 +17,7 @@ Selfheal captures application errors and CI failures, gathers repository context
 - **Detect:** runtime exceptions, OpenTelemetry signals, scan findings, and failed GitHub workflows.
 - **Diagnose and repair:** scoped AI agents inspect the failure and propose code plus regression tests.
 - **Verify:** run the connected repository's checks in an isolated workspace before publishing a change.
-- **Review:** create a branch and pull request; auto-merge is off by default.
+- **Review:** create a branch and pull request; the service never merges AI-generated fixes.
 
 ## Technology
 
@@ -44,9 +44,10 @@ The CLI, healer API, and MCP endpoint bind to loopback for local use. Only the s
 
 | Evidence | Result |
 |---|---|
-| GitHub Actions CI on merged `main` | **671 passed, 5 skipped, 3 warnings** at [`7892f03`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7892f03c381c982484d7dca223c3507fb9d8b50c); [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326594) |
-| Kubernetes chart and recovery checks | **Passed** on merged `main`; [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664) |
-| Security follow-up PR checks | **671 passed, 5 skipped, 3 warnings**; Calico NetworkPolicy allowed and denied connection checks passed in the [full CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266203) and [hosted Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266263) |
+| GitHub Actions CI on merged `main` | **Passed** at [`726b21e`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/726b21ef1067db5a39a026b70b0d24c7d4cbf838); [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386393) |
+| Calico-backed Kubernetes checks | **Passed** on merged `main`; [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386387) |
+| Production deployment workflow | Completed with deployment steps skipped; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386390) |
+| Security follow-up PR #23 (open; review required) | **710 passed, 5 skipped, 3 warnings** in [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574999); [Calico-backed kind](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574901) passed destination egress, MCP access, isolated app-database, migration, smoke, and recovery checks. No production deployment occurred. |
 | Repair benchmark | **20/20** diagnosis labels and repairs on the fixed scenario set; one scenario used a regression retry. See [method and limits](docs/benchmark.md). |
 | Historical live repairs | [PR #10](https://github.com/Deepak20466/selfheal-mcp-agent/pull/10) and [PR #15](https://github.com/Deepak20466/selfheal-mcp-agent/pull/15) verified runtime fixes; [PR #14](https://github.com/Deepak20466/selfheal-mcp-agent/pull/14) demonstrated CI repair and a green rerun. These are historical runs, not a new live repair in the current audit. |
 

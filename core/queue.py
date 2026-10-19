@@ -51,10 +51,8 @@ async def enqueue_heal_job(
     own `app_id`, never from a caller parameter downstream, so
     `propose_patch`'s write-scope lookup stays server-side-only.
 
-    `auto_merge_override` (terminal-only v1.0 Step 3) is a one-time per-fix
-    auto-merge decision (`selfheal fix --auto-merge`); left `None`, the
-    effective decision falls back to the app's own `auto_merge` setting —
-    see `healer/automerge.py:effective_auto_merge`.
+    `auto_merge_override` is a legacy database field retained for compatibility.
+    Automatic merges are disabled and the healer ignores the stored value.
     """
     job = HealJob(
         type=type,

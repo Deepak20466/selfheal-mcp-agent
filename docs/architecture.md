@@ -84,79 +84,112 @@ commands; dependency installation and online advisory checks are skipped.
 
 Repository test environments are constructed with
 [`core/process_env.py`](../core/process_env.py), which removes common
-credential and service variables. Git authentication for controlled GitHub
-operations is passed through a child-only Git configuration environment, not
-the command line. Failure output is scrubbed before logging.
+credential and service variables. MCP test execution also uses a separate
+workspace snapshot and an OS-enforced no-network sandbox. Git authentication
+for controlled operations is passed through a child-only Git configuration
+environment, not the command line; failure output is scrubbed before logging.
 
-Historically, provider CLI processes received provider login material. The
-Codex benchmark copied the existing auth file into a short-lived private home
-and removed that temporary home at completion. Provider CLI execution is now
-blocked by the fail-closed gate described below.
-Claude Code was installed but unauthenticated. Gemini CLI was not installed.
-Neither was reported as a live success.
+In production, the GitHub client requires a GitHub App. It requests a
+short-lived installation token for one exact repository and only the API
+permissions used by the service, then rejects responses with a different
+repository or broader permissions. Mutation and token-mint events are logged
+without credentials. The Helm chart omits the long-lived development token in
+production. Pushes are restricted to `autofix/*` and
+`selfheal-onboarding/*` by default, and protected branches are refused before
+Git starts. AI-generated PRs always require human review and manual merging.
 
-Provider CLI execution is currently **disabled**. The previous implementation
-launched Codex, Claude Code, and Gemini on the host; provider-managed read-only
-settings, tool allowlists, environment scrubbing, and timeout cleanup do not
-provide OS containment. `require_provider_cli_sandbox()` now fails closed
-before any provider executable starts. Mock-based adapter tests explicitly
-bypass this gate only inside their test process. API-backed provider modes are
-separate and are not evidence that CLI process isolation is solved.
+Provider CLI execution is **disabled**. The previous implementation launched
+Codex, Claude Code, and Gemini on the host; provider-managed read-only settings,
+tool allowlists, environment filtering, and timeout cleanup do not provide OS
+containment. `require_provider_cli_sandbox()` fails closed before any provider
+executable starts. Mock-based tests can bypass the gate only in their test
+process. API-backed provider modes are separate and do not prove CLI process
+isolation.
 
-Host-side Git operations remain trusted control-plane subprocesses because
-they need authenticated remote access. They are not available to provider
-children while CLI mode is blocked, but the repository has not yet defined or
-verified a network-aware OS boundary for these control-plane processes. The
-provider CLI gate therefore does not establish end-to-end isolation for all
-automated repair modes.
+The trusted healer and MCP workloads still hold GitHub App credentials for
+control-plane work. Repository test subprocesses do not inherit those values
+and are denied network access. The current deployment does not yet have a
+separate provider worker that receives provider credentials without any
+GitHub credentials; the CLI gate remains necessary until that worker exists.
 
-The native MCP HTTP listener defaults to loopback. When HTTP authentication
-is configured, the `/mcp` endpoint requires a bearer token of at least 32
-characters; a non-loopback listener refuses to start without that token. The
-Helm chart requires the token through a Kubernetes Secret and deploys a
-NetworkPolicy that accepts MCP traffic only from healer pods. Its egress
-allows PostgreSQL, cluster DNS, and public TCP 443 while excluding private,
-link-local, and reserved IPv4 ranges. That HTTPS rule still permits connections
-to arbitrary public hosts, so it is not a destination allowlist or a complete
-data-exfiltration boundary. The hosted Calico-backed kind test passed allowed
-and denied ingress checks for this follow-up. Production-cluster enforcement
-and destination allowlisting remain unverified.
+## Kubernetes egress gateway
 
-The MCP server's Git metadata operations use direct, fixed argument lists and
-filtered Git environments rather than shell commands. Blame/log, patch
-application, search, and repository-tree listing have timeouts and terminate
-their Git process on expiry. Git clone and push remain explicit control-plane
-operations with child-scoped authentication; these network operations were
-not exercised against GitHub in this audit.
+The Helm chart routes healer and MCP external HTTPS through the
+`selfheal-egress` HTTP CONNECT gateway. Its exact hostname allowlist contains
+the configured GitHub and provider API hosts. It rejects other hostnames,
+non-443 CONNECT requests, TLS ClientHello SNI values that do not match the
+CONNECT host, encrypted ClientHello, and DNS answers containing private or
+special-use addresses; then it connects directly to a validated address.
+NetworkPolicies limit app, sentinel, healer, MCP, migration, and PostgreSQL
+egress to their required DNS and in-cluster destinations; only healer and MCP
+may reach the gateway. PostgreSQL ingress permits the app, healer, MCP,
+sentinel, and migration job. The app connection is further restricted by
+PostgreSQL database privileges as described below. Production network-policy
+enforcement depends on a CNI that applies these policies.
+
+## Kubernetes database separation
+
+The target app receives only the `target-app-database-url` value, for the
+separate `selfheal_target_app` database and `selfheal_app` role. A trusted
+migration Job receives both the control-plane and target-app URLs: it creates
+the target role with `NOSUPERUSER`, `NOCREATEDB`, and `NOCREATEROLE`, creates
+the target database, removes `PUBLIC` database privileges, grants the target
+role access to its database, then migrates and seeds both databases. The
+control-plane URL is not injected into the app pod.
+
+The hosted kind check verifies the app's database name and role, confirms the
+role's non-administrator flags, and confirms that it cannot connect to the
+control-plane database. Both databases still run on the same PostgreSQL
+server; this is logical database and role isolation, not a separate database
+server or failure domain.
+
+The chart runs a separate DNS-filter service. Workload pods use its reserved
+ClusterIP as their only nameserver, and their NetworkPolicies allow DNS only to
+that service. Among the chart workloads, only the filter can query CoreDNS.
+The filter forwards A and AAAA queries only for exact configured
+external hosts or names under `.svc.cluster.local`; it strips EDNS and other
+additional records before forwarding, so a selected chart workload cannot
+bypass the name check by querying CoreDNS directly. Set `dns.filterServiceIP` to an unused address in the cluster
+Service CIDR and `dns.upstreamServiceIP` to the CoreDNS Service ClusterIP.
+
+The hosted Calico-backed kind workflow tests an allowed GitHub request, TCP
+reachability to the configured provider hosts, refusal of an unlisted external
+name, denied direct DNS access to CoreDNS, denial of a non-allowlisted HTTPS
+host, blocked direct egress around the gateway, and denied access from an
+unselected pod to MCP, PostgreSQL, and the proxy. It also checks that the app
+cannot connect to the control-plane database. These checks prove the
+configured policy path in that ephemeral cluster only. The proxy permits
+public IPv4 TCP 443 at the NetworkPolicy layer; the application gateway checks the exact
+CONNECT hostname and requires matching TLS SNI. It does not inspect encrypted
+HTTP paths, and an allowed service can still carry data through its normal API
+protocol. Production enforcement depends on a CNI that applies Kubernetes
+NetworkPolicy. The DNS filter and gateway are destination controls, not a
+complete exfiltration-prevention boundary.
 
 ## Limits found in this audit
 
 ### Linux provider execution target
 
-The production execution target is Linux. The existing Bubblewrap runner
-provides a non-root, no-network boundary for repository-controlled commands;
-it is not suitable for a provider CLI that needs model and MCP connectivity.
-No network-aware provider sandbox, egress broker, or credential broker is
-implemented. Codex, Claude Code, and Gemini therefore remain fail-closed on
-Linux as well as other platforms. Windows AppContainer tests cover the
-existing repository-command sandbox only, not provider execution.
+The existing Bubblewrap runner provides a non-root, no-network boundary for
+repository-controlled test commands. It cannot host a provider CLI that needs
+model and MCP connectivity. No verified network-aware provider worker is
+available in the current environment, so Codex, Claude Code, and Gemini remain
+fail-closed on every platform.
 
-- The Windows AppContainer path passed its integration boundary checks and
-  ran the 20-scenario regression runner. Ubuntu 22.04 GitHub Actions passed
-  Bubblewrap preflight and the full test suite on merged `main` and PR #19;
-  the follow-up's process-group cleanup test passed on that hosted Linux run.
-- The sandbox stages Node and npm inside its workspace and sets Node's
-  preserve-symlinks options so the launcher does not need to traverse the
-  protected root of C:. `npm test` passed the Node example's two in-process
-  route/error-handler tests inside AppContainer. Those tests avoid loopback
-  sockets because repository commands have no network capability. Node's
-  `--test` worker mode timed out in this AppContainer, so the package script
-  runs the same `node:test` file directly.
-- The sandbox uses common filename and directory rules to omit credential
-  files. It does not scan every file for secret-like content.
-- A live prompt-injection exercise, a live self-healing repair PR, a staging
-  deployment, and a live Kubernetes rollback were not run. PR #19 is the
-  source-review PR for this hardening change, not a self-healing repair demo.
+Enabling unattended CLI repair requires a disposable Linux worker on a cluster
+with an enforced isolation runtime such as gVisor or Kata Containers, plus the
+Calico-enforced egress policies and gateway. The worker must run as non-root,
+without a service-account token, with a read-only root filesystem, a disposable
+workspace mount, dropped capabilities, a restrictive seccomp profile, and
+explicit CPU, memory, process, disk, and execution-time limits. It must receive
+only the provider credential needed for its task; GitHub App credentials,
+PostgreSQL, and host paths must remain inaccessible. The runtime and those
+boundaries need adversarial integration tests on the actual Linux cluster
+before changing the provider gate.
 
-See [AUDIT_REPORT.md](AUDIT_REPORT.md) and [VERIFICATION.md](../VERIFICATION.md)
-for the dated evidence and remaining readiness gates.
+The Windows AppContainer tests cover the existing repository-command sandbox,
+not provider execution. Ubuntu hosted CI verifies the Bubblewrap command
+sandbox and the Calico NetworkPolicy path, but it does not test gVisor/Kata,
+provider credentials, kernel escapes, live AI diagnosis, three independent
+repository repairs, or production backup/restore and rollback. No production
+resources or databases were changed.

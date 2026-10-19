@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from fnmatch import fnmatchcase
 from pathlib import Path
 
+from core.config import settings
 from core.git_env import git_subprocess_env, scrub_git_message
+from mcp_server.github_client import GitHubClient, GitHubClientError
 from mcp_server.sandbox import REPO_ROOT, WORKTREES_ROOT
 
 PUSH_TIMEOUT_SECONDS = 120.0
@@ -127,6 +130,8 @@ async def commit_and_push(
     message: str,
     remote: str = "origin",
     github_token: str | None = None,
+    github_client: GitHubClient | None = None,
+    pull_request_number: int | None = None,
 ) -> None:
     """Stage everything, commit, and push `branch` to `remote` (default `origin`).
 
@@ -136,6 +141,45 @@ async def commit_and_push(
     remotes) with the main repo, so this is the only way to keep test pushes
     off the public GitHub repo.
     """
+    allowed_patterns = {
+        pattern.strip()
+        for pattern in settings.github_allowed_push_branches.split(",")
+        if pattern.strip()
+    }
+    namespace_allowed = any(
+        fnmatchcase(branch.casefold(), pattern.casefold()) for pattern in allowed_patterns
+    )
+    protected_patterns = {
+        pattern.strip()
+        for pattern in settings.github_protected_branches.split(",")
+        if pattern.strip()
+    }
+    if any(fnmatchcase(branch.casefold(), pattern.casefold()) for pattern in protected_patterns):
+        raise WorktreeError(
+            f"Refusing to push protected branch {branch!r}; fixes must use a review branch"
+        )
+    if pull_request_number is not None:
+        if github_client is None:
+            raise WorktreeError(
+                "Refusing to push a pull request branch without a GitHub verification client"
+            )
+        try:
+            verified_pr_head = await github_client.is_open_same_repository_pr_head(
+                pull_request_number, branch
+            )
+        except GitHubClientError as exc:
+            raise WorktreeError(
+                "Unable to verify the pull request branch; refusing to push"
+            ) from exc
+        if not verified_pr_head:
+            raise WorktreeError(
+                f"Refusing to push unauthorized branch {branch!r}; it is not the head of an "
+                "open pull request in the configured repository"
+            )
+    elif not namespace_allowed:
+        raise WorktreeError(
+            f"Refusing to push unauthorized branch {branch!r}; use an approved automation namespace"
+        )
     await _run_git(["add", "-A"], cwd=path)
     await _run_git(["commit", "-m", message], cwd=path)
     # A push crosses the network: a 30s cap killed a fully verified fix in the

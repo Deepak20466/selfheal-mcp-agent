@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfheal-dns
+  labels: {app: selfheal-dns}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: selfheal-dns}
+  template:
+    metadata:
+      labels: {app: selfheal-dns}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: dns-filter
+          image: {{ include "selfheal.image" (dict "Values" .Values "pod" "dns") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - {name: dns-udp, containerPort: 53, protocol: UDP}
+            - {name: dns-tcp, containerPort: 53, protocol: TCP}
+          env:
+            - name: UPSTREAM_DNS_IP
+              value: {{ required "dns.upstreamServiceIP must be the cluster DNS Service IP" .Values.dns.upstreamServiceIP | quote }}
+            - name: ALLOWED_HOSTS
+              value: {{ join "," .Values.egress.allowedHosts | quote }}
+            - name: INTERNAL_HOSTS
+              value: "selfheal-app,selfheal-sentinel,selfheal-mcp,selfheal-healer,selfheal-postgres,selfheal-egress"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [NET_BIND_SERVICE]
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 64Mi}
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import socket; socket.create_connection(('127.0.0.1', 53), timeout=2).close()"
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import socket; socket.create_connection(('127.0.0.1', 53), timeout=2).close()"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfheal-dns
+spec:
+  clusterIP: {{ required "dns.filterServiceIP must be reserved for the Selfheal DNS filter Service" .Values.dns.filterServiceIP | quote }}
+  selector: {app: selfheal-dns}
+  ports:
+    - {name: dns-udp, port: 53, targetPort: 53, protocol: UDP}
+    - {name: dns-tcp, port: 53, targetPort: 53, protocol: TCP}

@@ -359,7 +359,15 @@ async def run_ci_heal_job(
                 f"CI auto-fix: {workflow} run {run_id}\n\n"
                 f"heal_job #{job_id}, attempt {attempt_number}"
             )
-            await commit_and_push(worktree_path, branch, message=commit_msg, remote=remote)
+            await commit_and_push(
+                worktree_path,
+                branch,
+                message=commit_msg,
+                remote=remote,
+                github_token=await github.get_access_token(),
+                github_client=github,
+                pull_request_number=pr_number,
+            )
 
         try:
             await post_ci_fix_comment(

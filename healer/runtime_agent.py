@@ -249,6 +249,7 @@ async def run_heal_job(
                     branch,
                     message=commit_msg,
                     remote=remote,
+                    github_token=await github.get_access_token(),
                 )
                 evidence = FixEvidence(
                     heal_job_id=job_id,

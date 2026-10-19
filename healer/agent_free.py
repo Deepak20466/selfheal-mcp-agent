@@ -945,7 +945,7 @@ async def run_heal_job_free(
                     branch,
                     message=commit_msg,
                     remote=push_remote,
-                    github_token=settings.github_token if is_connected_app else None,
+                    github_token=await github.get_access_token(),
                 )
                 evidence = FixEvidence(
                     heal_job_id=job_id,
@@ -1138,7 +1138,13 @@ async def run_ci_heal_job_free(
                 f"CI auto-fix: {workflow} run {run_id}\n\nheal_job #{job_id}, "
                 f"attempt {attempt_number}"
             )
-            await commit_and_push(worktree_path, branch, message=commit_msg, remote=remote)
+            await commit_and_push(
+                worktree_path,
+                branch,
+                message=commit_msg,
+                remote=remote,
+                github_token=await github.get_access_token(),
+            )
 
         try:
             await post_ci_fix_comment(

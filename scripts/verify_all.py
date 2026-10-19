@@ -1213,7 +1213,7 @@ async def check_terminal_v1_features(
     report: Report, public_url: str | None, admin_password: str | None
 ) -> None:
     """Terminal-only v1.0 (Steps 2-6): the selfheal CLI itself, /api/prs,
-    /api/backends (AI fallback chains), per-app auto_merge, and packaging.
+    /api/backends (AI fallback chains), the disabled auto-merge guard, and packaging.
     Privacy guard (Step 5) result-scrubbing is unit-tested directly and for
     real against the running MCP code (tests/test_mcp_audit.py -- not
     mocked), not re-proven here: there's no live tool call in this system
@@ -1244,7 +1244,7 @@ async def check_terminal_v1_features(
         for feature in (
             "/api/prs lists heal_jobs with a PR",
             "/api/backends shows AI fallback chain state",
-            "per-app auto_merge PATCH round-trips",
+            "auto-merge cannot be enabled",
         ):
             report.add(feature, "SKIPPED", "no public tunnel URL / --admin-password given")
         return
@@ -1257,7 +1257,7 @@ async def check_terminal_v1_features(
             for feature in (
                 "/api/prs lists heal_jobs with a PR",
                 "/api/backends shows AI fallback chain state",
-                "per-app auto_merge PATCH round-trips",
+                "auto-merge cannot be enabled",
             ):
                 report.add(feature, "SKIPPED", "login failed")
             return
@@ -1290,29 +1290,29 @@ async def check_terminal_v1_features(
             apps = apps_resp.json() if apps_resp.status_code == 200 else []
             target = next((a for a in apps if a.get("name") == "target_app"), None)
             if target is None:
-                report.add(
-                    "per-app auto_merge PATCH round-trips", "SKIPPED", "target_app not found"
-                )
+                report.add("auto-merge cannot be enabled", "SKIPPED", "target_app not found")
             else:
                 app_id = target["id"]
-                original = target.get("auto_merge", False)
-                toggled = await client.patch(
-                    f"/api/apps/{app_id}", json={"auto_merge": not original}
-                )
-                restored = await client.patch(f"/api/apps/{app_id}", json={"auto_merge": original})
+                attempt = await client.patch(f"/api/apps/{app_id}", json={"auto_merge": True})
+                current = await client.get(f"/api/apps/{app_id}")
                 ok = (
-                    toggled.status_code == 200
-                    and toggled.json().get("auto_merge") == (not original)
-                    and restored.status_code == 200
-                    and restored.json().get("auto_merge") == original
+                    attempt.status_code == 409
+                    and current.status_code == 200
+                    and current.json().get("auto_merge") is False
+                )
+                auto_merge_state = (
+                    current.json().get("auto_merge")
+                    if current.status_code == 200
+                    else "unavailable"
                 )
                 report.add(
-                    "per-app auto_merge PATCH round-trips",
+                    "auto-merge cannot be enabled",
                     "PASS" if ok else "FAIL",
-                    f"{original} -> {not original} -> {original}",
+                    f"enable returned {attempt.status_code}; "
+                    f"read reports auto_merge={auto_merge_state}",
                 )
         except (httpx.HTTPError, KeyError) as exc:
-            report.add("per-app auto_merge PATCH round-trips", "FAIL", str(exc))
+            report.add("auto-merge cannot be enabled", "FAIL", str(exc))
 
 
 def check_packaging(report: Report) -> None:

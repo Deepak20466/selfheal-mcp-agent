@@ -189,6 +189,19 @@ async def test_update_app_toggles_auto_fix(
     assert resp.json()["auto_fix_high_severity"] is True
 
 
+async def test_update_app_cannot_enable_automatic_merge(
+    app_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    app_row = await _make_app(db_session)
+    app_row.auto_merge = True  # legacy database values are not effective
+    await db_session.flush()
+    async with app_client as client:
+        await _login(client)
+        resp = await client.patch(f"/api/apps/{app_row.id}", json={"auto_merge": True})
+    assert resp.status_code == 409
+    assert "manual merge" in resp.json()["detail"]
+
+
 async def test_fix_finding_enqueues_a_heal_job(
     app_client: httpx.AsyncClient, db_session: AsyncSession
 ) -> None:
@@ -214,6 +227,27 @@ async def test_fix_finding_enqueues_a_heal_job(
     assert job is not None
     assert job.fingerprint == finding.fingerprint
     assert job.app_id == app_row.id
+
+
+async def test_fix_finding_rejects_auto_merge_override(
+    app_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    app_row = await _make_app(db_session)
+    finding = Finding(
+        app_id=app_row.id,
+        fingerprint=uuid.uuid4().hex,
+        category=FindingCategory.DEPENDENCY,
+        severity=FindingSeverity.HIGH,
+        tool="pip-audit",
+        message="requests: known vulnerability",
+    )
+    db_session.add(finding)
+    await db_session.flush()
+    async with app_client as client:
+        await _login(client)
+        resp = await client.post(f"/api/findings/{finding.id}/fix", json={"auto_merge": True})
+    assert resp.status_code == 409
+    assert "manual merge" in resp.json()["detail"]
 
 
 async def test_fix_finding_with_suggest_marks_the_job_suggest_mode(

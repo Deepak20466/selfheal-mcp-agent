@@ -218,6 +218,61 @@ def test_check_diff_paths_writable_accepts_in_scope_diff() -> None:
     assert touched == {"apps/target_app/bugs.py"}
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["../../.env", "/etc/passwd", "C:/secrets/token.txt", r"apps\target_app\bugs.py"],
+)
+def test_check_diff_paths_writable_rejects_traversal_and_absolute_paths(path: str) -> None:
+    diff = f"--- a/{path}\n+++ b/{path}\n"
+    with pytest.raises(SandboxViolation):
+        check_diff_paths_writable(diff)
+
+
+def test_check_diff_paths_does_not_treat_hunk_content_as_file_headers() -> None:
+    diff = (
+        "--- a/apps/target_app/example.py\n"
+        "+++ b/apps/target_app/example.py\n"
+        "@@ -1 +1 @@\n"
+        "--- ../../outside.txt\n"
+        "+++ ../../outside.txt\n"
+    )
+    assert check_diff_paths_writable(diff) == {"apps/target_app/example.py"}
+
+
+@pytest.mark.parametrize("path", ["apps/target_app/file.txt:stream", "apps/target_app/trailing."])
+def test_check_diff_paths_rejects_windows_ambiguous_names(path: str) -> None:
+    diff = f"--- a/{path}\n+++ b/{path}\n"
+    with pytest.raises(SandboxViolation, match="Windows-ambiguous"):
+        check_diff_paths_writable(diff)
+
+
+@pytest.mark.parametrize(
+    "diff",
+    [
+        '--- "a/apps/target_app/file name.py"\n+++ "b/apps/target_app/file name.py"\n',
+        "--- a/apps/target_app/file name.py\n+++ b/apps/target_app/file name.py\n",
+    ],
+)
+def test_check_diff_paths_writable_rejects_ambiguous_headers(diff: str) -> None:
+    with pytest.raises(SandboxViolation):
+        check_diff_paths_writable(diff)
+
+
+def test_check_diff_paths_writable_rejects_symlinked_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "worktree"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    try:
+        (workspace / "apps").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("the current Windows account cannot create filesystem symlinks")
+
+    diff = "--- a/apps/target_app/bugs.py\n+++ b/apps/target_app/bugs.py\n"
+    with pytest.raises(SandboxViolation, match="symlink"):
+        check_diff_paths_writable(diff, workspace_root=workspace)
+
+
 def test_check_diff_paths_writable_rejects_empty_diff() -> None:
     with pytest.raises(SandboxViolation):
         check_diff_paths_writable("no file headers here")

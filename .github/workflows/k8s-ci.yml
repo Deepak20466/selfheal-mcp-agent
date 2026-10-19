@@ -1,4 +1,4 @@
-# Builds all 4 pods as Docker images, stands up an ephemeral `kind` cluster,
+# Builds the workload and security gateway images, stands up an ephemeral `kind` cluster,
 # deploys the Helm chart (deploy/helm/selfheal), and runs smoke + resilience
 # tests -- entirely on the GitHub-hosted runner. No Docker/Kubernetes tooling
 # is ever installed or run on a developer's own machine for this project;
@@ -39,6 +39,8 @@ jobs:
           docker build -f deploy/docker/Dockerfile.sentinel -t selfheal-sentinel:ci .
           docker build -f deploy/docker/Dockerfile.mcp -t selfheal-mcp:ci .
           docker build -f deploy/docker/Dockerfile.healer -t selfheal-healer:ci .
+          docker build -f deploy/docker/Dockerfile.egress-proxy -t selfheal-egress-proxy:ci .
+          docker build -f deploy/docker/Dockerfile.dns-filter -t selfheal-dns-filter:ci .
 
       - name: Prepare a policy-enforcing kind cluster
         run: |
@@ -71,22 +73,70 @@ jobs:
       - name: Load images into kind
         run: |
           set -euo pipefail
-          kind load docker-image selfheal-app:ci selfheal-sentinel:ci selfheal-mcp:ci selfheal-healer:ci
+          kind load docker-image selfheal-app:ci selfheal-sentinel:ci selfheal-mcp:ci selfheal-healer:ci selfheal-egress-proxy:ci selfheal-dns-filter:ci
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
       - name: Helm lint
-        run: helm lint deploy/helm/selfheal --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef
+        run: |
+          set -euo pipefail
+          DNS_SERVICE_IP=$(kubectl get service kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}')
+          DNS_FILTER_IP=10.96.0.53
+          helm lint deploy/helm/selfheal \
+            --set-string dns.upstreamServiceIP="$DNS_SERVICE_IP" \
+            --set-string dns.filterServiceIP="$DNS_FILTER_IP" \
+            --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef
 
       - name: Helm template (dry-run render, catches templating errors before install)
-        run: helm template selfheal deploy/helm/selfheal --set image.tag=ci --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef > /tmp/rendered.yaml
+        run: |
+          set -euo pipefail
+          DNS_SERVICE_IP=$(kubectl get service kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}')
+          DNS_FILTER_IP=10.96.0.53
+          helm template selfheal deploy/helm/selfheal \
+            --set-string dns.upstreamServiceIP="$DNS_SERVICE_IP" \
+            --set-string dns.filterServiceIP="$DNS_FILTER_IP" \
+            --set image.tag=ci \
+            --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef \
+            > /tmp/rendered.yaml
+
+      - name: Verify production chart omits the long-lived GitHub token
+        run: |
+          set -euo pipefail
+          DNS_SERVICE_IP=$(kubectl get service kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}')
+          DNS_FILTER_IP=10.96.0.53
+          helm template selfheal deploy/helm/selfheal \
+            --set env.environment=production \
+            --set-string dns.upstreamServiceIP="$DNS_SERVICE_IP" \
+            --set-string dns.filterServiceIP="$DNS_FILTER_IP" \
+            --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef \
+            > /tmp/rendered-production.yaml
+          if grep -q 'name: GITHUB_TOKEN' /tmp/rendered-production.yaml; then
+            echo "production workloads must use GitHub App installation tokens"
+            exit 1
+          fi
+          if grep -A20 '^kind: Secret' /tmp/rendered-production.yaml | grep -q '^  github-token:'; then
+            echo "production chart must not create a long-lived GitHub token Secret"
+            exit 1
+          fi
 
       - name: Helm install
         run: |
           set -euo pipefail
+          DNS_SERVICE_IP=$(kubectl get service kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}')
+          DNS_FILTER_IP=10.96.0.53
+          if kubectl get services -A -o custom-columns=':spec.clusterIP' --no-headers | grep -Fxq "$DNS_FILTER_IP"; then
+            echo "DNS filter Service IP $DNS_FILTER_IP is already allocated"
+            exit 1
+          fi
+          # Do not use --wait here: app readiness depends on the schema made
+          # by the post-install migration hook, which Helm runs after waiting
+          # for resources. The explicit migration/readiness checks below run
+          # once the hook has completed.
           helm install selfheal deploy/helm/selfheal \
-            --wait --timeout 10m \
+            --timeout 10m \
+            --set-string dns.upstreamServiceIP="$DNS_SERVICE_IP" \
+            --set-string dns.filterServiceIP="$DNS_FILTER_IP" \
             --set image.tag=ci \
             --set env.mcpAuthToken=ci-only-mcp-token-0123456789abcdef0123456789abcdef
 
@@ -94,6 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl get networkpolicy selfheal-mcp
+          kubectl get networkpolicy selfheal-egress-gateway selfheal-postgres-access
           kubectl get pods -n kube-system -l k8s-app=calico-node -o wide
           HEALER_POD=$(kubectl get pod -l app=selfheal-healer -o jsonpath='{.items[0].metadata.name}')
           test "$(kubectl get networkpolicy selfheal-mcp -o jsonpath='{.spec.ingress[0].from[0].podSelector.matchLabels.app}')" = "selfheal-healer"
@@ -123,6 +174,8 @@ jobs:
             --labels=app=network-policy-probe --command -- sleep 300
           kubectl wait --for=condition=Ready pod/mcp-policy-probe --timeout=120s
           MCP_IP=$(kubectl get service selfheal-mcp -o jsonpath='{.spec.clusterIP}')
+          PROXY_IP=$(kubectl get service selfheal-egress -o jsonpath='{.spec.clusterIP}')
+          PG_IP=$(kubectl get service selfheal-postgres -o jsonpath='{.spec.clusterIP}')
           kubectl exec mcp-policy-probe -- env MCP_IP="$MCP_IP" python -c '
           import os, socket
           try:
@@ -131,6 +184,79 @@ jobs:
               print("NetworkPolicy enforcement passed: unselected pod ingress timed out")
           else:
               raise AssertionError("unselected pod reached MCP despite healer-only ingress policy")
+          '
+          kubectl exec mcp-policy-probe -- env PROXY_IP="$PROXY_IP" PG_IP="$PG_IP" python -c '
+          import os, socket
+          for name, address, port in (("egress proxy", os.environ["PROXY_IP"], 3128), ("PostgreSQL", os.environ["PG_IP"], 5432)):
+              try:
+                  socket.create_connection((address, port), timeout=3)
+              except OSError:
+                  print(f"NetworkPolicy enforcement passed: unselected pod cannot reach {name}")
+              else:
+                  raise AssertionError(f"unselected pod reached {name}")
+          '
+
+          DNS_SERVICE_IP=$(kubectl get service kube-dns -n kube-system -o jsonpath='{.spec.clusterIP}')
+          kubectl exec "$HEALER_POD" -- env CORE_DNS_IP="$DNS_SERVICE_IP" python -c '
+          import os, socket, ssl, urllib.error, urllib.request
+          assert socket.gethostbyname("selfheal-mcp")
+          assert socket.gethostbyname("api.github.com")
+          try:
+              socket.gethostbyname("example.com")
+          except socket.gaierror:
+              print("DNS filter passed: unlisted external DNS names are refused")
+          else:
+              raise AssertionError("cluster DNS resolved an unlisted external hostname")
+          with urllib.request.urlopen("https://api.github.com", timeout=15) as response:
+              assert response.status == 200, f"GitHub API through allowlisted proxy returned {response.status}"
+          tls_context = ssl.create_default_context()
+          def tunnel_tls(host, server_name):
+              proxy = socket.create_connection(("selfheal-egress", 3128), timeout=10)
+              proxy.sendall(f"CONNECT {host}:443 HTTP/1.1\r\nHost: {host}:443\r\n\r\n".encode())
+              response = bytearray()
+              while not response.endswith(b"\r\n\r\n"):
+                  response.extend(proxy.recv(1))
+                  assert len(response) <= 8192, "oversized CONNECT response"
+              assert response.startswith(b"HTTP/1.1 200 "), f"allowlisted endpoint {host} was unreachable: {response!r}"
+              return tls_context.wrap_socket(proxy, server_hostname=server_name)
+          for host in ("api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com", "api.groq.com", "openrouter.ai"):
+              tls = tunnel_tls(host, host)
+              tls.close()
+          try:
+              tunnel_tls("api.github.com", "example.com")
+          except (OSError, ssl.SSLError):
+              print("egress gateway passed: TLS SNI cannot escape an allowlisted CONNECT host")
+          else:
+              raise AssertionError("gateway allowed a non-allowlisted TLS SNI through api.github.com")
+          try:
+              urllib.request.urlopen("https://example.com", timeout=10)
+          except urllib.error.HTTPError as exc:
+              assert exc.code == 403, f"unexpected egress denial response: {exc.code}"
+          except urllib.error.URLError as exc:
+              assert "403 Destination Denied" in str(exc.reason), f"unexpected egress denial: {exc.reason}"
+          else:
+              raise AssertionError("non-allowlisted external destination was reachable")
+          address = socket.getaddrinfo("api.github.com", 443, type=socket.SOCK_STREAM)[0][4][0]
+          try:
+              socket.create_connection((address, 443), timeout=3)
+          except OSError:
+              print("NetworkPolicy enforcement passed: healer cannot bypass the domain proxy")
+          else:
+              raise AssertionError("healer connected directly to the public network")
+          packet = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01"
+          for resolver in (os.environ["CORE_DNS_IP"], "1.1.1.1"):
+              dns = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+              dns.settimeout(3)
+              dns.sendto(packet, (resolver, 53))
+              try:
+                  dns.recvfrom(512)
+              except TimeoutError:
+                  print(f"NetworkPolicy enforcement passed: direct DNS to {resolver} is blocked")
+              else:
+                  raise AssertionError(f"healer bypassed the DNS filter and queried {resolver}")
+              finally:
+                  dns.close()
+          print("egress gateway allowed GitHub/provider endpoints and blocked unauthorized hosts")
           '
           kubectl delete pod mcp-policy-probe --wait=true
 
@@ -148,6 +274,72 @@ jobs:
           kubectl wait --for=condition=Ready pod -l app=selfheal-mcp --timeout=180s
           kubectl wait --for=condition=Ready pod -l app=selfheal-healer --timeout=180s
           kubectl get pods -o wide
+
+      - name: Verify workload credential separation
+        run: |
+          set -euo pipefail
+          APP_POD=$(kubectl get pod -l app=selfheal-app -o jsonpath='{.items[0].metadata.name}')
+          SENTINEL_POD=$(kubectl get pod -l app=selfheal-sentinel -o jsonpath='{.items[0].metadata.name}')
+          HEALER_POD=$(kubectl get pod -l app=selfheal-healer -o jsonpath='{.items[0].metadata.name}')
+          MCP_POD=$(kubectl get pod -l app=selfheal-mcp -o jsonpath='{.items[0].metadata.name}')
+          kubectl exec "$APP_POD" -- python -c '
+          import asyncio, os
+          import asyncpg
+          from sqlalchemy.engine import make_url
+          forbidden = {"GITHUB_TOKEN", "GITHUB_APP_PRIVATE_KEY", "ANTHROPIC_API_KEY", "MCP_AUTH_TOKEN", "SESSION_SECRET", "ADMIN_PASSWORD_HASH"}
+          leaked = forbidden.intersection(os.environ)
+          assert not leaked, f"untrusted app pod received trusted credentials: {sorted(leaked)}"
+          database_url = make_url(os.environ["DATABASE_URL"])
+          assert database_url.database == "selfheal_target_app", "app must use its isolated database"
+          assert database_url.username == "selfheal_app", "app must use its restricted database role"
+          async def verify_database_boundary():
+              connection = await asyncpg.connect(database_url.set(drivername="postgresql").render_as_string(hide_password=False))
+              try:
+                  privileges = await connection.fetchrow("SELECT r.rolsuper, r.rolcreatedb, r.rolcreaterole FROM pg_roles AS r WHERE r.rolname = current_user")
+                  assert tuple(privileges.values()) == (False, False, False), f"target-app database role is privileged: {privileges}"
+              finally:
+                  await connection.close()
+              control_plane_url = database_url.set(database="selfheal")
+              try:
+                  control_plane = await asyncpg.connect(control_plane_url.set(drivername="postgresql").render_as_string(hide_password=False), timeout=3)
+              except asyncpg.PostgresError as exc:
+                  assert "permission denied" in str(exc).lower(), f"unexpected control-plane access failure: {type(exc).__name__}"
+                  print("untrusted app cannot connect to the control-plane database")
+              else:
+                  await control_plane.close()
+                  raise AssertionError("untrusted app role connected to the control-plane database")
+          asyncio.run(verify_database_boundary())
+          print("untrusted app has only a non-privileged role in its isolated database")
+          '
+          kubectl exec "$SENTINEL_POD" -- python -c '
+          import os
+          forbidden = {"GITHUB_TOKEN", "GITHUB_APP_PRIVATE_KEY", "ANTHROPIC_API_KEY", "MCP_AUTH_TOKEN", "SESSION_SECRET", "ADMIN_PASSWORD_HASH"}
+          leaked = forbidden.intersection(os.environ)
+          assert not leaked, f"sentinel pod received unrelated credentials: {sorted(leaked)}"
+          print("sentinel pod has only its webhook and ingest credentials")
+          '
+          kubectl exec "$HEALER_POD" -- python -c '
+          import os
+          assert os.environ.get("GITHUB_TOKEN") == "ci-dummy-token"
+          assert "MCP_AUTH_TOKEN" in os.environ
+          assert "ANTHROPIC_API_KEY" in os.environ
+          print("trusted healer has the credentials required for control-plane operations")
+          '
+          kubectl exec "$MCP_POD" -- python -c '
+          import os
+          assert os.environ.get("GITHUB_TOKEN") == "ci-dummy-token"
+          assert "MCP_AUTH_TOKEN" in os.environ
+          assert "ANTHROPIC_API_KEY" not in os.environ
+          print("MCP has GitHub access but no provider credential")
+          '
+          for POD in "$APP_POD" "$SENTINEL_POD" "$HEALER_POD" "$MCP_POD"; do
+            kubectl exec "$POD" -- python -c '
+          from pathlib import Path
+          token = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
+          assert not token.exists(), "workload received an unnecessary Kubernetes API token"
+          '
+          done
+          echo "workloads have no mounted Kubernetes service-account token"
 
       - name: Smoke test -- trigger a seeded bug and confirm sentinel captured it
         run: |
@@ -242,6 +434,9 @@ jobs:
             kubectl logs -l app="$app" --tail=500 --all-containers || true
             echo "::endgroup::"
           done
+          echo "::group::kubectl logs -l app=selfheal-migrate"
+          kubectl logs -l app=selfheal-migrate --tail=200 --all-containers --prefix=true || true
+          echo "::endgroup::"
           echo "::group::helm status"
           helm status selfheal || true
           echo "::endgroup::"

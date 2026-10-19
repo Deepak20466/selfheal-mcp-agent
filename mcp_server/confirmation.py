@@ -1,8 +1,9 @@
 """Confirmation tokens for destructive MCP tools.
 
-SPEC.md SECURITY: "Destructive actions (rollback, cancel, merge) require an
+SPEC.md SECURITY: "Destructive actions (rollback, cancel) require an
 authenticated session plus an explicit 'yes' confirmation in chat before the
-tool runs." The chat layer (healer/chat.py, Phase 6) is what actually gates
+tool runs." AI-generated PRs are not merged by MCP tools and always wait for
+manual human review in GitHub. The chat layer (healer/chat.py, Phase 6) is what actually gates
 on "yes" from an authenticated session; once it does, it calls
 `issue_confirmation_token` and passes the result through to the tool call.
 Verifying it here — in code, not just by asking the model nicely — is what

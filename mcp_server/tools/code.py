@@ -280,10 +280,14 @@ async def propose_patch(heal_job_id: int, worktree: str, unified_diff: str) -> d
         )
 
     try:
-        touched_paths = check_diff_paths_writable(unified_diff, allowed_prefixes=allowed_prefixes)
+        worktree_dir = resolve_worktree_dir(worktree)
+        touched_paths = check_diff_paths_writable(
+            unified_diff,
+            allowed_prefixes=allowed_prefixes,
+            workspace_root=worktree_dir,
+        )
         check_patch_limits(unified_diff, touched_paths)
         check_not_cheating(unified_diff)
-        worktree_dir = resolve_worktree_dir(worktree)
     except SandboxViolation as exc:
         raise ToolError(str(exc)) from exc
 

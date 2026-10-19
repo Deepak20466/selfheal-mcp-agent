@@ -2,29 +2,51 @@
 
 **Project:** `selfheal-mcp-agent`
 **Audit date:** 2026-10-19
-**Scope:** local source and uncommitted changes, test infrastructure, subprocess
-isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD configuration,
-dependencies, and deployment manifests. Initial observations below are
-preserved as historical findings; see the current PR #21 follow-up section.
+**Scope:** the current PR #23 security follow-up, test infrastructure,
+subprocess isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD
+configuration, dependencies, and deployment manifests. Earlier findings and
+merged follow-ups are identified as historical below.
 
 ## Executive assessment
 
-The audit hardened connected-repository command execution, made the scanner's
-tool bootstrap independent of repository-controlled files, added a disposable
-PostgreSQL test runner, repaired test-database safety checks, and updated the
-Codex benchmark and documentation. The Windows AppContainer and Job Object
-path has meaningful boundary tests and the full pytest suite was run against
-PostgreSQL 16.2.
+The security follow-up in PR #23 adds scoped GitHub App credentials and branch
+guards, removes automatic merging, strengthens patch-path checks, separates
+the target app's database role from the control plane, and adds destination
+checks for Kubernetes egress. Its PostgreSQL-backed CI and Calico kind checks
+passed. The Windows AppContainer and Job Object path also has meaningful
+boundary tests, and earlier audits ran the full suite against PostgreSQL 16.2.
 
 The project is **not ready for unattended production repair of arbitrary
 repositories**. The latest real Codex benchmark verified all 20 generated
-repairs, improving the previous 8/20 result by 12 repairs. That is a promising
-result on this fixed fixture set, not evidence of general reliability. Linux
-Bubblewrap isolation has not been exercised; provider CLI and fixed Git
-control-plane subprocesses are outside the project's AppContainer; the current
-developer interpreter contains stale vulnerable packages; and no live GitHub
-PR or staging deployment/rollback was performed. This report describes
-observed evidence, not a security certification.
+repairs, improving the previous 8/20 result by 12 repairs. That fixed fixture
+set does not establish general reliability. Provider CLI isolation and
+separation from the GitHub control plane remain incomplete; live hostile
+repository repair, independent repository trials, and production recovery
+have not been verified. These results are observed evidence, not a security
+certification.
+
+## Current security follow-up — PR #23
+
+PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) is open,
+unmerged, and requires review. The verified source commit is
+[`b70f7b5`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/b70f7b5f1b1787f72bc93a92a7eb53d5aa002432),
+based on merged commit `726b21e`. Provider CLI execution remains fail-closed.
+
+The [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574999)
+passed with **710 passed, 5 skipped, 3 warnings**. The
+[Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574901)
+passed Helm install and migration, MCP authentication and NetworkPolicy
+checks, allowed and denied egress, direct DNS and direct-egress denial,
+target-app database isolation, runtime smoke, and pod recovery. The database
+check confirmed the app uses a separate non-administrator role and cannot
+connect to the control-plane database. The egress checks ran in an ephemeral
+kind cluster and do not prove production CNI behavior. Local Ruff, formatting,
+strict mypy, compilation, and `git diff --check` passed on the provisioner.
+No production deployment occurred.
+
+Production readiness remains **NO-GO**: provider CLI and Git control-plane
+isolation, live repair-to-PR validation, three independent repository trials,
+monitoring, backup/restore, and production recovery remain unverified.
 
 ## Post-merge follow-up — 2026-10-19
 
@@ -89,14 +111,14 @@ bytecode, not source files; no suppression was added. The production-readiness
 limitations below remain despite the green checks.
 
 The readiness recommendation remains **NO-GO for unattended operation on
-untrusted repositories**. Provider CLI calls now fail closed before process
+untrusted repositories**. Provider CLI calls fail closed before process
 creation, but a network-aware provider sandbox and credential broker are not
-implemented. The post-merge Calico-backed kind run verified MCP authentication
-and NetworkPolicy ingress allow/deny behavior; public TCP 443 egress is still
-not destination-filtered. Live provider repair, multi-repository trials, and
-deployment recovery remain unverified. Hosted Bubblewrap and Calico checks do
-not establish kernel escape resistance, production-cluster behavior, or
-arbitrary-repository reliability.
+implemented. The current PR #23 Calico-backed kind run verifies MCP
+authentication, destination checks, app database separation, and
+NetworkPolicy allow/deny behavior in an ephemeral cluster. Live provider
+repair, multi-repository trials, and production recovery remain unverified.
+Hosted Bubblewrap and Calico checks do not establish kernel escape resistance,
+production-cluster behavior, or arbitrary-repository reliability.
 
 ## Scope and changes
 
@@ -111,9 +133,9 @@ arbitrary-repository reliability.
 | Reliability | Added strict single-file diff parsing, nonzero-context validation, private candidate application, one regression retry, report recovery, worker MCP reconnect handling, bounded fixed Git operations with timeouts and cleanup, hardened Git error redaction, and fixed an order-dependent prober assertion. |
 | CI and packaging | Tightened workflow token permissions, added dependency and fixture checks, updated vulnerable Node example dependencies, and corrected Dockerfile runtime users and healthcheck forms. |
 
-The PR #21 follow-up is merged. This report's current-state update is being
-prepared on a separate feature branch based on that merged `main`; the
-original workspace and its pre-existing files remain untouched.
+The PR #21 follow-up is merged. Current security changes are tracked separately
+in the open PR #23 branch based on merged `main`; no production deployment was
+made.
 
 ## PostgreSQL and test results
 

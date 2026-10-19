@@ -6,7 +6,6 @@ config dir this CLI writes to outside tests.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -184,18 +183,11 @@ def test_bare_apps_defaults_to_list(respx_mock: Any) -> None:
     assert "node_app" in result.output
 
 
-def test_apps_set_auto_merge(respx_mock: Any) -> None:
+def test_apps_set_rejects_auto_merge() -> None:
     _log_in()
-    respx_mock.get(f"{BASE_URL}/api/apps").mock(
-        return_value=httpx.Response(200, json=[{"id": 5, "name": "node_app"}])
-    )
-    patch_route = respx_mock.patch(f"{BASE_URL}/api/apps/5").mock(
-        return_value=httpx.Response(200, json={"id": 5, "name": "node_app", "auto_merge": True})
-    )
     result = runner.invoke(app, ["apps", "set", "node_app", "--auto-merge", "on"])
-    assert result.exit_code == 0, result.output
-    assert patch_route.called
-    assert json.loads(patch_route.calls.last.request.content) == {"auto_merge": True}
+    assert result.exit_code == 1
+    assert "Automatic merging is disabled" in result.output
 
 
 def test_apps_set_requires_a_value() -> None:
