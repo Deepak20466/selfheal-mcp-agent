@@ -334,6 +334,22 @@ def test_completion_text_accepts_text_parts_and_rejects_other_content() -> None:
             openrouter_repair._completion_text(content)
 
 
+def test_bare_diff_headers_are_normalized_only_when_matching_git_paths(
+    tmp_path: Path,
+) -> None:
+    bare_headers = PATCH.replace(b"--- a/src/app.py", b"--- src/app.py").replace(
+        b"+++ b/src/app.py", b"+++ src/app.py"
+    )
+
+    assert openrouter_repair._canonicalize_bare_diff_headers(bare_headers) == PATCH
+
+    mismatched = bare_headers.replace(b"--- src/app.py", b"--- other.py")
+    normalized = openrouter_repair._canonicalize_bare_diff_headers(mismatched)
+    assert b"--- other.py" in normalized
+    with pytest.raises(PatchRejected, match="unsafe or unexpected old file header"):
+        validate_patch(normalized, _repository(tmp_path))
+
+
 def test_inference_requires_an_explicit_zero_cost_response(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
