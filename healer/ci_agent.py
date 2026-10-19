@@ -365,6 +365,8 @@ async def run_ci_heal_job(
                 message=commit_msg,
                 remote=remote,
                 github_token=await github.get_access_token(),
+                github_client=github,
+                pull_request_number=pr_number,
             )
 
         try:

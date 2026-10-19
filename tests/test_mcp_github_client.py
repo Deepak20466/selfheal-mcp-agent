@@ -240,6 +240,60 @@ async def test_create_pull_request_posts_title_body_head_base(
     }
 
 
+@pytest.mark.parametrize(
+    ("pull", "expected"),
+    [
+        (
+            {
+                "state": "open",
+                "merged": False,
+                "head": {"ref": "pr/fix", "repo": {"full_name": "acme/repo"}},
+                "base": {"repo": {"full_name": "acme/repo"}},
+            },
+            True,
+        ),
+        (
+            {
+                "state": "open",
+                "merged": False,
+                "head": {"ref": "pr/other", "repo": {"full_name": "acme/repo"}},
+                "base": {"repo": {"full_name": "acme/repo"}},
+            },
+            False,
+        ),
+        (
+            {
+                "state": "open",
+                "merged": False,
+                "head": {"ref": "pr/fix", "repo": {"full_name": "fork/repo"}},
+                "base": {"repo": {"full_name": "acme/repo"}},
+            },
+            False,
+        ),
+        (
+            {
+                "state": "closed",
+                "merged": False,
+                "head": {"ref": "pr/fix", "repo": {"full_name": "acme/repo"}},
+                "base": {"repo": {"full_name": "acme/repo"}},
+            },
+            False,
+        ),
+    ],
+)
+async def test_open_same_repository_pr_head_validation(
+    monkeypatch: pytest.MonkeyPatch, respx_mock, pull: dict[str, object], expected: bool
+) -> None:
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls/17").mock(
+        return_value=httpx.Response(200, json=pull)
+    )
+
+    async with GitHubClient() as client:
+        assert await client.is_open_same_repository_pr_head(17, "pr/fix") is expected
+
+
 async def test_add_labels_posts_to_issue_labels_endpoint(
     monkeypatch: pytest.MonkeyPatch, respx_mock
 ) -> None:

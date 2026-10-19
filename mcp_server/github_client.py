@@ -278,6 +278,31 @@ class GitHubClient:
         data: dict[str, Any] = response.json()
         return data
 
+    async def is_open_same_repository_pr_head(self, pr_number: int, branch: str) -> bool:
+        """Check that `branch` is the live head of an open PR in this repository.
+
+        The CI-fix worker may update an existing PR branch outside the normal
+        automation namespaces. A signed webhook's PR number and branch are
+        still treated as claims: this API check binds them to an open,
+        same-repository PR immediately before the push.
+        """
+        repository = self._repo_or_raise()
+        pull = await self.get_pull_request(pr_number)
+        head = pull.get("head")
+        base = pull.get("base")
+        head_repository = head.get("repo") if isinstance(head, dict) else None
+        base_repository = base.get("repo") if isinstance(base, dict) else None
+        return bool(
+            pull.get("state") == "open"
+            and pull.get("merged") is False
+            and isinstance(head, dict)
+            and head.get("ref") == branch
+            and isinstance(head_repository, dict)
+            and head_repository.get("full_name") == repository
+            and isinstance(base_repository, dict)
+            and base_repository.get("full_name") == repository
+        )
+
     async def list_pull_request_reviews(self, pr_number: int) -> list[dict[str, Any]]:
         repo = self._repo_or_raise()
         response = await self._request("GET", f"/repos/{repo}/pulls/{pr_number}/reviews")
