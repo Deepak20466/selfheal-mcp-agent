@@ -111,6 +111,8 @@ def main() -> None:
                 _docker_exec(
                     container_id,
                     "pg_restore",
+                    "-U",
+                    "selfheal",
                     "--no-owner",
                     "--no-privileges",
                     "--create",
