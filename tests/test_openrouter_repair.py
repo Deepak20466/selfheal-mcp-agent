@@ -309,6 +309,50 @@ def test_generation_is_tool_free_and_rejects_paid_response(
     assert not output.exists()
 
 
+def test_inapplicable_candidate_gets_one_bounded_free_correction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repository = _repository(tmp_path)
+    failure = tmp_path / "failure.txt"
+    failure.write_text("AssertionError: 43 != 42", encoding="utf-8")
+    output = tmp_path / "patch.diff"
+    invalid_patch = PATCH.replace(b"-return 1", b"-return 9")
+    completion_prompts: list[str] = []
+
+    def fake_request(
+        url: str, *, headers: dict[str, str], body: bytes | None = None
+    ) -> dict[str, object]:
+        if url.endswith("/key"):
+            return _free_key_info()
+        if url.endswith("/models"):
+            return {
+                "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
+            }
+        payload = json.loads(body) if body else {}
+        completion_prompts.append(str(payload["messages"][1]["content"]))
+        patch = invalid_patch if len(completion_prompts) == 1 else PATCH
+        return {
+            "model": "vendor/model:free",
+            "usage": {"cost": 0, "is_byok": False},
+            "choices": [{"message": {"content": patch.decode("utf-8")}}],
+        }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
+    monkeypatch.setenv("OPENROUTER_FREE_MODEL", "vendor/model:free")
+    monkeypatch.setattr(openrouter_repair, "_request", fake_request)
+
+    assert openrouter_repair.generate_patch(repository, failure, output) == "vendor/model:free"
+
+    assert output.read_bytes() == PATCH
+    assert len(completion_prompts) == 2
+    assert (
+        "passed path and content policy checks but failed git apply --check"
+        in completion_prompts[1]
+    )
+    assert "<previous_patch>" in completion_prompts[1]
+    assert TEST_API_KEY not in completion_prompts[1]
+
+
 def test_prompt_redacts_openrouter_keys() -> None:
     value = "OPENROUTER_API_KEY=sk-or-v1-" + "x" * 40
 
