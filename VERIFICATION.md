@@ -10,7 +10,9 @@ Branch `feature/provider-mcp-capability-2026-10-19` (source commit
 [`fb1597c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/fb1597cd10babe6c402c63d2e02ca9eb006c6156)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
-worktree. CI repair tokens may rerun only the associated workflow run, once.
+worktree. CI repair tokens may rerun only the associated workflow run, at most
+once per live MCP process. The replay cache is in-memory and resets on process
+restart, so durable single-use behavior is not established.
 Provider CLIs no longer receive the healer's full MCP bearer token or GitHub
 App private key in their environment/config. The MCP server enforces these
 limits on HTTP requests. The regular developer `.mcp.json` configuration is
