@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23 requires review. PR #24's test check is running; no production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23 requires review. PR #24's `test` and `k8s` checks passed; no production deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -39,13 +39,17 @@ passed. A temporary clean venv dependency audit reported no known
 vulnerabilities among installed dependencies; the unpublished local package
 was skipped. Node tests passed **2/2** and `npm audit` found **0
 vulnerabilities**. Helm lint and template/YAML rendering passed for **27
-objects**. PR #24's hosted test check is running; its Kubernetes check has not
-reported a result yet.
+objects**. PR #24's hosted [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153298)
+and [Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153207)
+passed on commit `8bd3b58`. The kind run installed Calico, linted and rendered
+the chart, and exercised the chart's auth, policy, migration, and recovery
+checks. This is ephemeral CI evidence, not production-cluster validation.
 
 Provider CLI execution remains fail-closed. No provider isolation test, live
 repair-to-PR run, three-repository trial, GCP resource creation, deployment,
 production monitoring, database backup/restore, or rollback was performed.
-PR #23 remains open and requires review. PR #24 is also open and unmerged.
+PR #23 remains open and requires review. PR #24 is also open and unmerged;
+neither has been merged by this work.
 
 Security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23)
 is open, unmerged, and requires review. The verified source commit is

@@ -43,15 +43,20 @@ formatting, strict mypy (88 source files), and `git diff --check` passed. A
 fresh temporary venv audit found no known vulnerabilities in installed
 dependencies after upgrading its bootstrap `pip`; the unpublished local
 package was skipped. Node tests passed 2/2 with no npm advisories. Helm lint
-and YAML rendering passed with 27 objects. PR #24's test check is running;
-its Kubernetes check has not reported a result yet.
+and YAML rendering passed with 27 objects. PR #24's hosted
+[CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153298)
+and [Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153207)
+passed on commit `8bd3b58`. The ephemeral kind run installed Calico, rendered
+and installed the chart, and completed its auth, policy, migration, smoke,
+credential-separation, and recovery steps. This does not establish behavior
+on a production cluster.
 
 This change narrows repository access and App-token permissions but does not
 separate GitHub credentials from the repair worker: the current Helm chart
 still supplies App credentials to both healer and MCP workloads. Provider CLI
 execution remains fail-closed; there was no live repair, three-repository
 trial, production deployment, cloud mutation, backup/restore, or rollback.
-Production readiness remains **NO-GO**.
+PR #24 remains open and unmerged. Production readiness remains **NO-GO**.
 
 ## Current security follow-up — PR #23
 
