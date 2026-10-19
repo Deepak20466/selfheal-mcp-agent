@@ -103,6 +103,7 @@ from healer.cli_common import (
     CLIMalformedOutputError,
     CLINotFoundError,
     CLINotLoggedInError,
+    CLISandboxUnavailableError,
     CLITimeoutError,
     CLIUsageLimitError,
     is_windows_shim,
@@ -165,7 +166,12 @@ _NOT_LOGGED_IN_PATTERN = re.compile(
 
 # Infra-level failures: log and treat the attempt as failed, but keep the job
 # alive to retry (mirrors agent_free.py's _CLI_INFRA_ERRORS).
-_CLI_INFRA_ERRORS = (CLINotFoundError, CLITimeoutError, CLIMalformedOutputError)
+_CLI_INFRA_ERRORS = (
+    CLINotFoundError,
+    CLITimeoutError,
+    CLIMalformedOutputError,
+    CLISandboxUnavailableError,
+)
 
 _CLI_INVOCATION_ACTION = "cli_invocation"
 
@@ -233,6 +239,9 @@ async def run_codex_cli(
     docstring for what *is* different (JSONL output, config-file-based MCP
     restriction instead of `--allowedTools`).
     """
+    from healer.cli_common import require_provider_cli_sandbox
+
+    require_provider_cli_sandbox("Codex")
     resolved_cli = shutil.which(cli_path or settings.codex_cli_path or "codex") or (
         cli_path or settings.codex_cli_path or "codex"
     )

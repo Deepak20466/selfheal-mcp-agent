@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #18 is merged into `main`; no deployment occurred.
+**Current publication state:** PR #20 is merged into `main`; no deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -10,6 +10,39 @@ It is historical evidence and is superseded by this report for the current
 workspace status at the time of that audit.
 
 ## Latest merged `main` verification
+
+PR [#20](https://github.com/Deepak20466/selfheal-mcp-agent/pull/20) merged
+into `main` at
+[`51ce6768907db6ea2c69f36e67616af45ef02bdf`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/51ce6768907db6ea2c69f36e67616af45ef02bdf).
+Its required checks passed before merge. The post-merge
+[CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454765)
+passed with **668 passed, 5 skipped, 3 warnings**; the post-merge
+[Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454823)
+passed. The deployment workflow completed with its deploy steps skipped; no
+production deployment occurred.
+
+### Security follow-up pending review
+
+Provider CLI calls for Codex, Claude Code, and Gemini now fail closed before
+process creation because no supported network-aware OS sandbox has been
+implemented and verified for the provider process and descendants. The small
+gate test passed locally (3 cases), as did Ruff lint, Ruff formatting, and
+`git diff --check`. This disables CLI-backed healing until containment exists;
+it does not prove host-side Git control-plane isolation or API provider
+containment. Live provider repair and the three-repository validation remain
+skipped.
+
+The [follow-up CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266203)
+passed with **671 passed, 5 skipped, 3 warnings**. The hosted
+[Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266263)
+passed: healer-to-MCP access worked, a request without the bearer token was
+rejected, and an unselected pod's TCP connection to MCP timed out. Migration,
+readiness, runtime smoke, and recovery checks also passed. This verifies the
+chart policy in that ephemeral CNI environment, not production clusters. The
+chart allows public IPv4 TCP 443 for provider/GitHub traffic, so external
+HTTPS is not destination-restricted. No local Docker or PostgreSQL service is
+present; this follow-up's full local regression and PostgreSQL checks were not
+run locally; hosted PostgreSQL CI passed.
 
 PR [#18](https://github.com/Deepak20466/selfheal-mcp-agent/pull/18) merged
 into `main` at

@@ -44,8 +44,9 @@ The CLI, healer API, and MCP endpoint bind to loopback for local use. Only the s
 
 | Evidence | Result |
 |---|---|
-| GitHub Actions CI on merged `main` | **634 passed, 4 skipped, 3 warnings** at [`3ecc054`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/3ecc05417c206359154149e7fe6aec5507d56271); [run details](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454) |
-| Kubernetes chart and recovery checks | **Passed** on merged `main`; [run details](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934526) |
+| GitHub Actions CI on merged `main` | **668 passed, 5 skipped, 3 warnings** at [`51ce676`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/51ce6768907db6ea2c69f36e67616af45ef02bdf); [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454765) |
+| Kubernetes chart and recovery checks | **Passed** on merged `main`; [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454823) |
+| Security follow-up PR checks | **671 passed, 5 skipped, 3 warnings**; Calico NetworkPolicy allowed and denied connection checks passed in the [full CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266203) and [hosted Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266263) |
 | Repair benchmark | **20/20** diagnosis labels and repairs on the fixed scenario set; one scenario used a regression retry. See [method and limits](docs/benchmark.md). |
 | Historical live repairs | [PR #10](https://github.com/Deepak20466/selfheal-mcp-agent/pull/10) and [PR #15](https://github.com/Deepak20466/selfheal-mcp-agent/pull/15) verified runtime fixes; [PR #14](https://github.com/Deepak20466/selfheal-mcp-agent/pull/14) demonstrated CI repair and a green rerun. These are historical runs, not a new live repair in the current audit. |
 
@@ -68,7 +69,7 @@ Before starting, set an authenticated `AI_BACKEND` in `.env` if you plan to run 
 
 ## Limits and safety
 
-This is an engineering project, not a production certification for unattended repair of arbitrary repositories. The Windows AppContainer boundaries and Linux Bubblewrap path pass automated CI tests, but provider CLI processes remain outside the project's OS sandbox; live hostile-repository, multi-repository reliability, and deployment recovery tests are incomplete. Review [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and the [sandbox trust-boundary notes](docs/architecture.md#trust-boundaries) before connecting a repository.
+This is an engineering project, not a production certification for unattended repair of arbitrary repositories. Provider CLI execution currently fails closed because the provider and descendant processes lack verified OS containment. Kubernetes policy enforcement, live hostile-repository and multi-repository reliability, and deployment recovery tests remain incomplete. Review [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and the [sandbox trust-boundary notes](docs/architecture.md#trust-boundaries) before connecting a repository.
 
 ## Documentation
 

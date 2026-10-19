@@ -59,6 +59,7 @@ def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     overrides this itself.
     """
     monkeypatch.setattr("healer.agent_free.shutil.which", lambda _name: None)
+    monkeypatch.setattr("healer.agent_free.require_provider_cli_sandbox", lambda _provider: None)
 
 
 # --- A fake asyncio subprocess, for run_claude_cli's own unit tests ---------

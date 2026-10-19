@@ -79,6 +79,7 @@ from core.process_env import sanitized_subprocess_env
 from core.untrusted import UNTRUSTED_DATA_SYSTEM_PROMPT_NOTE, wrap_untrusted
 from healer import ci_agent
 from healer.circuit_breaker import fingerprint_circuit_open
+from healer.cli_common import CLISandboxUnavailableError, require_provider_cli_sandbox
 from healer.full_suite import combine_evidence, run_full_suite
 from healer.github_ops import (
     CIFixOutcome,
@@ -154,10 +155,19 @@ class ClaudeCLIMalformedOutputError(ClaudeCLIError):
     """The CLI exited but stdout was not the JSON `--output-format json` promises."""
 
 
+class ClaudeCLISandboxUnavailableError(ClaudeCLIError, CLISandboxUnavailableError):
+    """Claude Code is disabled because the provider process is not contained."""
+
+
 # Infra-level failures (as opposed to ClaudeCLINotLoggedInError/
 # ClaudeCLIUsageLimitError, which get their own handling): log and treat the
 # attempt as failed, but keep the job alive to retry.
-_CLI_INFRA_ERRORS = (ClaudeCLINotFoundError, ClaudeCLITimeoutError, ClaudeCLIMalformedOutputError)
+_CLI_INFRA_ERRORS = (
+    ClaudeCLINotFoundError,
+    ClaudeCLITimeoutError,
+    ClaudeCLIMalformedOutputError,
+    CLISandboxUnavailableError,
+)
 
 
 @dataclass(frozen=True)
@@ -269,6 +279,10 @@ async def run_claude_cli(
     injected instruction in chat-supplied data has no destructive tool to
     even attempt to call — enforced here in code, not by asking nicely.
     """
+    try:
+        require_provider_cli_sandbox("Claude Code")
+    except CLISandboxUnavailableError as exc:
+        raise ClaudeCLISandboxUnavailableError(str(exc)) from exc
     resolved_cli = shutil.which(cli_path or settings.claude_cli_path or "claude") or (
         cli_path or settings.claude_cli_path or "claude"
     )

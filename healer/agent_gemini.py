@@ -74,6 +74,7 @@ from healer.cli_common import (
     CLIMalformedOutputError,
     CLINotFoundError,
     CLINotLoggedInError,
+    CLISandboxUnavailableError,
     CLITimeoutError,
     CLIUsageLimitError,
     is_windows_shim,
@@ -130,7 +131,12 @@ _NOT_LOGGED_IN_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-_CLI_INFRA_ERRORS = (CLINotFoundError, CLITimeoutError, CLIMalformedOutputError)
+_CLI_INFRA_ERRORS = (
+    CLINotFoundError,
+    CLITimeoutError,
+    CLIMalformedOutputError,
+    CLISandboxUnavailableError,
+)
 _CLI_INVOCATION_ACTION = "cli_invocation"
 
 
@@ -170,6 +176,9 @@ async def run_gemini_cli(
     (settings.json-based MCP restriction instead of `--allowedTools`, the
     single-JSON-object output shape, which happens to match Claude Code's).
     """
+    from healer.cli_common import require_provider_cli_sandbox
+
+    require_provider_cli_sandbox("Gemini")
     resolved_cli = shutil.which(cli_path or settings.gemini_cli_path or "gemini") or (
         cli_path or settings.gemini_cli_path or "gemini"
     )
