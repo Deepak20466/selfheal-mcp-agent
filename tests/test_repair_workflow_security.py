@@ -14,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
     workflow_path = ROOT / ".github" / "workflows" / "repair-pr.yml"
-    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(workflow_text)
     jobs = workflow["jobs"]
+    assert workflow_text.count('gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY"') == 2
     assert "sandbox-preflight" in jobs["infer-initial"]["needs"]
     preflight = jobs["sandbox-preflight"]
     assert preflight["permissions"] == {"contents": "read"}
