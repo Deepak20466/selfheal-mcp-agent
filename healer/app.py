@@ -53,7 +53,6 @@ from healer.auth import (
     require_auth,
     verify_socketio_token,
 )
-from healer.automerge import run_auto_merge_loop
 from healer.chat_agent import as_tool_list, handle_chat_message
 from healer.findings_actions import maybe_auto_fix_high_severity, request_fix_for_finding
 from healer.job_progress import recent_job_progress, run_progress_broadcaster
@@ -101,7 +100,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _mcp_client = mcp
     worker_task = asyncio.create_task(run_worker())
     progress_task = asyncio.create_task(run_progress_broadcaster(_socket_broadcast))
-    automerge_task = asyncio.create_task(run_auto_merge_loop())
     remote_ci_poll_task = asyncio.create_task(run_remote_ci_poll_loop())
     logger.info("healer_pod_started", mcp_url=mcp_url)
     try:
@@ -110,11 +108,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         remote_ci_poll_task.cancel()
         try:
             await remote_ci_poll_task
-        except asyncio.CancelledError:
-            pass
-        automerge_task.cancel()
-        try:
-            await automerge_task
         except asyncio.CancelledError:
             pass
         progress_task.cancel()
@@ -321,7 +314,8 @@ def _app_summary(app_row: MonitoredApp, *, open_findings: int) -> dict[str, Any]
         "github_repo": app_row.github_repo,
         "connected": app_row.repo_url is not None,
         "auto_fix_high_severity": app_row.auto_fix_high_severity,
-        "auto_merge": app_row.auto_merge,
+        # AI-generated PRs always require a human to merge them manually.
+        "auto_merge": False,
         "health_score": app_row.health_score,
         "last_scanned_at": app_row.last_scanned_at.isoformat() if app_row.last_scanned_at else None,
         "open_findings": open_findings,
@@ -388,14 +382,17 @@ async def connect_app(
     username: str = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    if not settings.github_token:
-        raise HTTPException(status_code=503, detail="GITHUB_TOKEN is not configured")
+    if not settings.github_auth_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub App credentials or a development GITHUB_TOKEN are not configured",
+        )
     try:
         app_row = await connect_repo(
             db,
             repo_url=body.repo_url,
             name=body.name,
-            github_token=settings.github_token,
+            github_token=None,
             sub_path=body.path,
         )
         await db.commit()
@@ -534,6 +531,14 @@ async def update_app(
     app_row = await db.get(MonitoredApp, app_id)
     if app_row is None:
         raise HTTPException(status_code=404, detail="No such app")
+    if body.auto_merge is True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Automatic merging is disabled; AI-generated PRs require human review "
+                "and manual merge"
+            ),
+        )
     if body.auto_fix_high_severity is not None:
         app_row.auto_fix_high_severity = body.auto_fix_high_severity
     if body.auto_merge is not None:
@@ -599,6 +604,14 @@ async def fix_finding(
     app_row = await db.get(MonitoredApp, finding.app_id)
     if app_row is None:
         raise HTTPException(status_code=404, detail="No such app")
+    if body is not None and body.auto_merge is True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Automatic merging is disabled; AI-generated PRs require human review "
+                "and manual merge"
+            ),
+        )
     auto_merge_override = body.auto_merge if body is not None else None
     suggest = body.suggest if body is not None else False
     job = await request_fix_for_finding(

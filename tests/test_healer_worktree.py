@@ -119,7 +119,7 @@ async def _seed_fake_remote_main(remote: str) -> None:
 async def test_create_and_remove_worktree_lifecycle(fake_git_remote: str) -> None:
     await _seed_fake_remote_main(fake_git_remote)
     name = f"test-{uuid.uuid4().hex[:8]}"
-    branch = f"autofix-test/{name}"
+    branch = f"autofix/test-{name}"
 
     path = await create_worktree(name, branch, remote=fake_git_remote)
     try:
@@ -136,7 +136,7 @@ async def test_create_and_remove_worktree_lifecycle(fake_git_remote: str) -> Non
 async def test_reset_worktree_discards_uncommitted_changes(fake_git_remote: str) -> None:
     await _seed_fake_remote_main(fake_git_remote)
     name = f"test-{uuid.uuid4().hex[:8]}"
-    branch = f"autofix-test/{name}"
+    branch = f"autofix/test-{name}"
     path = await create_worktree(name, branch, remote=fake_git_remote)
     try:
         marker = path / "apps" / "target_app" / "_scratch_marker.txt"
@@ -153,7 +153,7 @@ async def test_reset_worktree_discards_uncommitted_changes(fake_git_remote: str)
 async def test_commit_and_push_pushes_to_the_given_remote(fake_git_remote: str) -> None:
     await _seed_fake_remote_main(fake_git_remote)
     name = f"test-{uuid.uuid4().hex[:8]}"
-    branch = f"autofix-test/{name}"
+    branch = f"autofix/test-{name}"
     path = await create_worktree(name, branch, remote=fake_git_remote)
     try:
         new_file = path / "apps" / "target_app" / "_scratch_marker.txt"
@@ -203,7 +203,7 @@ async def test_create_worktree_fetches_and_bases_off_the_remotes_latest_main(
     assert not (REPO_ROOT / marker_relpath).exists(), "local main must never see this commit"
 
     name = f"test-{uuid.uuid4().hex[:8]}"
-    branch = f"autofix-test/{name}"
+    branch = f"autofix/test-{name}"
     path = await create_worktree(name, branch, remote=fake_git_remote)
     try:
         assert (path / marker_relpath).is_file()
@@ -307,6 +307,56 @@ async def test_commit_and_push_gives_up_after_one_retry(
     monkeypatch.setattr(worktree, "_run_git", always_fail)
     with pytest.raises(worktree.WorktreeError):
         await worktree.commit_and_push(tmp_path, "autofix/x", message="m")
+
+
+@pytest.mark.parametrize("branch", ["main", "master", "release/2.0"])
+async def test_commit_and_push_refuses_protected_branches_before_git(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, branch: str
+) -> None:
+    from core.config import settings
+    from healer import worktree
+
+    calls: list[list[str]] = []
+
+    async def fake_run_git(
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout_s: float | None = None,
+        github_token: str | None = None,
+    ) -> None:
+        del cwd, timeout_s, github_token
+        calls.append(args)
+
+    monkeypatch.setattr(settings, "github_protected_branches", "main,master,release/*")
+    monkeypatch.setattr(settings, "github_allowed_push_branches", "*")
+    monkeypatch.setattr(worktree, "_run_git", fake_run_git)
+    with pytest.raises(worktree.WorktreeError, match="protected branch"):
+        await worktree.commit_and_push(tmp_path, branch, message="must not commit")
+    assert calls == []
+
+
+async def test_commit_and_push_refuses_unauthorized_branch_before_git(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from healer import worktree
+
+    calls: list[list[str]] = []
+
+    async def fake_run_git(
+        args: list[str],
+        *,
+        cwd: Path,
+        timeout_s: float | None = None,
+        github_token: str | None = None,
+    ) -> None:
+        del cwd, timeout_s, github_token
+        calls.append(args)
+
+    monkeypatch.setattr(worktree, "_run_git", fake_run_git)
+    with pytest.raises(worktree.WorktreeError, match="unauthorized branch"):
+        await worktree.commit_and_push(tmp_path, "feature/arbitrary", message="must not push")
+    assert calls == []
 
 
 async def test_run_git_failure_scrubs_a_credentialed_remote_url_from_the_error(

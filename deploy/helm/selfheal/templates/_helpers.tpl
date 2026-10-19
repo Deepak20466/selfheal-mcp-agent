@@ -20,8 +20,6 @@ postgresql+asyncpg://{{ .Values.postgres.username }}:{{ .Values.postgres.passwor
 {{- end -}}
 
 {{- define "selfheal.commonEnv" -}}
-- name: DATABASE_URL
-  value: {{ include "selfheal.databaseUrl" . | quote }}
 - name: ENVIRONMENT
   value: {{ .Values.env.environment | quote }}
 - name: LOG_LEVEL
@@ -44,28 +42,64 @@ postgresql+asyncpg://{{ .Values.postgres.username }}:{{ .Values.postgres.passwor
   # this override is required for the smoke test's /trigger/zero call to
   # actually reach sentinel-pod's real /ingest/error endpoint.
   value: "http://selfheal-sentinel:{{ .Values.sentinel.port }}"
-- name: SESSION_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: selfheal-secrets
-      key: session-secret
-- name: HEALER_WEBHOOK_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: selfheal-secrets
-      key: healer-webhook-secret
-- name: SENTINEL_INGEST_TOKEN
-  valueFrom:
-    secretKeyRef:
-      name: selfheal-secrets
-      key: sentinel-ingest-token
+- name: HEALER_WEBHOOK_URL
+  value: "http://selfheal-sentinel:{{ .Values.sentinel.port }}/webhooks/ci"
+- name: PUBLIC_URL
+  value: "http://selfheal-sentinel:{{ .Values.sentinel.port }}"
+- name: GITHUB_PROTECTED_BRANCHES
+  value: {{ .Values.security.protectedBranches | quote }}
+- name: GITHUB_ALLOWED_PUSH_BRANCHES
+  value: {{ .Values.security.allowedPushBranches | quote }}
+{{- end -}}
+
+{{- define "selfheal.databaseEnv" -}}
+- name: DATABASE_URL
+  value: {{ include "selfheal.databaseUrl" . | quote }}
+{{- end -}}
+
+{{- define "selfheal.githubEnv" -}}
+{{- if ne .Values.env.environment "production" }}
 - name: GITHUB_TOKEN
   valueFrom:
     secretKeyRef:
       name: selfheal-secrets
       key: github-token
+{{- end }}
 - name: GITHUB_REPO
   value: {{ .Values.env.githubRepo | quote }}
+- name: GITHUB_APP_ID
+  value: {{ .Values.env.githubAppId | quote }}
+- name: GITHUB_APP_INSTALLATION_ID
+  value: {{ .Values.env.githubAppInstallationId | quote }}
+- name: GITHUB_APP_PRIVATE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: selfheal-secrets
+      key: github-app-private-key
+{{- end -}}
+
+{{- define "selfheal.sentinelTokenEnv" -}}
+- name: SENTINEL_INGEST_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: selfheal-secrets
+      key: sentinel-ingest-token
+{{- end -}}
+
+{{- define "selfheal.sentinelWebhookEnv" -}}
+- name: HEALER_WEBHOOK_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: selfheal-secrets
+      key: healer-webhook-secret
+{{- end -}}
+
+{{- define "selfheal.healerEnv" -}}
+- name: SESSION_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: selfheal-secrets
+      key: session-secret
 - name: ADMIN_PASSWORD_HASH
   valueFrom:
     secretKeyRef:
@@ -77,10 +111,33 @@ postgresql+asyncpg://{{ .Values.postgres.username }}:{{ .Values.postgres.passwor
   value: {{ .Values.env.anthropicApiKey | quote }}
 - name: ANTHROPIC_BASE_URL
   value: {{ .Values.env.anthropicBaseUrl | quote }}
-- name: AUTO_MERGE
-  value: {{ .Values.env.autoMerge | quote }}
-- name: HEALER_WEBHOOK_URL
-  value: "http://selfheal-sentinel:{{ .Values.sentinel.port }}/webhooks/ci"
-- name: PUBLIC_URL
-  value: "http://selfheal-sentinel:{{ .Values.sentinel.port }}"
+{{- end -}}
+
+{{- define "selfheal.egressProxyEnv" -}}
+- name: HTTPS_PROXY
+  value: "http://selfheal-egress:{{ .Values.egress.port }}"
+- name: HTTP_PROXY
+  value: "http://selfheal-egress:{{ .Values.egress.port }}"
+- name: NO_PROXY
+  value: "localhost,127.0.0.1,::1,selfheal-app,selfheal-sentinel,selfheal-mcp,selfheal-healer,selfheal-postgres,selfheal-egress,.svc,.svc.cluster.local"
+- name: https_proxy
+  value: "http://selfheal-egress:{{ .Values.egress.port }}"
+- name: http_proxy
+  value: "http://selfheal-egress:{{ .Values.egress.port }}"
+- name: no_proxy
+  value: "localhost,127.0.0.1,::1,selfheal-app,selfheal-sentinel,selfheal-mcp,selfheal-healer,selfheal-postgres,selfheal-egress,.svc,.svc.cluster.local"
+{{- end -}}
+
+{{- define "selfheal.dnsPodSpec" -}}
+dnsPolicy: None
+dnsConfig:
+  nameservers:
+    - {{ required "dns.filterServiceIP must be reserved for the Selfheal DNS filter Service" .Values.dns.filterServiceIP | quote }}
+  searches:
+    - {{ .Release.Namespace }}.svc.cluster.local
+    - svc.cluster.local
+    - cluster.local
+  options:
+    - name: ndots
+      value: "5"
 {{- end -}}

@@ -1,0 +1,225 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-dns-filter
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-dns}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: selfheal-app}}
+        - podSelector: {matchLabels: {app: selfheal-sentinel}}
+        - podSelector: {matchLabels: {app: selfheal-healer}}
+        - podSelector: {matchLabels: {app: selfheal-mcp}}
+        - podSelector: {matchLabels: {app: selfheal-migrate}}
+        - podSelector: {matchLabels: {app: selfheal-egress}}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-app-egress
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-app}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-sentinel}
+      ports:
+        - {protocol: TCP, port: {{ .Values.sentinel.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-sentinel-egress
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-sentinel}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-postgres}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-app}
+      ports:
+        - {protocol: TCP, port: {{ .Values.app.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-healer-egress
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-healer}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-postgres}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-mcp}
+      ports:
+        - {protocol: TCP, port: {{ .Values.mcp.port }}}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-sentinel}
+      ports:
+        - {protocol: TCP, port: {{ .Values.sentinel.port }}}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-egress}
+      ports:
+        - {protocol: TCP, port: {{ .Values.egress.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-migrate-egress
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-migrate}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-postgres}
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-postgres-access
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-postgres}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: selfheal-sentinel}}
+        - podSelector: {matchLabels: {app: selfheal-healer}}
+        - podSelector: {matchLabels: {app: selfheal-mcp}}
+        - podSelector: {matchLabels: {app: selfheal-migrate}}
+      ports:
+        - {protocol: TCP, port: 5432}
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-mcp
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-mcp}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: selfheal-healer}
+      ports:
+        - {protocol: TCP, port: {{ .Values.mcp.port }}}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-postgres}
+      ports:
+        - {protocol: TCP, port: 5432}
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-egress}
+      ports:
+        - {protocol: TCP, port: {{ .Values.egress.port }}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: selfheal-egress-gateway
+spec:
+  podSelector:
+    matchLabels: {app: selfheal-egress}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: selfheal-healer}}
+        - podSelector: {matchLabels: {app: selfheal-mcp}}
+      ports:
+        - {protocol: TCP, port: {{ .Values.egress.port }}}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: selfheal-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - {protocol: TCP, port: 443}

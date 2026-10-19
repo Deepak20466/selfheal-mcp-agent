@@ -103,7 +103,7 @@ services:
       - key: CHAT_DAILY_BUDGET_USD
         value: "1.00"
 
-      # Safety.
+      # Legacy compatibility only; auto-merge is disabled by implementation.
       - key: AUTO_MERGE
         value: "false"
 

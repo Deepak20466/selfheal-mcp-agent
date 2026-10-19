@@ -1,11 +1,9 @@
 """CI/CD tools: list_workflow_runs, get_workflow_run, get_job_logs,
 rerun_workflow, cancel_workflow, get_pr_status, trigger_rollback.
 
-`cancel_workflow` and `trigger_rollback` require a `confirmation_token`
-(SPEC.md SECURITY: "destructive actions (rollback, cancel, merge) require
-... an explicit 'yes' confirmation in chat before the tool runs" — verified
-here in code, issued by the chat layer once a user actually confirms).
-"""
+cancel_workflow and trigger_rollback require a confirmation token.
+Destructive actions require explicit user confirmation in chat. AI-generated
+PR merging is not exposed as an MCP tool."""
 
 from __future__ import annotations
 

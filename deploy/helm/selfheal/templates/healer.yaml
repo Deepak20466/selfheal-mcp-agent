@@ -11,6 +11,8 @@ spec:
     metadata:
       labels: {app: selfheal-healer}
     spec:
+      automountServiceAccountToken: false
+      {{- include "selfheal.dnsPodSpec" . | nindent 6 }}
       restartPolicy: Always
       containers:
         - name: healer
@@ -20,6 +22,10 @@ spec:
             - containerPort: {{ .Values.healer.port }}
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+            {{- include "selfheal.databaseEnv" . | nindent 12 }}
+            {{- include "selfheal.githubEnv" . | nindent 12 }}
+            {{- include "selfheal.healerEnv" . | nindent 12 }}
+            {{- include "selfheal.egressProxyEnv" . | nindent 12 }}
             - name: MCP_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:

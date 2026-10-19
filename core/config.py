@@ -173,6 +173,15 @@ class Settings(BaseSettings):
     # --- GitHub --------------------------------------------------------------
     github_token: str | None = None
     github_repo: str | None = None
+    github_app_id: str | None = None
+    github_app_installation_id: str | None = None
+    github_app_private_key: str | None = None
+    # Branches this service must never push to, even if a caller passes one
+    # explicitly. GitHub branch protection remains the server-side control.
+    github_protected_branches: str = "main,master,develop,trunk,production"
+    # Service writes are limited to named automation namespaces. Human branches
+    # and arbitrary refs are not accepted by the trusted push path.
+    github_allowed_push_branches: str = "autofix/*,selfheal-onboarding/*"
     #: Comma-separated list of GitHub owners/orgs connect-a-repo is allowed to
     #: register, on top of the always-required push-access check (see
     #: core/repo_connect.py:connect_repo). None/empty = no extra restriction.
@@ -193,9 +202,8 @@ class Settings(BaseSettings):
     chat_daily_budget_usd: Decimal = Decimal("1.00")
 
     # --- Safety guardrails -----------------------------------------------
-    #: Global fallback only -- a heal_job's effective auto-merge decision is
-    #: `HealJob.auto_merge_override` if set, else `MonitoredApp.auto_merge`
-    #: if the job has an app, else this setting. See healer/automerge.py.
+    #: Legacy setting retained for config compatibility. The application
+    #: refuses automatic merges regardless of this value.
     auto_merge: bool = False
     auto_merge_poll_seconds: int = 60
 
@@ -285,6 +293,17 @@ class Settings(BaseSettings):
         if not self.allowed_repo_owners:
             return []
         return [o.strip().lower() for o in self.allowed_repo_owners.split(",") if o.strip()]
+
+    @property
+    def github_app_auth_configured(self) -> bool:
+        return bool(
+            self.github_app_id and self.github_app_installation_id and self.github_app_private_key
+        )
+
+    @property
+    def github_auth_configured(self) -> bool:
+        """Whether GitHub App credentials or a development token are available."""
+        return self.github_app_auth_configured or bool(self.github_token)
 
     @property
     def sentinel_base_url(self) -> str:

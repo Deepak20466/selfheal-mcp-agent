@@ -12,7 +12,7 @@ Before recording:
 2. Prepare a clean clone with a fresh local PostgreSQL app database and a separate test database. Follow [operations.md](operations.md).
 3. In the demo clone, set `config/monitored_apps.yaml` so the `target_app` entry points to the disposable repository. The `github_repo` value must match the demo repository. Commit this baseline setup before the recording.
 4. Configure a live, authenticated AI backend, a repository-scoped `GITHUB_TOKEN`, and `.env` values for local PostgreSQL and authentication. Do not put secrets in command arguments, source files, or screen captures.
-5. Set `AUTO_MERGE=false` and confirm `selfheal apps set target_app --auto-merge off`. Start from a clean app database so old errors and PRs do not obscure this run.
+5. Confirm automatic merging is disabled in the service. Legacy auto-merge settings cannot enable it; generated PRs always wait for manual review. Start from a clean app database so old errors and PRs do not obscure this run.
 6. Confirm the repo has the seeded `/trigger/zero` controlled failure, a real regression-test command, and a GitHub Actions workflow that runs those tests. Do not use a mock provider, fixture transcript, or fabricated output.
 
 Do not run the demo until the provider CLI isolation blocker in [architecture.md](architecture.md#trust-boundaries) is resolved and the repaired boundary has been verified. The demo repository must contain no real credentials or private user data. Do not expose the healer API publicly. This runtime-trigger path needs only local sentinel capture and GitHub's normal PR checks; it does not need a public webhook tunnel.
@@ -43,6 +43,7 @@ Set-Location $RepoDir
 .\.venv\Scripts\selfheal.exe up
 .\.venv\Scripts\selfheal.exe login
 .\.venv\Scripts\selfheal.exe status
+# Clear any stored legacy value; the service does not allow auto-merge.
 .\.venv\Scripts\selfheal.exe apps set target_app --auto-merge off
 ```
 
@@ -83,7 +84,7 @@ This demonstrates a controlled runtime error followed by AI diagnosis, an automa
 | Time | Show |
 |---|---|
 | 0:00–0:20 | Project name, architecture, and the disposable target repository |
-| 0:20–0:45 | `selfheal status`; point out the local processes and `AUTO_MERGE=false` |
+| 0:20–0:45 | `selfheal status`; point out the local processes and the manual PR review requirement |
 | 0:45–1:05 | Trigger `/trigger/zero`; show the real HTTP 500 and the captured error |
 | 1:05–2:25 | Show live healer progress and the root-cause explanation; keep real command output visible |
 | 2:25–3:10 | Show the generated code diff and regression test, then verification result |
@@ -98,7 +99,7 @@ No full-flow recording has been made. This execution environment cannot control 
 
 - Capture the terminal and GitHub PR in 1920×1080; use a second display or record the browser segment separately if region selection cannot include both.
 - Disable desktop notifications and close unrelated tabs. Do not display `.env`, password prompts, token settings, browser profiles, personal email, or local absolute paths.
-- Keep `AUTO_MERGE=false`; do not merge the demo PR. Do not record real credentials or personal information.
+- Automatic merging is disabled; do not merge the demo PR. Do not record real credentials or personal information.
 - Review the final export frame by frame and scan terminal text before uploading. Upload the actual full-flow MP4 to the repository's `docs/` folder, then replace the short-clip note and thumbnail link in `README.md` with that real file. Do not add a placeholder or invented external URL.
 
 ### Optional failing-CI variant

@@ -42,14 +42,14 @@ async def request_fix_for_finding(
     fingerprint_circuit_open`) is what actually prevents runaway repeat
     fixing of the same finding, same as it does for a real runtime error.
 
-    `auto_merge_override` is `selfheal fix --auto-merge`'s one-time
-    per-fix decision -- see `healer/automerge.py:effective_auto_merge`.
+    `auto_merge_override` is retained for database compatibility; the healer
+    never acts on it because automatic merges are disabled.
 
     `suggest=True` (`selfheal fix ... --suggest`) is for a fix that can't be
     verified at all (no tests even after `selfheal prepare`, or an
     unsupported project type) -- it's routed to `healer/suggest_mode.py`
     instead of the normal AI_CHAIN dispatch, which opens the PR labeled
-    "UNVERIFIED suggestion: review carefully" and never auto-merges it.
+    "UNVERIFIED suggestion: review carefully" and requires human review.
     """
     error = Error(
         fingerprint=finding.fingerprint,

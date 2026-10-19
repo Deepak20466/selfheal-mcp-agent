@@ -11,6 +11,8 @@ spec:
     metadata:
       labels: {app: selfheal-sentinel}
     spec:
+      automountServiceAccountToken: false
+      {{- include "selfheal.dnsPodSpec" . | nindent 6 }}
       restartPolicy: Always
       containers:
         - name: sentinel
@@ -20,6 +22,9 @@ spec:
             - containerPort: {{ .Values.sentinel.port }}
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+            {{- include "selfheal.databaseEnv" . | nindent 12 }}
+            {{- include "selfheal.sentinelTokenEnv" . | nindent 12 }}
+            {{- include "selfheal.sentinelWebhookEnv" . | nindent 12 }}
             # sentinel/app.py's prober loop currently hardcodes
             # `http://localhost:{app_port}` (a single-host-deployment
             # assumption predating this Helm chart) -- it will not reach

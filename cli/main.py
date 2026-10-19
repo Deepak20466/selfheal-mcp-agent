@@ -301,22 +301,26 @@ def apps_set(
     app_name: str,
     auto_merge: Annotated[
         str | None,
-        typer.Option("--auto-merge", help="on|off -- merge this app's PRs once CI+tests pass."),
+        typer.Option(
+            "--auto-merge", help="Set the legacy value to off; automatic merging cannot be enabled."
+        ),
     ] = None,
 ) -> None:
-    """Change a connected app's settings, e.g. `selfheal apps set node_app --auto-merge on`."""
+    """Disable a connected app's legacy auto-merge setting."""
     if auto_merge is None:
-        error_console.print("[red]Nothing to set. Pass --auto-merge on|off.[/red]")
+        error_console.print("[red]Pass --auto-merge off to clear the legacy setting.[/red]")
         raise typer.Exit(code=1)
-    if auto_merge not in ("on", "off"):
-        error_console.print("[red]--auto-merge must be 'on' or 'off'.[/red]")
+    if auto_merge != "off":
+        error_console.print(
+            "[red]Automatic merging is disabled; --auto-merge only accepts 'off'.[/red]"
+        )
         raise typer.Exit(code=1)
 
     async def _set() -> dict[str, Any]:
         async with HealerClient.from_saved_session() as client:
             app_id = await _resolve_app_id(client, app_name)
             result: dict[str, Any] = await client.patch(
-                f"/api/apps/{app_id}", json={"auto_merge": auto_merge == "on"}
+                f"/api/apps/{app_id}", json={"auto_merge": False}
             )
             return result
 
@@ -478,7 +482,8 @@ def fix(
     finding_id: Annotated[int | None, typer.Argument()] = None,
     high: Annotated[bool, typer.Option("--high", help="Fix every high-severity finding.")] = False,
     auto_merge: Annotated[
-        bool, typer.Option("--auto-merge", help="Auto-merge this fix only, if CI+tests pass.")
+        bool,
+        typer.Option("--auto-merge", help="Unsupported: AI-generated PRs require manual merge."),
     ] = False,
     suggest: Annotated[
         bool,
@@ -493,6 +498,12 @@ def fix(
     """Fix one finding, or every high-severity finding with --high. Spends AI budget."""
     if finding_id is None and not high:
         error_console.print("[red]Give a finding id, or pass --high.[/red]")
+        raise typer.Exit(code=1)
+    if auto_merge:
+        error_console.print(
+            "[red]Automatic merging is disabled; "
+            "merge AI-generated PRs manually after review.[/red]"
+        )
         raise typer.Exit(code=1)
 
     async def _run_fix() -> list[dict[str, Any]]:
@@ -511,7 +522,7 @@ def fix(
                 return []
             if not yes:
                 names = ", ".join(str(f.get("id")) for f in findings)
-                suffix = " with auto-merge enabled" if auto_merge else ""
+                suffix = ""
                 if suggest:
                     suffix += " as an UNVERIFIED suggestion (no tests will run at all)"
                 if not typer.confirm(
@@ -521,8 +532,6 @@ def fix(
             results = []
             for f in findings:
                 body: dict[str, Any] = {}
-                if auto_merge:
-                    body["auto_merge"] = True
                 if suggest:
                     body["suggest"] = True
                 result: dict[str, Any] = await client.post(

@@ -17,7 +17,8 @@ Two separate policies, per SPEC.md's mcp-pod section:
 from __future__ import annotations
 
 import re
-from pathlib import Path
+import stat
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKTREES_ROOT = REPO_ROOT / "worktrees"
@@ -50,8 +51,7 @@ _SECRET_FILE_SUFFIXES = (".pem", ".p12", ".pfx", ".key")
 #: with no app_id (predates multi-app support). A job with an app_id uses
 #: that app's own `allowed_write_paths` instead (see tools/code.py).
 RUNTIME_FIX_ALLOWED_PREFIX = "apps/target_app/"
-
-_DIFF_PATH_PATTERN = re.compile(r"^(?:---|\+\+\+) (?:a/|b/)?(?P<path>\S+)", re.MULTILINE)
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 class SandboxViolation(Exception):
@@ -136,10 +136,51 @@ def resolve_worktree_dir(worktree: str) -> Path:
 
 
 def extract_diff_paths(unified_diff: str) -> set[str]:
-    """Extract every file path touched by a unified diff (from ---/+++ headers)."""
-    paths = set()
-    for match in _DIFF_PATH_PATTERN.finditer(unified_diff):
-        path = match.group("path")
+    """Extract every file path touched by a strict unified-diff header.
+
+    Quoted paths and names containing spaces are rejected because the current
+    patch transport does not parse Git's C-quoted path format. A safe refusal
+    is preferable to validating a truncated header and applying another path.
+    """
+    paths: set[str] = set()
+    hunk_remaining: tuple[int, int] | None = None
+    for line in unified_diff.splitlines():
+        if line.startswith(("diff --git ", "diff --cc ")):
+            hunk_remaining = None
+            continue
+        if hunk_remaining is not None:
+            old_remaining, new_remaining = hunk_remaining
+            if line.startswith(" "):
+                old_remaining -= 1
+                new_remaining -= 1
+            elif line.startswith("-"):
+                old_remaining -= 1
+            elif line.startswith("+"):
+                new_remaining -= 1
+            elif not line.startswith("\\"):
+                hunk_remaining = None
+                continue
+            hunk_remaining = (
+                (old_remaining, new_remaining) if old_remaining > 0 or new_remaining > 0 else None
+            )
+            continue
+        hunk_match = _HUNK_HEADER.match(line)
+        if hunk_match:
+            old_remaining = int(hunk_match.group(2) or "1")
+            new_remaining = int(hunk_match.group(4) or "1")
+            if old_remaining or new_remaining:
+                hunk_remaining = (old_remaining, new_remaining)
+            continue
+        if not (line.startswith("--- ") or line.startswith("+++ ")):
+            continue
+        raw_path = line[4:]
+        if raw_path.startswith('"'):
+            raise SandboxViolation("Quoted patch paths are not supported")
+        path = raw_path.split("\t", 1)[0]
+        if " " in path:
+            raise SandboxViolation("Patch paths containing spaces are not supported")
+        if path.startswith(("a/", "b/")):
+            path = path[2:]
         if path == "/dev/null":
             continue
         paths.add(path)
@@ -147,7 +188,10 @@ def extract_diff_paths(unified_diff: str) -> set[str]:
 
 
 def check_diff_paths_writable(
-    unified_diff: str, *, allowed_prefixes: list[str] | None = None
+    unified_diff: str,
+    *,
+    allowed_prefixes: list[str] | None = None,
+    workspace_root: Path | None = None,
 ) -> set[str]:
     """Validate every path touched by a diff against the write sandbox.
 
@@ -158,5 +202,47 @@ def check_diff_paths_writable(
     if not touched:
         raise SandboxViolation("Diff does not touch any files")
     for path in touched:
+        _validate_patch_path(path)
         check_writable(path, allowed_prefixes=allowed_prefixes)
+        if workspace_root is not None:
+            _reject_symlink_components(workspace_root, path)
     return touched
+
+
+def _validate_patch_path(path: str) -> None:
+    """Reject ambiguous, absolute, traversal, and Windows-style diff paths."""
+    if not path or "\\" in path or "\x00" in path or path.startswith("/"):
+        raise SandboxViolation(f"Invalid patch path: {path!r}")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise SandboxViolation(f"Patch path contains traversal: {path!r}")
+    if any(":" in part or part.endswith((".", " ")) for part in parts):
+        raise SandboxViolation(f"Patch path contains a Windows-ambiguous name: {path!r}")
+    if any(ord(character) < 32 or ord(character) == 127 for character in path):
+        raise SandboxViolation(f"Patch path contains control characters: {path!r}")
+
+
+def _reject_symlink_components(workspace_root: Path, path: str) -> None:
+    """Reject existing symlinks in a patch target's path under the worktree."""
+    root = workspace_root.absolute()
+    if _is_link_or_reparse_point(root):
+        raise SandboxViolation("Patch workspace root must not be a symlink or junction")
+    root = root.resolve()
+    current = root
+    for part in PurePosixPath(path).parts:
+        current = current / part
+        if _is_link_or_reparse_point(current):
+            raise SandboxViolation(f"Patch target traverses a symlink: {path!r}")
+
+
+def _is_link_or_reparse_point(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    if callable(is_junction) and is_junction():
+        return True
+    try:
+        attributes = path.lstat().st_file_attributes
+    except (AttributeError, OSError):
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))

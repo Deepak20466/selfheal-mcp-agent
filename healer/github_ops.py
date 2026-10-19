@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from core.config import settings
 from mcp_server.github_client import GitHubClient
 
 AUTO_FIX_LABEL = "auto-fix"
@@ -97,10 +96,8 @@ class FixEvidence:
     error_summary: str
 
 
-def _auto_merge_note() -> str:
-    if settings.auto_merge:
-        return "AUTO_MERGE is enabled — this PR merges automatically once CI passes."
-    return "AUTO_MERGE is disabled — this PR waits for human approval."
+def _manual_merge_note() -> str:
+    return "A human must review and merge this PR manually; automatic merging is disabled."
 
 
 def _pr_body(evidence: FixEvidence) -> str:
@@ -110,7 +107,7 @@ def _pr_body(evidence: FixEvidence) -> str:
         f"## Test evidence\n```\n{evidence.test_output[-4000:]}\n```\n\n"
         f"## Source\nheal_job #{evidence.heal_job_id} "
         f"(fingerprint `{evidence.fingerprint}`): {evidence.error_summary}\n\n"
-        f"_Opened automatically by the AI self-healing system. {_auto_merge_note()}_"
+        f"_Opened automatically by the AI self-healing system. {_manual_merge_note()}_"
     )
 
 

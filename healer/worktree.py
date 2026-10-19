@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from fnmatch import fnmatchcase
 from pathlib import Path
 
+from core.config import settings
 from core.git_env import git_subprocess_env, scrub_git_message
 from mcp_server.sandbox import REPO_ROOT, WORKTREES_ROOT
 
@@ -136,6 +138,24 @@ async def commit_and_push(
     remotes) with the main repo, so this is the only way to keep test pushes
     off the public GitHub repo.
     """
+    allowed_patterns = {
+        pattern.strip()
+        for pattern in settings.github_allowed_push_branches.split(",")
+        if pattern.strip()
+    }
+    if not any(fnmatchcase(branch.casefold(), pattern.casefold()) for pattern in allowed_patterns):
+        raise WorktreeError(
+            f"Refusing to push unauthorized branch {branch!r}; use an approved automation namespace"
+        )
+    protected_patterns = {
+        pattern.strip()
+        for pattern in settings.github_protected_branches.split(",")
+        if pattern.strip()
+    }
+    if any(fnmatchcase(branch.casefold(), pattern.casefold()) for pattern in protected_patterns):
+        raise WorktreeError(
+            f"Refusing to push protected branch {branch!r}; fixes must use a review branch"
+        )
     await _run_git(["add", "-A"], cwd=path)
     await _run_git(["commit", "-m", message], cwd=path)
     # A push crosses the network: a 30s cap killed a fully verified fix in the

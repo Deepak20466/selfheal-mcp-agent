@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: selfheal-egress-config
+data:
+  allowed-hosts: {{ join "," .Values.egress.allowedHosts | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: selfheal-egress
+  labels: {app: selfheal-egress}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: selfheal-egress}
+  template:
+    metadata:
+      labels: {app: selfheal-egress}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "selfheal.dnsPodSpec" . | nindent 6 }}
+      containers:
+        - name: egress-proxy
+          image: {{ include "selfheal.image" (dict "Values" .Values "pod" "egress") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.egress.port }}
+          env:
+            - name: ALLOWED_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: selfheal-egress-config
+                  key: allowed-hosts
+            - name: LISTEN_PORT
+              value: {{ .Values.egress.port | quote }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+            readOnlyRootFilesystem: true
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 500m, memory: 128Mi}
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import socket; socket.create_connection(('127.0.0.1', {{ .Values.egress.port }}), timeout=2).close()"
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import socket; socket.create_connection(('127.0.0.1', {{ .Values.egress.port }}), timeout=2).close()"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: selfheal-egress
+spec:
+  selector: {app: selfheal-egress}
+  ports:
+    - port: {{ .Values.egress.port }}
+      targetPort: {{ .Values.egress.port }}

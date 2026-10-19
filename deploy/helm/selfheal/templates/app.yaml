@@ -11,6 +11,8 @@ spec:
     metadata:
       labels: {app: selfheal-app}
     spec:
+      automountServiceAccountToken: false
+      {{- include "selfheal.dnsPodSpec" . | nindent 6 }}
       restartPolicy: Always
       containers:
         - name: app
@@ -20,6 +22,7 @@ spec:
             - containerPort: {{ .Values.app.port }}
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+            {{- include "selfheal.sentinelTokenEnv" . | nindent 12 }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           resources:

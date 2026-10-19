@@ -48,7 +48,7 @@ Set values in the local `.env` file; never commit it or show it in a recording.
 - `AI_BACKEND` selects one provider. `AI_CHAIN` and `CHAT_CHAIN` optionally configure ordered fallbacks.
 - Provider choices include Claude Code, Codex, and Gemini CLIs; the Anthropic API; and Groq, Gemini, and OpenRouter APIs. **Provider CLI execution currently fails closed on Linux and other platforms** until a network-aware OS sandbox contains the provider and its descendants. Existing Bubblewrap confinement has no network and cannot safely host these CLIs.
 - The historical Codex CLI benchmark ran before this gate was added and is not a current live-workflow result. Claude Code was unauthenticated, Gemini CLI was unavailable, and API calls were mock-tested in the audit. See [benchmark.md](benchmark.md) and [VERIFICATION.md](../VERIFICATION.md) for evidence.
-- Set `GITHUB_TOKEN` to a fine-grained token restricted to the exact repository, with Metadata read, Contents read/write, Pull requests read/write, Issues read/write, and Actions read/write only when using run retry/cancel or rollback dispatch. Set `GITHUB_REPO` to the intended target and keep `AUTO_MERGE=false`. Do not reuse a production token for a demo repository.
+- In production, configure a GitHub App ID, installation ID, and private key through the deployment secret manager. The client mints a short-lived installation token scoped to one repository with only the API permissions the service uses. Static `GITHUB_TOKEN` is accepted for development; the production Helm chart omits it and production code refuses PAT-only authentication. Set `GITHUB_REPO` to the intended target and restrict the app installation to approved repositories. Pushes are limited to `autofix/*` and `selfheal-onboarding/*` by default, while protected branch rules are also enforced server-side. AI-generated PRs are never merged by the service; review and merge them manually. Do not reuse a production credential for a demo repository.
 - The target application's `github_repo` in `config/monitored_apps.yaml` determines where its repair PR is opened. For an isolated demo, use a disposable repository and check this value before starting the services.
 
 Do not remove the CLI execution gate or run provider CLIs against untrusted repositories. Review the blockers in [architecture.md](architecture.md#trust-boundaries) before enabling a provider CLI backend.
@@ -70,7 +70,7 @@ selfheal metrics
 selfheal down
 ```
 
-`selfheal connect` clones a repository the configured token can access. `selfheal scan` reports findings. A fix can spend AI budget and create a branch/PR; inspect the finding and confirm the target repository first. Auto-merge is disabled by default.
+`selfheal connect` clones a repository the configured GitHub App or development token can access. `selfheal scan` reports findings. A fix can spend AI budget and create a branch/PR; inspect the finding and confirm the target repository first. Automatic merging is disabled; review and merge generated PRs manually in GitHub.
 
 For connecting any-language apps and adding telemetry, follow [onboarding.md](onboarding.md).
 
@@ -90,9 +90,26 @@ The repository also has Docker images and a Helm chart. Their Kubernetes workflo
 For Helm installs, set `env.mcpAuthToken` to a random value with at least 32
 characters. The chart stores it in a Kubernetes Secret and gives the same
 secret to the MCP server and healer. The chart's MCP NetworkPolicy accepts
-connections only from healer pods; MCP egress allows PostgreSQL, cluster DNS,
-and public TCP 443 while excluding private and reserved IPv4 ranges. Public
-HTTPS destinations are not allowlisted, and actual enforcement depends on the
-cluster's CNI plugin. See [architecture.md](architecture.md#trust-boundaries)
-for the limits of this boundary. Avoid placing the token in shell history or
-process arguments; supply it through your secret-management workflow.
+connections only from healer pods. Reserve an unused address in your cluster's
+Service CIDR for `dns.filterServiceIP`, and set `dns.upstreamServiceIP` to the
+CoreDNS Service ClusterIP. Workload pods use the DNS-filter Service as their
+only nameserver; their egress policies allow port 53 only to that Service. The
+filter forwards exact hosts from `egress.allowedHosts` and Kubernetes service
+names, strips EDNS data, and refuses other external names. Among the chart
+workloads, only the filter can query CoreDNS.
+
+Healer and MCP use the `selfheal-egress` CONNECT gateway for external HTTPS.
+It rejects wildcard entries, non-443 CONNECT, mismatched TLS SNI, encrypted
+ClientHello, and DNS answers that include private or reserved addresses. The
+gateway's NetworkPolicy permits public
+IPv4 TCP 443, while its application enforces the destination host allowlist.
+The effective boundary therefore depends on both gateway code and a CNI that
+enforces Kubernetes NetworkPolicy. The hosted Calico workflow tests allowed
+GitHub/provider destinations, DNS filtering and direct-CoreDNS denial, a
+denied external host, direct-egress bypass, and unauthorized pod access.
+Re-run those checks with the CNI and deployment configuration used by your
+cluster; they do not prove arbitrary provider CLI isolation or kernel escape
+resistance. See
+[architecture.md](architecture.md#trust-boundaries) for the full limits.
+Avoid placing the token in shell history or process arguments; supply it
+through your secret-management workflow.

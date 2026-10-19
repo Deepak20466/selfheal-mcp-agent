@@ -11,7 +11,8 @@
 # own `restartPolicy: Always` (the Kubernetes default, set explicitly per
 # the task) is exactly the mechanism that makes them recover once it does --
 # a real, small demonstration of "Kubernetes restarts crashed pods" in its
-# own right, not just noise to route around.
+# own right, not just noise to route around. The Job retries if PostgreSQL is
+# not ready yet, so migration does not need a DNS-capable init container.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -23,28 +24,12 @@ metadata:
 spec:
   backoffLimit: 10
   template:
+    metadata:
+      labels: {app: selfheal-migrate}
     spec:
+      automountServiceAccountToken: false
+      {{- include "selfheal.dnsPodSpec" . | nindent 6 }}
       restartPolicy: Never
-      initContainers:
-        - name: wait-for-postgres
-          image: {{ include "selfheal.image" (dict "Values" .Values "pod" "app") }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          command:
-            - python
-            - -c
-            - |
-              import socket, time
-              host, port = "{{ include "selfheal.postgresHost" . }}", 5432
-              for _ in range(60):
-                  try:
-                      socket.create_connection((host, port), timeout=2).close()
-                      break
-                  except OSError:
-                      time.sleep(2)
-              else:
-                  raise SystemExit("postgres never became reachable")
       containers:
         - name: migrate
           image: {{ include "selfheal.image" (dict "Values" .Values "pod" "app") }}
@@ -62,3 +47,4 @@ spec:
           command: ["sh", "-c", "python -m alembic upgrade head && python scripts/seed_demo.py"]
           env:
             {{- include "selfheal.commonEnv" . | nindent 12 }}
+            {{- include "selfheal.databaseEnv" . | nindent 12 }}

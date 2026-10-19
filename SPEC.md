@@ -140,7 +140,7 @@ MTTR, success rate and cost per fix.
      - Pipeline: "What's the pipeline status?", "Why did CI fail on PR #12?", "Show me the failing test", "Re-run the failed job", "Fix the CI failure"
      - Deploys: "Is production healthy?", "What was deployed last?", "Roll back production"
      - Metrics: "Show stats", "What's our MTTR?", "How much have fixes cost today?"
-     - **Destructive actions** (rollback, cancel, merge) require an authenticated session plus an explicit "yes" confirmation in chat before the tool runs.
+     - **Destructive actions** (rollback, cancel) require an authenticated session plus an explicit "yes" confirmation in chat before the tool runs. Merging AI-generated PRs is not exposed to the agent and always requires a human to review and merge in GitHub.
      - Chat history is persisted in `chat_messages` and scoped per session.
 
 # WEB UI (professional UI/UX)
@@ -177,9 +177,7 @@ MTTR, success rate and cost per fix.
 - **Circuit breaker:** max 3 heal attempts per fingerprint per 24h, max 2 CI-fix attempts per PR, and max 10 heal jobs per hour globally.
 - **Patch limits:** max 3 files and 80 changed lines. Must never touch forbidden paths. Reject anything that fails.
 - **Never make CI pass by cheating:** no deleting, skipping, `xfail`-ing or weakening tests, no lowering coverage thresholds, no editing `.github/workflows/`, and no `# type: ignore` / `noqa` just to pass. Detect these in the diff and reject them.
-- **`AUTO_MERGE` env flag (default `false`):**
-  - `true`: the PR auto-merges only when all CI checks pass.
-  - `false`: the PR waits for human approval.
+- **Automatic merging is disabled:** the legacy `AUTO_MERGE` setting and database fields are ignored. AI-generated PRs wait for human review and manual merging in GitHub.
 - The healer never pushes directly to `main`. Everything goes through a PR and CI.
 - Every action (detection, analysis, tool call, patch, PR, CI event, re-run, deploy, rollback, chat command, login, budget pause) is written to an `audit_log` table.
 - If Claude's confidence is low or tests cannot reproduce the bug, open a GitHub issue with the analysis instead of a PR.
@@ -228,11 +226,11 @@ Add proper indexes on fingerprint, status, type, run_id, pr_number and created_a
 4. **`rollback.yml`:** `workflow_dispatch` (callable from chat via the MCP `trigger_rollback` tool) that flips back to the previous release and runs smoke tests.
 5. **`health-check.yml`:** a scheduled (every 15 min) synthetic check running healthz and contracts over the public URL. It opens an issue on repeated failure and notifies the chat.
 6. Document the required GitHub secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `HEALER_WEBHOOK_SECRET`, `HEALER_WEBHOOK_URL`, `PUBLIC_URL`, and `ANTHROPIC_API_KEY` only if API mode is used.
-   - Also document the `.env` values `USE_CLAUDE_CODE`, the CLI settings, `GITHUB_TOKEN` (fine-grained: Contents, Pull requests, Issues, Actions read/write), `GITHUB_REPO`, `DATABASE_URL`, `TEST_DATABASE_URL`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`, the caps, `AUTO_MERGE`, and optionally `ANTHROPIC_API_KEY`, `SLACK_WEBHOOK_URL` / SMTP.
+   - Also document the `.env` values `USE_CLAUDE_CODE`, the CLI settings, development-only `GITHUB_TOKEN`, production GitHub App credentials (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`), `GITHUB_REPO`, `GITHUB_ALLOWED_PUSH_BRANCHES`, `DATABASE_URL`, `TEST_DATABASE_URL`, `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`, the caps, and optionally `ANTHROPIC_API_KEY`, `SLACK_WEBHOOK_URL` / SMTP. `AUTO_MERGE` is a legacy setting and has no effect.
 7. Also provide a **local mode**, `scripts/local_deploy.py`, that does the same release/symlink/rollback flow on localhost. This lets the full loop be demoed without a server.
    - Also provide `scripts/tunnel_note.md`, explaining how to expose the local webhook to GitHub for demos (e.g. a lightweight SSH reverse tunnel, no Docker).
 
-# CLOUD DEPLOYMENT (fully automatic)
+# CLOUD DEPLOYMENT (human-approved release)
 - Target: any Ubuntu 22.04/24.04 cloud VM with 1–2 GB RAM, e.g. AWS EC2, GCP e2-small, DigitalOcean, or Oracle Cloud Always Free. No Docker, no Kubernetes.
 - Provide `scripts/provision_vm.sh`, idempotent and run once over SSH. It must:
   - install Python 3.11+, PostgreSQL (tuned for low RAM: shared_buffers=64MB, max_connections=30, work_mem=4MB), git, and Caddy
@@ -243,7 +241,7 @@ Add proper indexes on fingerprint, status, type, run_id, pr_number and created_a
   - configure the firewall (ufw) to allow only 22, 80 and 443
   - enable unattended security upgrades
 - Run ALL 4 pods on the VM. This makes the webhook and the authenticated chat reachable over HTTPS, so GitHub webhooks work without tunnels.
-- Full automatic loop: bug → AI fix → PR → CI green → auto-merge → cloud deploy → contracts verified → chat notified. There is zero human input when `AUTO_MERGE=true`.
+- Repair loop: bug → AI fix → PR → CI green → human review and merge → deployment checks → chat notified. The agent never merges an AI-generated PR.
 - README section: "Deploy to cloud in 10 minutes", with exact commands, including a note that unattended server use of a consumer subscription should be checked against Anthropic's terms, and that API mode is the production option.
 
 # PROJECT STRUCTURE
@@ -296,7 +294,7 @@ After each phase, run ruff, mypy and the full pytest suite, fix every failure, t
   - a PR is opened and CI goes green
   - the fix is deployed to the cloud VM and all contracts are verified
   - the chat shows "✓ Fixed and verified healthy"
-  - all of this happens within 10 minutes, without any human input when `AUTO_MERGE=true`
+  - after the PR is opened and CI passes, a human reviews and merges it before the deployment workflow runs
 - **CI self-healing.** Breaking a test on a PR (`scripts/break_ci_demo.py`) results in all of the following:
   - the AI detects the CI failure
   - it explains the failure in chat

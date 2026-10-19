@@ -2,7 +2,7 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #21 is merged into `main`; no deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; the security follow-up is on an unmerged feature branch. No production deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
@@ -11,15 +11,23 @@ workspace status at the time of that audit.
 
 ## Latest merged `main` verification
 
-PR [#21](https://github.com/Deepak20466/selfheal-mcp-agent/pull/21) merged
+PR [#22](https://github.com/Deepak20466/selfheal-mcp-agent/pull/22) merged
 into `main` at
-[`7892f03c381c982484d7dca223c3507fb9d8b50c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7892f03c381c982484d7dca223c3507fb9d8b50c).
-The post-merge [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326594)
-passed with **671 passed, 5 skipped, 3 warnings**. The post-merge
-[Calico-backed Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664)
-passed NetworkPolicy allow/deny checks, MCP authentication, readiness, smoke,
-and recovery checks. The [deploy workflow](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326545)
-completed with deploy steps skipped; no deployment occurred.
+[`726b21ef1067db5a39a026b70b0d24c7d4cbf838`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/726b21ef1067db5a39a026b70b0d24c7d4cbf838).
+The post-merge [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386393)
+passed. The post-merge [Calico-backed Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386387)
+passed, and the [deploy workflow](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386390)
+completed with deployment steps skipped. No production deployment occurred.
+
+The follow-up branch implements GitHub App installation-token scoping,
+protected-branch and push-namespace guards, automatic-merge removal, patch
+path checks, workload credential separation, a DNS filtering service, and a
+CONNECT gateway that checks the exact hostname and TLS SNI. The isolated
+no-database subset reports 119 passed, 3 skipped, and 6 deselected. Ruff,
+mypy, compileall, and workflow YAML parsing pass. Full local pytest startup
+cannot connect to PostgreSQL; PostgreSQL and Calico-hosted verification for
+this branch are pending the feature PR checks. No Docker or local Kubernetes
+cluster was used.
 
 PR [#20](https://github.com/Deepak20466/selfheal-mcp-agent/pull/20) merged
 into `main` at
@@ -112,23 +120,23 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Linux Bubblewrap command sandbox and POSIX process cleanup | PASS (hosted CI) | Ubuntu hosted CI installed Bubblewrap and exercised the command sandbox, namespaces, filesystem/credential/network/process limits, and process-tree cleanup. [Merged-main CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326594). This is integration evidence, not a kernel-escape assessment. |
 | MCP credential-path filtering | PASS (known filenames only) | Full local suite passed. Filtering does not identify secrets in arbitrary filenames or ordinary source text. |
 | Provider CLI OS containment | FAIL CLOSED / NOT IMPLEMENTED | Codex/Claude/Gemini processes are blocked before process creation. No network-aware provider sandbox is implemented; CLI-based repair is unavailable. |
-| Git credential/control-plane isolation | FAIL / NOT VERIFIED | GitHub credentials remain in the trusted healer process; no isolated provider worker/control-plane protocol exists or has been validated. CLI providers are disabled. |
+| Trusted GitHub control plane | FAIL (partial controls implemented) | GitHub App installation tokens are short-lived, repository-scoped, and permission-checked; push namespaces and protected branches are checked server-side; AI auto-merge is removed. The provider worker and GitHub control-plane protocol are still in the same trusted service boundary, so separation from a network-aware provider process is not proven. |
 | MCP HTTP authentication and NetworkPolicy ingress | PASS (hosted Calico kind) | Authenticated healer access succeeded, unauthenticated MCP access returned 401, and an unselected pod's TCP access timed out under Calico. [Post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664). |
-| External egress destination restriction | FAIL / PARTIAL | Policy denies private/reserved IPv4 destinations and allows public TCP 443. Public HTTPS is not FQDN-restricted; no egress proxy/broker is implemented. |
+| Destination-restricted Kubernetes egress | PENDING (feature-branch hosted check) | The branch adds an exact-host CONNECT gateway with DNS rebinding checks, matching TLS SNI, encrypted ClientHello rejection, a DNS filter service, and NetworkPolicies that deny chart-workload DNS bypass and direct external egress. A CNI-hosted run is required before this row can be marked verified for the branch. |
+| Adversarial security testing | FAIL (partial coverage) | Unit and integration checks cover branch authorization, credential scope, path traversal, symlinks, malformed DNS and TLS, DNS bypass, egress bypass, and process cleanup. A provider-worker escape, live prompt-injection, resource-exhaustion, and interrupted-worker recovery campaign has not been run. |
 | Prompt injection / malicious repository instructions | SKIPPED (live) | Unit-level untrusted-data and patch-guard tests exist; no adversarial live provider run was performed. |
 | GitHub live repair-to-PR workflow / rate limits | SKIPPED | No live provider repair was run; CLI execution remains gated. |
 | Three independent repository trials | SKIPPED | Historical 20-case benchmark is one synthetic fixture; no live disposable repository trials were run. |
 | Provider validation | PARTIAL / HISTORICAL | Historical Codex fixture benchmark passed 20/20 before the gate. No current isolated provider execution is verified. |
 | Kubernetes recovery and probes | PASS (ephemeral kind) | Migration/readiness, runtime smoke, pod replacement, and liveness restart passed in [post-merge k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664). Production monitoring, backup/restore, and rollback remain skipped. |
 | Full PostgreSQL-backed suite | PASS (hosted CI) | **671 passed, 5 skipped, 3 warnings** in [post-merge CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326594). |
-| Production decision for unattended arbitrary-repository repair | **NO-GO** | Provider process isolation and Git control-plane separation are incomplete; public HTTPS egress is not destination-restricted; live multi-repository repair, monitoring, and production recovery evidence is absent. |
+| Production decision for unattended arbitrary-repository repair | **NO-GO** | Provider process isolation and Git control-plane separation are incomplete; hosted checks for the new egress path, live multi-repository repair, monitoring, backup/restore, and production recovery evidence are absent. |
 
 ## Result matrix
 
-The detailed checks below are historical results for the audited commits,
-not new checks on this documentation-only follow-up. For current merged-main
-CI, Kubernetes, and provider-isolation status, use the production-readiness
-matrix above.
+The merged-main results below are historical evidence for their listed
+commits. For current feature-branch checks, use the security follow-up summary
+and production-readiness matrix above.
 
 | Check | Status | Result |
 |---|---|---|

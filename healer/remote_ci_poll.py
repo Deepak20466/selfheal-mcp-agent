@@ -8,11 +8,11 @@ repo's own CI notified this system's `/webhooks/ci` -- an opt-in the
 operator has to wire up themselves (see remote_verify.py's own docstring).
 This module adds the other half: pull-based, using only the GitHub API we
 already have read access to (`GET .../commits/{sha}/check-runs`, the same
-call `healer/automerge.py`'s poller already uses), so a remote-verify PR's
+call the GitHub status client already uses), so a remote-verify PR's
 CI failure gets picked up and retried even without the operator wiring
 anything.
 
-Same background-loop shape as `healer/automerge.py`'s `run_auto_merge_loop`.
+Same background-loop shape as the other healer polling workers.
 On a real CI failure (not pending, not success) it pushes ONE retry fix to
 the SAME PR branch -- reusing `healer.worktree.
 create_worktree_for_connected_app_branch` (clone the local checkout, then
@@ -32,9 +32,8 @@ creating a new `ci_failure` row, since there is no local reproduction of
 this failure the normal CI-fix loop's "read the log, fix forward" prompt
 could react to any differently).
 
-Still never auto-merges (`auto_merge_override` was already forced False by
-`run_heal_job_remote_verify`; this module never touches it), still scoped
-to the app's own `local_repo_path` (write-scope + patch anti-cheat enforced
+All generated PRs still require manual review. This worker is scoped to the
+app's own `local_repo_path` (write-scope + patch anti-cheat enforced
 exactly as before, via the same `propose_patch`/`run_tests` MCP tools --
 nothing here bypasses them), and exhausting the 2-attempt cap opens a
 needs-human-review issue and marks the job `failed` rather than looping
@@ -58,7 +57,6 @@ from decimal import Decimal
 import structlog
 from sqlalchemy import select
 
-from core.config import settings
 from core.db import session_scope
 from core.models import AuditLog, FixAttempt, HealJob, HealJobStatus, MonitoredApp
 from core.untrusted import wrap_untrusted
@@ -106,9 +104,7 @@ async def _find_awaiting_ci_job_ids() -> list[int]:
 
 
 async def _check_run_verdict(client: GitHubClient, sha: str) -> str:
-    """ "pending" | "success" | "failure" -- mirrors `healer.automerge.
-    _ci_has_passed`'s logic but distinguishes "still running" from "done
-    and green" (that function never needed to)."""
+    """Return pending, success, or failure for all checks on a commit."""
     runs = await client.list_check_runs(sha)
     if not runs:
         return "pending"
@@ -236,7 +232,7 @@ async def _retry_one(job_id: int) -> None:
             branch,
             source_dir=REPO_ROOT / "connected_apps" / app_name,
             github_remote_url=push_remote,
-            github_token=settings.github_token,
+            github_token=await github.get_access_token(),
         )
         try:
             prompt = (
@@ -297,7 +293,7 @@ async def _retry_one(job_id: int) -> None:
                 branch,
                 message=commit_msg,
                 remote=push_remote,
-                github_token=settings.github_token,
+                github_token=await github.get_access_token(),
             )
 
             async with session_scope() as session:
@@ -351,8 +347,7 @@ async def poll_remote_verify_prs_once() -> int:
 async def run_remote_ci_poll_loop(
     sleep: Callable[[float], Awaitable[None]] | None = None,
 ) -> None:
-    """Background task, started alongside the worker/auto-merge loops in
-    healer/app.py -- same shape as `healer.automerge.run_auto_merge_loop`."""
+    """Background task, started alongside the worker in healer/app.py."""
     _sleep = sleep or asyncio.sleep
     while True:
         try:

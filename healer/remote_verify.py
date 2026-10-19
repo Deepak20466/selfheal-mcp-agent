@@ -26,12 +26,8 @@ to do, so the fix is skipped outright (`HealJobStatus.FAILED`, with a clear
 `error_message`) rather than opening a PR nobody -- human or CI -- has
 checked.
 
-**Never auto-merges.** `healer.automerge.effective_auto_merge` already
-treats a non-NULL `heal_jobs.auto_merge_override` as the final word,
-outranking the app's or the operator's own auto-merge setting; this module
-sets that override to `False` the moment it opens a PR, so a fix nobody
-(and nothing) has locally proven correct always waits for a human, CI-green
-or not.
+All generated PRs require human review and manual merging. The legacy
+`auto_merge_override` field is ignored by the healer.
 
 **Scope, stated plainly**: drives the fix via the same Claude Code CLI
 runner free mode already uses and has real live-verification history for
@@ -312,7 +308,7 @@ async def run_heal_job_remote_verify(
             branch,
             message=commit_msg,
             remote=push_remote,
-            github_token=settings.github_token,
+            github_token=await github.get_access_token(),
         )
 
         evidence = RemoteVerifyEvidence(
@@ -334,9 +330,7 @@ async def run_heal_job_remote_verify(
             job.branch_name = branch
             job.pr_number = pr["number"]
             job.attempt_count = 1
-            # Never auto-merge a fix nobody (and nothing) has locally proven
-            # correct -- outranks the app's/global auto-merge setting, see
-            # healer.automerge.effective_auto_merge's precedence.
+            # Persist a legacy-compatible value; the healer never auto-merges.
             job.auto_merge_override = False
             session.add(
                 FixAttempt(

@@ -11,8 +11,7 @@ Routed to by `healer/worker.py:_process_next_job` for any heal_job whose
 `audit_log` carries a `healer.findings_actions.SUGGEST_MODE_ACTION` row
 (set by `request_fix_for_finding(..., suggest=True)`, itself reached only
 via an explicit operator `--suggest` flag -- this mode is never chosen
-automatically). **Never auto-merges**, same `auto_merge_override = False`
-mechanism every other reduced-confidence path in this project already uses.
+automatically). Every generated PR requires human review and manual merging.
 
 Drives the fix via the same Claude Code CLI runner free mode uses (reused,
 not duplicated), same scope caveat as `healer/remote_verify.py`: the other
@@ -228,7 +227,7 @@ async def run_heal_job_suggest(
             branch,
             message=commit_msg,
             remote=push_remote,
-            github_token=settings.github_token if is_connected_app else None,
+            github_token=await github.get_access_token(),
         )
 
         evidence = RemoteVerifyEvidence(
@@ -250,7 +249,7 @@ async def run_heal_job_suggest(
             job.branch_name = branch
             job.pr_number = pr["number"]
             job.attempt_count = 1
-            job.auto_merge_override = False  # never auto-merge an unverified suggestion
+            job.auto_merge_override = False  # legacy field; automatic merge is disabled
             session.add(
                 FixAttempt(
                     heal_job_id=job_id,

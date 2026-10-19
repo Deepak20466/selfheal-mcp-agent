@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -27,6 +28,130 @@ async def test_missing_github_repo_raises(monkeypatch: pytest.MonkeyPatch) -> No
     async with GitHubClient() as client:
         with pytest.raises(GitHubClientError, match="GITHUB_REPO"):
             await client.list_workflow_runs()
+
+
+async def test_production_rejects_a_long_lived_pat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", "long-lived-pat")
+    monkeypatch.setattr(core_settings, "github_app_id", None)
+    monkeypatch.setattr(core_settings, "github_app_installation_id", None)
+    monkeypatch.setattr(core_settings, "github_app_private_key", None)
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+
+    async with GitHubClient() as client:
+        with pytest.raises(GitHubClientError, match="requires a GitHub App"):
+            await client.get_access_token()
+
+
+async def test_github_app_token_is_short_lived_and_repository_scoped(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    import jwt
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", None)
+    monkeypatch.setattr(core_settings, "github_app_id", "123456")
+    monkeypatch.setattr(core_settings, "github_app_installation_id", "987654")
+    monkeypatch.setattr(core_settings, "github_app_private_key", pem)
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+
+    expires_at = (datetime.now(UTC) + timedelta(minutes=55)).isoformat()
+    token_route = respx_mock.post(f"{GITHUB_API_BASE}/app/installations/987654/access_tokens").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "token": "ghs-short-lived",
+                "expires_at": expires_at,
+                "repositories": [{"full_name": "acme/repo"}],
+                "permissions": {
+                    "actions": "write",
+                    "contents": "write",
+                    "issues": "write",
+                    "pull_requests": "write",
+                    "metadata": "read",
+                },
+            },
+        )
+    )
+    repo_route = respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo").mock(
+        return_value=httpx.Response(200, json={"full_name": "acme/repo"})
+    )
+
+    async with GitHubClient() as client:
+        repo = await client.get_repo()
+        assert await client.get_access_token() == "ghs-short-lived"
+
+    assert repo["full_name"] == "acme/repo"
+    assert repo_route.calls.last.request.headers["Authorization"] == "Bearer ghs-short-lived"
+    assert token_route.call_count == 1
+    request = token_route.calls.last.request
+    assert request.headers["Authorization"].startswith("Bearer ")
+    claims = jwt.decode(
+        request.headers["Authorization"].removeprefix("Bearer "),
+        options={"verify_signature": False, "verify_exp": False},
+    )
+    assert claims["iss"] == "123456"
+    assert claims["exp"] - claims["iat"] == 600
+    assert json.loads(request.content) == {
+        "repositories": ["repo"],
+        "permissions": {
+            "actions": "write",
+            "contents": "write",
+            "issues": "write",
+            "pull_requests": "write",
+        },
+    }
+
+
+async def test_github_app_token_rejects_extra_repository_permissions(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", None)
+    monkeypatch.setattr(core_settings, "github_app_id", "123456")
+    monkeypatch.setattr(core_settings, "github_app_installation_id", "987654")
+    monkeypatch.setattr(core_settings, "github_app_private_key", pem)
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    respx_mock.post(f"{GITHUB_API_BASE}/app/installations/987654/access_tokens").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "token": "ghs-overbroad",
+                "expires_at": (datetime.now(UTC) + timedelta(minutes=55)).isoformat(),
+                "repositories": [{"full_name": "acme/repo"}],
+                "permissions": {
+                    "actions": "write",
+                    "contents": "write",
+                    "issues": "write",
+                    "pull_requests": "write",
+                    "administration": "write",
+                },
+            },
+        )
+    )
+
+    async with GitHubClient() as client:
+        with pytest.raises(GitHubClientError, match="exactly the authorized"):
+            await client.get_access_token()
 
 
 async def test_non_2xx_response_raises_with_status_and_body(

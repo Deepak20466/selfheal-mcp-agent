@@ -206,8 +206,8 @@ async def _attribute_backend_if_pr_opened(
     job_id: int, backend_name: str, github: GitHubClient
 ) -> None:
     """After a successful dispatch, if the job now has a PR, record which
-    backend produced it (`healer/automerge.py` refuses to auto-merge a
-    fallback-produced fix) and post one attribution comment. Best-effort —
+    backend produced it for the audit trail and post one attribution comment.
+    Best-effort —
     a GitHub error here must never turn a successful fix into a failure."""
     async with session_scope() as session:
         job = await session.get(HealJob, job_id)
