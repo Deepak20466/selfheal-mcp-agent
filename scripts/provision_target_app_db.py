@@ -86,7 +86,7 @@ async def provision() -> None:
         if database_owner is None:
             stage = "create isolated target-app database"
             create_database_sql = await connection.fetchval(
-                "SELECT format('CREATE DATABASE %I OWNER %I', $1, $2)",
+                "SELECT format('CREATE DATABASE %I OWNER %I', $1::text, $2::text)",
                 target_database,
                 target_username,
             )
@@ -105,18 +105,18 @@ async def provision() -> None:
         for database_row in database_rows:
             database_name = database_row["datname"]
             revoke_sql = await connection.fetchval(
-                "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC', $1)",
+                "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC', $1::text)",
                 database_name,
             )
             await connection.execute(revoke_sql)
 
         revoke_target_sql = await connection.fetchval(
-            "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC', $1)",
+            "SELECT format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC', $1::text)",
             target_database,
         )
         await connection.execute(revoke_target_sql)
         grant_target_sql = await connection.fetchval(
-            "SELECT format('GRANT CONNECT ON DATABASE %I TO %I', $1, $2)",
+            "SELECT format('GRANT CONNECT ON DATABASE %I TO %I', $1::text, $2::text)",
             target_database,
             target_username,
         )
