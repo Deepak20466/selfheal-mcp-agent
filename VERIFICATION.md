@@ -2,12 +2,12 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted CI and Calico-backed Kubernetes runs passed on `8edbef4`. No production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; its hosted CI and Calico-backed Kubernetes runs passed on `7d3a4ff`. No production deployment occurred.
 
 ## Provider MCP capability follow-up — PR #25, 2026-10-19
 
 Branch `feature/provider-mcp-capability-2026-10-19` (head commit
-[`8edbef4`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/8edbef473fce09792c0d516ad82b733be76ceadc)) adds HMAC-signed
+[`7d3a4ff`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7d3a4ff179f0915cefc1012ff6d6bdd24fb41fec)) adds HMAC-signed
 provider tokens that expire within 15 minutes. Each token limits MCP calls to
 an explicit tool set and binds patch/test requests to the caller's heal job and
 worktree. CI repair tokens may rerun only the associated workflow run. A
@@ -18,8 +18,10 @@ Provider CLIs no longer receive the healer's full MCP bearer token or GitHub
 App private key in their environment/config. The MCP server enforces these
 limits on HTTP requests. GitHub Actions checkouts disable persisted
 credentials, and release write access is isolated to an artifact-only job.
-Regression tests enforce both workflow boundaries. The regular developer
-`.mcp.json` configuration is unchanged.
+The DNS filter permits exact configured internal services and their
+release-namespace FQDNs; unlisted `*.svc.cluster.local` lookups are refused.
+Regression tests enforce the workflow and DNS boundaries. The regular
+developer `.mcp.json` configuration is unchanged.
 
 Focused provider checks passed: **53 passed** across MCP auth/provider-gate
 tests and Codex, Claude Code, and Gemini launcher tests; the Postgres-backed
@@ -31,10 +33,10 @@ The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities*
 The 20-scenario fixture validator passed: all broken baselines failed and all
 reference repairs passed. Hosted PostgreSQL-backed CI passed **737 tests, 5
 skipped, and 3 warnings**, including the durable rerun-claim integration case
-and workflow credential regressions ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39289811346)). The second CI trigger also passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39289818096)). The Calico-backed Kubernetes run passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39289818127)), covering Helm validation/install, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
+and workflow credential/DNS regressions ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291930768)). The second CI trigger also passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291938764)). The Calico-backed Kubernetes run passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291938720)), covering Helm validation/install, migration, network policy and MCP authentication, credential separation, seeded smoke capture, and pod recovery. No local PostgreSQL or Docker installation, provider call, GitHub repair operation, cloud resource, or production deployment was made.
 
 PR #25 is open against PR #24's branch. Its two CI runs and Calico-backed
-Kubernetes run passed on source head `8edbef4`.
+Kubernetes run passed on source head `7d3a4ff`.
 
 This is an authorization boundary improvement, not provider process isolation.
 The provider CLI gate still fails closed; no live repair-to-PR flow, three
