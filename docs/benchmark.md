@@ -76,6 +76,16 @@ run; it does not combine partial runs. The initial run needed harness recovery
 after an interrupted report write; the saved `recovery_errors` field preserves
 that operational history.
 
+## Reliability scope
+
+These 20 scenarios are 20 seeded failures in **one synthetic FastAPI fixture
+repository**. They are not 20 independent repositories, and they do not meet
+the separate production-readiness goal of evaluating three independent
+repositories with different failure types. No fresh multi-repository
+reliability run was performed for this audit. The 20/20 result is limited to
+the fixed fixture suite and must not be used as an arbitrary-repository
+success-rate estimate.
+
 ## Reproduce
 
 Run the fixture checks:

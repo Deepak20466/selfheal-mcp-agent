@@ -99,7 +99,10 @@ async def kill_process_tree(pid: int) -> None:
         import signal
 
         with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+            # All provider CLIs are launched in a fresh session on POSIX.
+            # Killing only the leader leaves any spawned helpers running
+            # after a timeout, outside the caller's resource/accounting loop.
+            os.killpg(pid, signal.SIGKILL)
 
 
 def is_windows_shim(resolved: str) -> bool:

@@ -30,6 +30,7 @@ from mcp_server.sandbox import (
     SandboxViolation,
     check_diff_paths_writable,
     check_readable,
+    is_secret_path,
     resolve_worktree_dir,
     to_repo_relative,
 )
@@ -149,7 +150,7 @@ async def search_code(pattern: str, max_results: int = 100) -> list[dict[str, An
     for line in stdout.decode(errors="replace").splitlines()[:max_results]:
         file_path, _, remainder = line.partition(":")
         line_number_str, _, content = remainder.partition(":")
-        if _is_noise_path(file_path):
+        if _is_noise_path(file_path) or is_secret_path(file_path):
             continue
         try:
             line_number = int(line_number_str)
@@ -167,7 +168,7 @@ async def list_files(glob: str = "**/*") -> list[str]:
         if not candidate.is_file():
             continue
         rel = to_repo_relative(candidate)
-        if _is_noise_path(rel) or rel == ".env" or rel.startswith(".env."):
+        if _is_noise_path(rel) or is_secret_path(rel):
             continue
         matches.append(rel)
     return sorted(matches)

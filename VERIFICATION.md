@@ -1,23 +1,85 @@
 # Verification report
 
-**Current audit:** 2026-10-19
-**Workspace:** `selfheal-mcp-agent` on Windows 11 / Python 3.11.9
-**Database:** disposable local PostgreSQL 16.2, loopback only
-**Publication:** feature branch only; no PR, merge, or deployment. The branch push triggers automatic CI.
+**Report date:** 2026-10-19
+**Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
+**Current publication state:** PR #18 is merged into `main`; no deployment occurred.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).
 It is historical evidence and is superseded by this report for the current
-workspace status.
+workspace status at the time of that audit.
+
+## Latest merged `main` verification
+
+PR [#18](https://github.com/Deepak20466/selfheal-mcp-agent/pull/18) merged
+into `main` at
+[`3ecc05417c206359154149e7fe6aec5507d56271`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/3ecc05417c206359154149e7fe6aec5507d56271).
+The post-merge [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454)
+passed on Ubuntu 22.04: lint, formatting, strict mypy, dependency audits, Node
+checks, benchmark fixture validation, and **634 passed, 4 skipped, 3 warnings**
+in the PostgreSQL-backed suite. Its Bubblewrap install and namespace preflight
+passed. The post-merge [Kubernetes CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934526)
+also passed chart lint/render and recovery checks. The deploy workflow completed
+with deployment steps skipped because no cloud VM was configured; no
+production deployment was made.
+
+## Current local follow-up
+
+This follow-up changes provider CLI timeout cleanup so POSIX invocations start
+in a new session and timeout cleanup signals the full process group. It also
+filters common credential paths from MCP reads, writes, search output, file
+listing, and repository-tree output. Windows tests cover those filters,
+symlink aliases, process-tree cleanup behavior, and fail-closed sandbox setup.
+
+On this Windows host, Ruff, formatting, strict mypy, and the complete suite
+passed. The PostgreSQL helper provisioned a disposable loopback-only PostgreSQL
+16.2 server. **656 passed, 7 skipped, 3 warnings in 642.46 seconds.** The
+POSIX descendant process integration and Linux Bubblewrap validation remain
+unverified on this local run and need a Linux CI run for this follow-up branch.
+The three warnings are mocked CLI login tests where `getpass` cannot control
+terminal echo.
+
+The earlier full local audit and the post-merge Actions run above are evidence
+for their respective commits; neither includes this unpushed follow-up change.
+
+## Adversarial security matrix
+
+| Scenario | Status | Evidence and remaining limit |
+|---|---|---|
+| Prompt injection in errors, PR text, and model output | PARTIAL | Untrusted-data delimiter and patch-guard regression tests exist; no live adversarial provider session was run. |
+| Command injection through repository test commands | PARTIAL | Test commands execute only through the OS sandbox, with shell metacharacters interpreted inside that boundary. No dedicated end-to-end injection corpus was run. |
+| Path traversal | PASS (bounded) | Repo path and diff-path tests reject traversal outside the repository; the benchmark includes a path-traversal repair scenario. |
+| Symlink attacks | PASS (boundary checks) | Snapshot code omits symlinks/reparse points; follow-up tests cover linked secrets, linked workflow paths, and snapshot links where the host permits symlink creation. TOCTOU races during snapshot are not stress-tested. |
+| Secret exposure | PARTIAL | Direct MCP reads, writes, search results, listings, and repo-tree output now filter common credential names/directories; repository command environments omit service credentials; Windows and Linux sandbox tests check host env/filesystem/network boundaries. Arbitrary secret content and provider CLI isolation remain out of scope. |
+| Unsafe patches and test weakening | PASS (heuristics) | Tests reject forbidden paths, oversized diffs, deleted/disabled tests, suppression comments, and weakened coverage settings. The guard is a conservative diff heuristic, not a semantic proof. |
+| Dependency confusion | PARTIAL | Scanner bootstrap uses a fixed scanner tool set and does not execute repository install scripts on the host. No malicious package registry/dependency-confusion campaign was run. |
+| Privilege escalation | PARTIAL | Windows AppContainer/Job Object and Linux Bubblewrap tests verify OS boundaries and resource caps. No kernel escape, setuid, container-runtime, or cloud-identity attack was attempted. |
+
+## Production-readiness matrix
+
+| Boundary or workflow | Status | Evidence / blocker |
+|---|---|---|
+| Windows untrusted-command sandbox | PASS (tested boundary) | Full local suite passed on Windows, including AppContainer/Job Object filesystem, network, environment, process, timeout, and fail-closed tests. |
+| Linux Bubblewrap sandbox | PASS on merged `main`; pending this branch | The Ubuntu 22.04 run for merged `main` passed install and namespace preflight. This unpushed follow-up has not run on Linux; process-group descendant integration is skipped on Windows. |
+| MCP credential-path filtering | PASS (known filenames only) | Full local suite passed. Filtering does not identify secrets in arbitrary filenames or ordinary source text. |
+| Provider CLI OS containment | FAIL / unverified | Codex/Claude/Gemini orchestration processes are not wrapped in the project's OS sandbox; provider-specific isolation is not independently proven. |
+| MCP HTTP authentication and network policy | FAIL | Container configuration binds beyond loopback; the cluster service is internal, but no MCP bearer authentication or Kubernetes NetworkPolicy is configured. |
+| Prompt injection / malicious repository instructions | SKIPPED (live) | Unit-level untrusted-data and patch-guard tests exist; no adversarial live provider run was performed. |
+| GitHub live repair workflow / rate limits | SKIPPED | Mock/local-bare-repository tests only. No disposable external repository writes were authorized for this security review. |
+| Independent repository reliability | SKIPPED | The 20-case benchmark uses one synthetic repository, not three independent repositories. |
+| Provider validation | PARTIAL | Codex fixed-fixture benchmark passed 20/20 previously. Claude is unauthenticated, Gemini CLI is unavailable, and live API providers were not tested. |
+| Deployment, health, backup/restore, rollback | SKIPPED | Static configuration checks only; no infrastructure or production database was used. |
+| Full PostgreSQL-backed suite (this branch) | PASS | 656 passed, 7 skipped, 3 warnings in 642.46 seconds using disposable PostgreSQL 16.2. |
+| Production decision for unattended arbitrary-repository repair | **NO-GO** | Critical provider and MCP transport boundaries are unverified or absent, and live hostile-repository end-to-end evidence is missing. |
 
 ## Result matrix
 
 | Check | Status | Result |
 |---|---|---|
 | Ruff lint | PASS | `python -m ruff check .` |
-| Ruff formatting | PASS | `python -m ruff format --check .`; 217 files already formatted |
+| Ruff formatting | PASS | `python -m ruff format --check .`; 220 files already formatted |
 | Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
-| Full pytest suite | PASS | Fresh disposable PostgreSQL 16.2 cluster: 633 passed, 3 skipped, 3 warnings in 657.22 seconds |
+| Full pytest suite | PASS (current local branch and merged main) | This branch: Windows with disposable PostgreSQL 16.2, 656 passed, 7 skipped, 3 warnings in 642.46 seconds. Merged-main CI: Ubuntu 22.04 with GitHub-hosted PostgreSQL, 634 passed, 4 skipped, 3 warnings in 98.58 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454). |
 | Post-suite PostgreSQL smoke | PASS | After setting Alembic `path_separator = os`, the database helper ran migrations and 3 focused tests passed with no startup deprecation warning. |
 | PostgreSQL migrations and integration | PASS | Fresh PostgreSQL 16.2 cluster; migrations 0001–0007 applied, demo seed completed, separate `selfheal_app` and `selfheal_test` databases |
 | Pytest skips | SKIPPED | Linux Bubblewrap integration and venv-only Windows sandbox integration are unavailable in this base-Python Windows run; one capture case skips because its seeded bug is already fixed |
@@ -33,7 +95,7 @@ workspace status.
 | Windows sandbox boundaries | PASS | AppContainer/Job Object tests blocked outside filesystem access, loopback, inherited secrets, common credential files, and `.git`; tested process limits, timeout cleanup, and read-only trusted runtime access |
 | Provider CLI OS isolation | WARN / unverified | Codex used its own read-only mode; provider CLI processes were not inside the project's AppContainer, and their filesystem-read boundary and prompt-injection behavior were not independently verified |
 | Host-side Git operations | WARN / limited | Fixed direct-argv Git operations now have timeouts and filtered environments, but are not AppContainer-isolated; clone/push remain explicit network-bearing control-plane operations |
-| Linux sandbox | SKIPPED | Bubblewrap path is implemented but not exercised on this Windows host |
+| Linux sandbox | PASS (merged-main CI) | Ubuntu 22.04 Bubblewrap install and namespace preflight passed; Linux sandbox boundary tests ran in the 634-test CI suite. The new process-group descendant test in this follow-up remains pending a Linux run. |
 | Node runtime in sandbox | PASS (limited) | `node -e` ran inside AppContainer |
 | npm in Windows sandbox | PASS (limited) | Node and npm were staged in the workspace; `npm test` passed 2 tests. Node `--test` worker mode timed out, so the example script runs its `node:test` file directly. |
 | Gitleaks current workspace | WARN | Two redacted matches in generated test bytecode; no suppression was added. |
@@ -142,15 +204,17 @@ health checks, deployment, and rollback were not run.
 
 ## Readiness
 
-This project has materially stronger local security and regression evidence,
+This project has materially stronger security and regression evidence,
 but it is **not production-ready for unattended repair of arbitrary
-repositories**. The latest fixed-set benchmark verified 20/20 repairs, but
-that small fixture result does not establish performance on arbitrary code.
-Linux isolation remains unverified; provider CLI filesystem isolation and
-host-side Git execution need additional verification; the global developer
-interpreter has stale vulnerable packages; and live GitHub and deployment
-flows remain unverified. The current-tree Gitleaks matches are limited to
-generated test bytecode and were not suppressed.
+repositories**. The fixed-set benchmark covers 20 seeded failures in one
+synthetic repository, not three independent repositories. Provider CLI
+filesystem and process isolation remain unverified; host-side Git control
+operations are not OS-sandboxed; MCP HTTP is unauthenticated inside the
+container cluster; and live hostile-repository repair, provider recovery,
+rate-limit recovery, deployment health, and rollback were not verified in
+this follow-up. The global developer interpreter had stale vulnerable
+packages in the prior audit. The current-tree Gitleaks matches were limited
+to generated test bytecode and were not suppressed in the earlier scan.
 
 See [`docs/AUDIT_REPORT.md`](docs/AUDIT_REPORT.md) for source changes,
 security findings, integration status, and a resume-ready summary.

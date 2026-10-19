@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -140,6 +141,8 @@ async def test_run_gemini_cli_success_parses_result_and_usage(
 
     kwargs = fake.calls[0]["kwargs"]
     assert kwargs["cwd"] != str(tmp_path)
+    if os.name != "nt":
+        assert kwargs["start_new_session"] is True
     assert not (tmp_path / ".gemini").exists()
     assert not await asyncio.to_thread(Path(kwargs["cwd"]).exists)
     assert "do the thing" not in argv

@@ -23,6 +23,30 @@ async def test_repo_tree_includes_known_tracked_files() -> None:
     assert ".env" not in tree  # gitignored, never tracked
 
 
+async def test_repo_tree_filters_common_secret_paths(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class CompletedProcess:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (
+                b".aws/credentials\n.env.example\nsecrets/private.json\nsrc/app.py\n",
+                b"",
+            )
+
+    async def create_process(*args: object, **kwargs: object) -> CompletedProcess:
+        del args, kwargs
+        return CompletedProcess()
+
+    monkeypatch.setattr("mcp_server.resources.REPO_ROOT", tmp_path)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+
+    tree = await repo_tree()
+
+    assert tree == [".env.example", "src/app.py"]
+
+
 async def test_repo_tree_timeout_kills_git_process(monkeypatch: pytest.MonkeyPatch) -> None:
     class HangingProcess:
         returncode: int | None = None
