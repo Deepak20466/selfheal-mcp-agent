@@ -63,6 +63,7 @@ def test_privileged_ci_notifier_checks_out_only_trusted_default_branch() -> None
     assert workflow_run["types"] == ["in_progress", "completed"]
 
     job = workflow["jobs"]["notify-ci-run"]
+    assert job["timeout-minutes"] == 2
     assert workflow["permissions"] == {"contents": "read"}
     assert "permissions" not in job
     checkouts = [
