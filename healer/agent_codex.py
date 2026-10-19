@@ -8,16 +8,12 @@ docstring says about *why* free mode looks different from `runtime_agent.py`
 result; guardrails live entirely in the MCP server, not here) applies
 verbatim. Only the CLI-invocation specifics differ, documented below.
 
-**STATUS: untested against a real `codex` install.** Neither `codex` nor
-`gemini` is installed on the machine this was built on (`codex --help`/
-`gemini --help` both fail with "command not found" — checked directly before
-writing this module, not assumed). Everything below is built from Codex
-CLI's public documentation (`developers.openai.com/codex/cli/reference`,
-`developers.openai.com/codex/noninteractive`) as of this session
-(2026-09-26), not from a live `--help` dump. If you have `codex` installed,
-the first thing to do before trusting this module is re-run this session's
-own live-verification steps (see `CLAUDE.md`'s dated entry for this work)
-against it and fix anything documented-but-wrong.
+**Live CLI smoke: passed 2026-10-19.** The installed Codex CLI returned a real
+response through run_codex_cli; this exposed and fixed a parser gap for the
+current nested item.completed / turn.completed event protocol. This confirms
+CLI startup, authentication, and result parsing only. A full self-heal, MCP
+tool call, regression run, or GitHub PR was not run because this environment
+has no local PostgreSQL service or GitHub token.
 
 **Non-interactive invocation**: `codex exec` is Codex's scriptable mode (no
 TUI, no interactive prompts). The prompt is piped via stdin using `codex exec
@@ -86,6 +82,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -200,6 +197,24 @@ def _codex_config_dir(mcp_config_dir: Path) -> None:
     (mcp_config_dir / "config.toml").write_text(config_toml, encoding="utf-8")
 
 
+def _copy_codex_login(codex_home: Path) -> None:
+    """Copy only the existing login file into the short-lived isolated home.
+
+    The dedicated CODEX_HOME prevents user MCP servers/config from becoming
+    available to an autonomous repair session. Copying auth.json preserves
+    the user's existing CLI login without copying other settings. The
+    temporary directory is removed when the CLI call finishes.
+    """
+    source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+    source_auth = source_home / "auth.json"
+    if not source_auth.is_file():
+        return
+    target_auth = codex_home / "auth.json"
+    shutil.copyfile(source_auth, target_auth)
+    if os.name != "nt":
+        target_auth.chmod(0o600)
+
+
 async def run_codex_cli(
     prompt: str,
     *,
@@ -224,10 +239,11 @@ async def run_codex_cli(
 
     with tempfile.TemporaryDirectory(prefix="selfheal-codex-home-") as codex_home_str:
         codex_home = Path(codex_home_str)
+        _copy_codex_login(codex_home)
         _codex_config_dir(codex_home)
 
-        rest_args = ["exec", "-", "--json", "-c", f"max_turns={turns}"]
-        env = strip_env_vars(_STRIPPED_ENV_VARS)
+        rest_args = ["exec", "-", "--json", "--ephemeral", "-c", f"max_turns={turns}"]
+        env = strip_env_vars(_STRIPPED_ENV_VARS, allow_secret_names=frozenset({"OPENAI_API_KEY"}))
         env["CODEX_HOME"] = str(codex_home)
         subprocess_kwargs: dict[str, Any] = {
             "cwd": str(cwd),
@@ -287,33 +303,81 @@ async def run_codex_cli(
                 f"{combined[-2000:]}"
             )
 
-        final = events[-1]
+        # Codex's current JSONL protocol nests assistant text in an
+        # ``item.completed`` event (``item.type == "agent_message"``) and
+        # reports token usage separately in ``turn.completed``. Older CLI
+        # releases emitted flat ``agent_message``/``task_complete`` events.
+        # Select the final assistant message while retaining the terminal
+        # usage event, so either protocol yields a useful CLIResult.
+        final_event = events[-1]
+        final: dict[str, Any] = final_event
+        message_found = False
         for event in reversed(events):
+            item = event.get("item")
+            if event.get("type") == "item.completed" and isinstance(item, dict):
+                if item.get("type") == "agent_message":
+                    final_event = event
+                    final = item
+                    message_found = True
+                    break
             if event.get("type") in ("task_complete", "agent_message", "error"):
+                final_event = event
                 final = event
+                message_found = event.get("type") != "error"
                 break
+
+        if not message_found:
+            for event in reversed(events):
+                item = event.get("item")
+                if event.get("type") == "item.completed" and isinstance(item, dict):
+                    if item.get("type") == "error":
+                        final_event = event
+                        final = item
+                        break
 
         result_text = str(
             final.get("message") or final.get("text") or final.get("last_agent_message") or ""
         )
-        is_error = bool(final.get("type") == "error" or final.get("is_error", False))
+        is_error = bool(
+            final.get("type") == "error"
+            or final_event.get("is_error", False)
+            or (final_event.get("type") == "item.completed" and final.get("type") == "error")
+        )
         if is_error and _USAGE_LIMIT_PATTERN.search(result_text or combined):
             raise CLIUsageLimitError(result_text or combined[-2000:])
         if is_error and _NOT_LOGGED_IN_PATTERN.search(result_text or combined):
             raise CLINotLoggedInError(result_text or combined[-2000:])
 
-        usage = final.get("usage") or {}
+        usage_event: dict[str, Any] = next(
+            (event for event in reversed(events) if isinstance(event.get("usage"), dict)), {}
+        )
+        usage = final.get("usage") or usage_event.get("usage") or {}
         total_cost = final.get("total_cost_usd")
+        turn_count = sum(
+            event.get("type") in ("turn_complete", "turn.completed") for event in events
+        )
+        thread_event = next(
+            (event for event in events if event.get("type") == "thread.started"), {}
+        )
         return CLIResult(
             result_text=result_text,
             is_error=is_error,
-            subtype=str(final.get("type", "")),
-            num_turns=len([e for e in events if e.get("type") == "turn_complete"]) or len(events),
-            session_id=final.get("session_id") or final.get("conversation_id"),
+            subtype=str(final_event.get("type", final.get("type", ""))),
+            num_turns=turn_count or len(events),
+            session_id=(
+                final.get("session_id")
+                or final.get("conversation_id")
+                or thread_event.get("thread_id")
+            ),
             input_tokens=int(usage.get("input_tokens", 0) or 0),
             output_tokens=int(usage.get("output_tokens", 0) or 0),
-            cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
-            cache_read_input_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+            cache_creation_input_tokens=int(
+                usage.get("cache_creation_input_tokens", usage.get("cache_write_input_tokens", 0))
+                or 0
+            ),
+            cache_read_input_tokens=int(
+                usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", 0)) or 0
+            ),
             total_cost_usd=Decimal(str(total_cost)) if total_cost is not None else None,
             raw=final,
         )
@@ -600,15 +664,18 @@ async def run_heal_job_codex(
                 base_branch = "main"
                 if is_connected_app:
                     assert app is not None
-                    push_remote = (
-                        f"https://x-access-token:{settings.github_token}"
-                        f"@github.com/{app.github_repo}.git"
-                    )
+                    push_remote = f"https://github.com/{app.github_repo}.git"
                     repo_info = await github.get_repo()
                     base_branch = str(repo_info.get("default_branch") or "main")
                 else:
                     push_remote = remote
-                await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+                await commit_and_push(
+                    worktree_path,
+                    branch,
+                    message=commit_msg,
+                    remote=push_remote,
+                    github_token=settings.github_token if is_connected_app else None,
+                )
                 evidence = FixEvidence(
                     heal_job_id=job_id,
                     fingerprint=fingerprint,

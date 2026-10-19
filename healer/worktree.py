@@ -14,8 +14,8 @@ import asyncio
 import shutil
 from pathlib import Path
 
+from core.git_env import git_subprocess_env, scrub_git_message
 from mcp_server.sandbox import REPO_ROOT, WORKTREES_ROOT
-from sentinel.scrubber import scrub_text
 
 PUSH_TIMEOUT_SECONDS = 120.0
 GIT_TIMEOUT_SECONDS = 30.0
@@ -25,11 +25,19 @@ class WorktreeError(Exception):
     """Raised when creating, resetting, or removing a git worktree fails."""
 
 
-async def _run_git(args: list[str], *, cwd: Path, timeout_s: float | None = None) -> None:
+async def _run_git(
+    args: list[str],
+    *,
+    cwd: Path,
+    timeout_s: float | None = None,
+    github_token: str | None = None,
+) -> None:
+    env, sensitive_values = git_subprocess_env(github_token=github_token)
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=str(cwd),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -40,16 +48,12 @@ async def _run_git(args: list[str], *, cwd: Path, timeout_s: float | None = None
     except TimeoutError as exc:
         process.kill()
         await process.wait()
-        raise WorktreeError(scrub_text(f"git {' '.join(args)} timed out")) from exc
+        raise WorktreeError(
+            scrub_git_message(f"git {' '.join(args)} timed out", sensitive_values)
+        ) from exc
     if process.returncode != 0:
-        # `args` can embed a credentialed remote URL (a connected app's
-        # `https://x-access-token:<token>@github.com/...` push remote) --
-        # scrub before it ever becomes an exception message, since an
-        # unhandled WorktreeError's traceback gets logged verbatim (a real
-        # token leak this way, since fixed here and in core/logging.py's
-        # global scrub processor as a second layer).
         message = f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}"
-        raise WorktreeError(scrub_text(message))
+        raise WorktreeError(scrub_git_message(message, sensitive_values))
 
 
 def branch_name_for(fingerprint: str, heal_job_id: int) -> str:
@@ -116,7 +120,14 @@ async def reset_worktree(path: Path) -> None:
     await _run_git(["clean", "-fd"], cwd=path)
 
 
-async def commit_and_push(path: Path, branch: str, *, message: str, remote: str = "origin") -> None:
+async def commit_and_push(
+    path: Path,
+    branch: str,
+    *,
+    message: str,
+    remote: str = "origin",
+    github_token: str | None = None,
+) -> None:
     """Stage everything, commit, and push `branch` to `remote` (default `origin`).
 
     `remote` is overridable so tests can push to a throwaway local bare repo
@@ -131,9 +142,19 @@ async def commit_and_push(path: Path, branch: str, *, message: str, remote: str 
     # first clean benchmark, so allow 120s and retry once (a re-push of the
     # same commit is idempotent).
     try:
-        await _run_git(["push", "-u", remote, branch], cwd=path, timeout_s=PUSH_TIMEOUT_SECONDS)
+        await _run_git(
+            ["push", "-u", remote, branch],
+            cwd=path,
+            timeout_s=PUSH_TIMEOUT_SECONDS,
+            github_token=github_token,
+        )
     except WorktreeError:
-        await _run_git(["push", "-u", remote, branch], cwd=path, timeout_s=PUSH_TIMEOUT_SECONDS)
+        await _run_git(
+            ["push", "-u", remote, branch],
+            cwd=path,
+            timeout_s=PUSH_TIMEOUT_SECONDS,
+            github_token=github_token,
+        )
 
 
 async def _run_git_best_effort(args: list[str], *, cwd: Path) -> None:
@@ -150,10 +171,12 @@ async def _run_git_best_effort(args: list[str], *, cwd: Path) -> None:
     directory is simply left behind (see the docstring above: a leftover
     worktree is a minor annoyance, never a correctness problem).
     """
+    env, _ = git_subprocess_env()
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=str(cwd),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -187,7 +210,12 @@ async def create_worktree_for_connected_app(name: str, branch: str, *, source_di
 
 
 async def create_worktree_for_connected_app_branch(
-    name: str, branch: str, *, source_dir: Path, github_remote_url: str
+    name: str,
+    branch: str,
+    *,
+    source_dir: Path,
+    github_remote_url: str,
+    github_token: str | None = None,
 ) -> Path:
     """Clone a connect-a-repo app's local checkout (fast, no network -- same
     starting point as `create_worktree_for_connected_app`), then fetch and
@@ -207,7 +235,7 @@ async def create_worktree_for_connected_app_branch(
     WORKTREES_ROOT.mkdir(exist_ok=True)
     path = WORKTREES_ROOT / name
     await _run_git(["clone", str(source_dir), str(path)], cwd=WORKTREES_ROOT)
-    await _run_git(["fetch", github_remote_url, branch], cwd=path)
+    await _run_git(["fetch", github_remote_url, branch], cwd=path, github_token=github_token)
     await _run_git(["checkout", "-B", branch, "FETCH_HEAD"], cwd=path)
     return path
 

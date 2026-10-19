@@ -126,6 +126,26 @@ def check_patch_limits(unified_diff: str, touched_paths: set[str]) -> None:
             f"{settings.max_patch_changed_lines}-line limit"
         )
 
+    for section in _split_file_sections(unified_diff):
+        if section.old_path == "/dev/null" or section.new_path == "/dev/null":
+            continue
+        contexts: list[int] = []
+        current_context: int | None = None
+        for line in section.body:
+            if line.startswith("@@ "):
+                if current_context is not None:
+                    contexts.append(current_context)
+                current_context = 0
+            elif current_context is not None and line.startswith(" "):
+                current_context += 1
+        if current_context is not None:
+            contexts.append(current_context)
+        if any(count == 0 for count in contexts):
+            raise SandboxViolation(
+                "Patch hunks for existing files must include context lines; retry with a "
+                "contextual diff"
+            )
+
 
 def _is_decl(line: str) -> bool:
     return any(rx.search(line) for rx in _TEST_DECL_RES)

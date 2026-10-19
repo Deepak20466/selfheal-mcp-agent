@@ -29,6 +29,8 @@ spec:
         - name: wait-for-postgres
           image: {{ include "selfheal.image" (dict "Values" .Values "pod" "app") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command:
             - python
             - -c
@@ -47,6 +49,8 @@ spec:
         - name: migrate
           image: {{ include "selfheal.image" (dict "Values" .Values "pod" "app") }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           # Migrate the schema, then seed the deterministic demo dataset
           # (apps/target_app/seed_data.py via scripts/seed_demo.py) --
           # without it, /trigger/zero hits `assert item is not None` (no

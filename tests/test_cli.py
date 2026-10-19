@@ -6,6 +6,7 @@ config dir this CLI writes to outside tests.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -194,7 +195,7 @@ def test_apps_set_auto_merge(respx_mock: Any) -> None:
     result = runner.invoke(app, ["apps", "set", "node_app", "--auto-merge", "on"])
     assert result.exit_code == 0, result.output
     assert patch_route.called
-    assert patch_route.calls.last.request.content == b'{"auto_merge":true}'
+    assert json.loads(patch_route.calls.last.request.content) == {"auto_merge": True}
 
 
 def test_apps_set_requires_a_value() -> None:

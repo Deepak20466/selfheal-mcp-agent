@@ -304,12 +304,16 @@ async def run_heal_job_remote_verify(
             f"Auto-fix (CI-verified): {error_summary}\n\nheal_job #{job_id}, "
             f"fingerprint {fingerprint}"
         )
-        push_remote = (
-            f"https://x-access-token:{settings.github_token}@github.com/{app.github_repo}.git"
-        )
+        push_remote = f"https://github.com/{app.github_repo}.git"
         repo_info = await github.get_repo()
         base_branch = str(repo_info.get("default_branch") or "main")
-        await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+        await commit_and_push(
+            worktree_path,
+            branch,
+            message=commit_msg,
+            remote=push_remote,
+            github_token=settings.github_token,
+        )
 
         evidence = RemoteVerifyEvidence(
             heal_job_id=job_id,

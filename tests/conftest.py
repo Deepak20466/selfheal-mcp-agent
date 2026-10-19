@@ -70,21 +70,36 @@ def _test_database_url() -> str:
     """Resolve the throwaway test database URL, never the dev `DATABASE_URL`.
 
     Prefers an explicit `TEST_DATABASE_URL` (from `.env` or the real
-    environment); otherwise derives `<dbname>_test` from `DATABASE_URL`.
+    environment); otherwise derives `<dbname>_test` from `DATABASE_URL`. If
+    the app database already ends in `_test`, it derives `<dbname>_test_test`.
+    Refuses a test URL with the same database name as the application URL so
+    a typo cannot silently point pytest at an existing development database.
     """
     explicit = os.environ.get("TEST_DATABASE_URL") or _dotenv_value("TEST_DATABASE_URL")
-    if explicit:
-        return explicit
     raw = (
         os.environ.get("DATABASE_URL")
         or _dotenv_value("DATABASE_URL")
         or "postgresql+asyncpg://selfheal:selfheal@localhost:5432/selfheal"
     )
-    url = make_url(raw)
-    db_name = url.database or "selfheal"
-    if not db_name.endswith("_test"):
-        db_name = f"{db_name}_test"
-    return str(url.set(database=db_name))
+    application_url = make_url(raw)
+
+    if explicit:
+        test_url = make_url(explicit)
+        if test_url.database == application_url.database:
+            raise RuntimeError(
+                "TEST_DATABASE_URL uses the same database name as DATABASE_URL; "
+                "refusing to run tests against the application database"
+            )
+        if not test_url.database or not test_url.database.endswith("_test"):
+            raise RuntimeError(
+                "TEST_DATABASE_URL must name a separate database ending in '_test'; "
+                "refusing to run tests against an unmarked database"
+            )
+        return explicit
+
+    db_name = application_url.database or "selfheal"
+    db_name = f"{db_name}_test"
+    return str(application_url.set(database=db_name))
 
 
 # Force every pod/module the test suite touches onto a throwaway database and
@@ -325,6 +340,25 @@ async def isolated_cli_call_date(monkeypatch: pytest.MonkeyPatch) -> None:
             return datetime(year, month, day, tzinfo=tz)
 
     monkeypatch.setattr(agent_free_module, "datetime", _FrozenDatetime)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolated_worktree_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Generator[None, None, None]:
+    """Keep test worktrees outside the persistent application worktree area.
+
+    The PostgreSQL test runner creates a fresh database for every run, so
+    database job ids repeat. A test using ``heal-1`` must not collide with a
+    previous test run or an operator's real ``worktrees/heal-1`` directory.
+    """
+    from healer import worktree as healer_worktree
+    from mcp_server import sandbox
+
+    isolated_root = tmp_path / "worktrees"
+    monkeypatch.setattr(sandbox, "WORKTREES_ROOT", isolated_root)
+    monkeypatch.setattr(healer_worktree, "WORKTREES_ROOT", isolated_root)
     yield
 
 

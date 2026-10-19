@@ -8,9 +8,12 @@ from typing import Any
 from sqlalchemy import select
 
 from core.db import session_scope
+from core.git_env import git_subprocess_env
 from core.models import Error, OpenResolvedStatus, PipelineRun
 from mcp_server.instance import mcp
 from mcp_server.sandbox import REPO_ROOT
+
+REPO_TREE_TIMEOUT_SECONDS = 30.0
 
 
 @mcp.resource("errors://open")
@@ -40,14 +43,22 @@ async def errors_open() -> list[dict[str, Any]]:
 @mcp.resource("repo://tree")
 async def repo_tree() -> list[str]:
     """Every git-tracked file, repo-relative (`git ls-files` — respects .gitignore)."""
+    env, _ = git_subprocess_env()
     process = await asyncio.create_subprocess_exec(
         "git",
         "ls-files",
         cwd=str(REPO_ROOT),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _ = await process.communicate()
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=REPO_TREE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise RuntimeError(f"git ls-files timed out after {REPO_TREE_TIMEOUT_SECONDS:g}s") from None
     files = [line for line in stdout.decode(errors="replace").splitlines() if line]
     return sorted(files)
 

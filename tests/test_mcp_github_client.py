@@ -44,6 +44,33 @@ async def test_non_2xx_response_raises_with_status_and_body(
             await client.get_workflow_run(1)
 
 
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [
+        (403, '{"message":"API rate limit exceeded"}'),
+        (429, '{"message":"secondary rate limit"}'),
+    ],
+)
+async def test_rate_limited_pr_creation_fails_without_replaying_write(
+    monkeypatch: pytest.MonkeyPatch, respx_mock, status_code: int, body: str
+) -> None:
+    """Surface GitHub rate limits without blindly replaying a non-idempotent PR write."""
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+
+    route = respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(status_code, text=body)
+    )
+
+    async with GitHubClient() as client:
+        with pytest.raises(GitHubClientError, match=str(status_code)):
+            await client.create_pull_request(
+                title="Auto-fix: example", body="evidence", head="autofix/example"
+            )
+
+    assert route.call_count == 1
+
+
 async def test_request_includes_bearer_token_header(
     monkeypatch: pytest.MonkeyPatch, respx_mock
 ) -> None:

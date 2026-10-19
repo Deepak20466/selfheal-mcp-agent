@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.git_env import git_subprocess_env, scrub_git_message
+from mcp_server.execution_sandbox import run_untrusted_command
+
 GIT_TIMEOUT_SECONDS = 30.0
 TEST_TIMEOUT_SECONDS = 120.0
 # A whole suite (the pre-PR gate) legitimately takes far longer than one test file.
@@ -23,10 +26,12 @@ class GitCommandError(Exception):
 
 
 async def _run_git(args: list[str], cwd: Path, timeout: float = GIT_TIMEOUT_SECONDS) -> str:
+    env, sensitive_values = git_subprocess_env()
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=str(cwd),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -35,10 +40,13 @@ async def _run_git(args: list[str], cwd: Path, timeout: float = GIT_TIMEOUT_SECO
     except TimeoutError as exc:
         process.kill()
         await process.wait()
-        raise GitCommandError(f"git {' '.join(args)} timed out after {timeout}s") from exc
+        raise GitCommandError(
+            scrub_git_message(f"git {' '.join(args)} timed out after {timeout}s", sensitive_values)
+        ) from exc
 
     if process.returncode != 0:
-        raise GitCommandError(f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}")
+        message = f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}"
+        raise GitCommandError(scrub_git_message(message, sensitive_values))
     return stdout.decode(errors="replace")
 
 
@@ -91,23 +99,48 @@ async def apply_diff(
 
     Raises GitCommandError if it doesn't apply (or doesn't reverse-apply).
     """
-    args = ["apply", "--whitespace=nowarn"]
+    # Providers see normalized LF through MCP file reads, while Windows
+    # checkouts of connected repositories may use CRLF. Ignore whitespace
+    # differences in hunk context so the same safe patch applies portably.
+    # Models occasionally emit correct edits with stale unified-diff hunk
+    # counts. Recount repairs only that framing metadata; Git still checks
+    # every context line and rejects a patch that does not match the file.
+    args = ["apply", "--recount", "--ignore-whitespace", "--whitespace=nowarn"]
     if check_only:
         args.append("--check")
     if reverse:
         args.append("--reverse")
 
+    patch_text = unified_diff.replace("\r\n", "\n").replace("\r", "\n")
+    if not patch_text.endswith("\n"):
+        patch_text += "\n"
+    env, sensitive_values = git_subprocess_env()
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=str(cwd),
+        env=env,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await process.communicate(input=unified_diff.encode("utf-8"))
+    try:
+        _, stderr = await asyncio.wait_for(
+            process.communicate(input=patch_text.encode("utf-8")), timeout=GIT_TIMEOUT_SECONDS
+        )
+    except TimeoutError as exc:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise GitCommandError(
+            scrub_git_message(f"git apply timed out after {GIT_TIMEOUT_SECONDS}s", sensitive_values)
+        ) from exc
     if process.returncode != 0:
-        raise GitCommandError(f"git apply failed: {stderr.decode(errors='replace')}")
+        raise GitCommandError(
+            scrub_git_message(
+                f"git apply failed: {stderr.decode(errors='replace')}", sensitive_values
+            )
+        )
 
 
 async def diff_stat(*, cwd: Path) -> str:
@@ -123,30 +156,7 @@ async def run_pytest(
     if test_path:
         args.append(test_path)
 
-    process = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        return {
-            "passed": False,
-            "timed_out": True,
-            "output": f"Tests timed out after {timeout}s",
-        }
-
-    output = stdout.decode(errors="replace")
-    return {
-        "passed": process.returncode == 0,
-        "timed_out": False,
-        "return_code": process.returncode,
-        "output": output[-20_000:],
-    }
+    return await run_untrusted_command(args, cwd=cwd, timeout=timeout)
 
 
 def pytest_command(command: str) -> str:
@@ -168,27 +178,4 @@ async def run_test_command(
     timeout/output-capping contract as `run_pytest`, so callers (the healer
     agent) treat both the same way.
     """
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-        return {
-            "passed": False,
-            "timed_out": True,
-            "output": f"Tests timed out after {timeout}s",
-        }
-
-    output = stdout.decode(errors="replace")
-    return {
-        "passed": process.returncode == 0,
-        "timed_out": False,
-        "return_code": process.returncode,
-        "output": output[-20_000:],
-    }
+    return await run_untrusted_command(command, cwd=cwd, timeout=timeout)

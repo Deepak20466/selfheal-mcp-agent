@@ -1,50 +1,109 @@
-# Benchmark (clean run, 2026-09-26)
+# AI repair benchmark
 
-**0/2 bugs fixed so far. This is an honest, incomplete result:** two bugs ran,
-both failed for real healer/repo weaknesses that are fixed now, and the
-verification rerun is blocked by a circuit breaker until the 24h window passes.
-The other bugs are still pending. It is a single deliberate run, kept separate
-from the all-time and AI-attempted success rates on the Metrics page.
+| Run detail | Value |
+|---|---|
+| Date | 2026-10-19 |
+| Final artifact | [codex-full-2026-10-19-run5.json](../benchmarks/results/codex-full-2026-10-19-run5.json) |
+| Backend | Codex CLI 0.162.0-alpha.17.2, authenticated with the existing ChatGPT login |
+| Target | Disposable copy of the independent FastAPI failure repository |
+| Final benchmark result | 20/20 scenarios passed; exit code 0 |
 
-Setup: all seeded bugs reset (`scripts/reset_demo_bugs.py --local`), stale
-leftover jobs marked failed (history kept), real free-mode AI CLI, real MCP
-tools, real git worktrees, no mocking, no bypassed circuit breakers.
+## Fixture validation
 
-| Bug | Result | Attempts | CLI turns | Time to PR | Full suite | Cost | PR |
-|---|---|---|---|---|---|---|---|
-| `zero` | failed | 3 | 22 / 31 / 21 | - | FAILED (attempts 1 and 3) | about $4.7 | - |
-| `key` | failed | 2 | 19 / 30 | - | PASSED (attempt 2) | about $3.1 | - |
-| `key` rerun | blocked by the circuit breaker, 0 AI calls | 0 | 0 | - | not reached | $0 | - |
-| `validation` | aborted before any attempt | 0 | 0 | - | not reached | $0 | - |
-| others | pending / skipped (see below) | | | | | | |
+The harness used a temporary local Git repository with no remote. Its broken
+baseline failed all 20 scenario tests. Applying the separate reference repair
+changed only `app.py`; all 20 tests then passed. This validates the fixture and
+reference solution, not the AI result.
 
-## Root causes (from the logs)
+## Live Codex results
 
-- **`zero`: the AI's fix was correct but rejected by a pinned demo test.**
-  The fix (guard the zero-rating division) passed its own regression test, but
-  the full-suite gate ran `test_bug1_zero_division_on_unrated_item`, which
-  asserted the *broken* behavior (`pytest.raises(ZeroDivisionError)`). The AI
-  cannot edit tests outside `apps/target_app/`, so it could not fix that, and
-  attempt 2 ran out of turns. Only bug #4's test had been made fix-tolerant.
-  Fixed since: every seeded-bug test (bugs 1, 2, 3, 6, 7 and the prober tests)
-  now passes whether the bug is present or fixed.
-- **`key`: the fix was verified, then `git push` timed out.** Attempt 2 passed
-  the regression test and the full suite, but the push hit the 30s git timeout
-  and the whole job failed with no PR. Fixed since: push has a 120s timeout
-  and one retry (unit-tested).
-- **A weakness in my own gate, found before the run:** the first version of the
-  full-suite gate ran all of pytest, not the app's configured suite, which
-  would have tripped on unrelated environment-dependent tests. It now runs the
-  app's `test_command`.
+Each scenario was sent separately to the live Codex CLI. The model saw the
+broken `app.py`, one selected test, and that test's captured failure. It did not
+see or apply the reference repair. A proposed patch had to modify only
+`app.py`, pass strict diff and path validation, and pass the selected test in
+the OS sandbox. A failed first generation could receive one regression retry;
+the retry saw the failing test output and prior patch as untrusted data.
 
-## What is not proven yet
+| Measure | Final result |
+|---|---:|
+| Scenarios attempted / skipped | 20 / 0 |
+| Diagnosis labels correct | 20/20 (100%) |
+| Verified repairs | 20/20 (100%) |
+| Improvement from previous 8/20 result | +12 repairs; 40% to 100% (+60 percentage points) |
+| Terminal false fixes | 0 |
+| Total model generations | 21 (S20 used one retry) |
+| Mean repair and verification time | 15.8649 seconds |
+| Input tokens reported by CLI | 336,069 |
+| Cached input tokens reported by CLI | 12,544 |
+| Output tokens reported by CLI | 6,090 |
+| Cost reported by CLI | No; cost is unknown, not zero |
+| Manual interventions | 0 |
 
-- The `key` rerun that would show the push fix works end to end was refused by
-  the per-fingerprint circuit breaker (3 real attempts already used in 24h).
-  It was not bypassed. Rerun `python scripts/benchmark.py key` after the window
-  resets to complete the verification.
-- `validation` was aborted before any attempt (it would have hit the same
-  pinned-test problem); `off_by_one` is a contract violation the script cannot
-  trigger by name; `none_lookup` already has an open PR (#15); `timezone` is
-  already fixed on main; `timeout` depends on network behaviour. None of these
-  ran, so no claim is made about them.
+S20's first generation did not pass its response-model regression test. Its
+single retry changed the readiness endpoint's return annotations and both
+branches to `JSONResponse`; the same test then passed. The final result counts
+one verified outcome per scenario while the token and generation counts include
+both S20 attempts. No scenario, fixture, or test criterion was changed to
+produce the result.
+
+| Scenario | Diagnosis label | Final result |
+|---|---|---|
+| S01 | request_validation | PASS |
+| S02 | pagination_offset | PASS |
+| S03 | missing_resource_handling | PASS |
+| S04 | empty_collection_guard | PASS |
+| S05 | timezone_awareness | PASS |
+| S06 | decimal_money_arithmetic | PASS |
+| S07 | partial_update_semantics | PASS |
+| S08 | http_status_contract | PASS |
+| S09 | duplicate_request_handling | PASS |
+| S10 | missing_authorization_check | PASS |
+| S11 | mass_assignment | PASS |
+| S12 | unbounded_pagination | PASS |
+| S13 | exception_detail_leak | PASS |
+| S14 | path_traversal | PASS |
+| S15 | delete_status_contract | PASS |
+| S16 | inventory_invariant | PASS |
+| S17 | result_ordering | PASS |
+| S18 | idempotency | PASS |
+| S19 | empty_query_validation | PASS |
+| S20 | readiness_check | PASS after one retry |
+
+The raw report contains per-generation model output, diffs, validation gates,
+test output, duration, and reported usage. Provider output is scrubbed before
+it is saved. The evaluator derives the figures above from this single complete
+run; it does not combine partial runs. The initial run needed harness recovery
+after an interrupted report write; the saved `recovery_errors` field preserves
+that operational history.
+
+## Reproduce
+
+Run the fixture checks:
+
+```powershell
+python scripts/benchmark_fastapi.py validate
+```
+
+Run a fresh genuine Codex benchmark (requires an authenticated Codex CLI):
+
+```powershell
+python scripts/run_ai_benchmark.py --output benchmarks/results/my-run.json --timeout 240
+```
+
+Evaluate a saved run:
+
+```powershell
+python scripts/benchmark_fastapi.py evaluate benchmarks/results/my-run.json
+```
+
+The harness uses Windows AppContainer plus a Job Object or Linux Bubblewrap and
+fails closed when sandbox setup is unavailable. The recorded run used
+AppContainer on Windows. Linux Bubblewrap remains unverified on a non-root
+Linux worker. See [architecture.md](architecture.md) for isolation limits.
+
+## Historical runtime-healer report
+
+The earlier 2026-09-26 live runtime-healer experiment is preserved in
+[benchmark-historical-previous.md](benchmark-historical-previous.md). Its
+results predate this independent fixture benchmark and should not be combined
+with the Codex measurements above.

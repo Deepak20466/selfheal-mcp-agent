@@ -1,0 +1,22 @@
+[
+  {"id":"S01","test":"test_01_required_request_field_is_validated","root_cause":"request_validation","summary":"Required field accepted when missing"},
+  {"id":"S02","test":"test_02_page_one_starts_at_first_item","root_cause":"pagination_offset","summary":"One-based page number used as a zero-based offset"},
+  {"id":"S03","test":"test_03_missing_widget_returns_not_found","root_cause":"missing_resource_handling","summary":"Missing resource raises an unhandled lookup exception"},
+  {"id":"S04","test":"test_04_empty_average_is_a_client_error","root_cause":"empty_collection_guard","summary":"Empty collection causes division by zero"},
+  {"id":"S05","test":"test_05_event_timestamp_is_timezone_aware","root_cause":"timezone_awareness","summary":"Naive timestamp returned for a UTC event"},
+  {"id":"S06","test":"test_06_money_uses_decimal_precision","root_cause":"decimal_money_arithmetic","summary":"Binary float used for monetary arithmetic"},
+  {"id":"S07","test":"test_07_omitted_patch_field_preserves_existing_value","root_cause":"partial_update_semantics","summary":"Omitted PATCH field overwrites stored value with null"},
+  {"id":"S08","test":"test_08_create_returns_201","root_cause":"http_status_contract","summary":"Successful create returns 200 instead of 201"},
+  {"id":"S09","test":"test_09_duplicate_order_is_conflict","root_cause":"duplicate_request_handling","summary":"Duplicate order is silently overwritten"},
+  {"id":"S10","test":"test_10_private_route_requires_api_key","root_cause":"missing_authorization_check","summary":"Private route returns data without authentication"},
+  {"id":"S11","test":"test_11_mass_assignment_cannot_grant_admin","root_cause":"mass_assignment","summary":"Untrusted input can set a privileged field"},
+  {"id":"S12","test":"test_12_page_size_is_capped","root_cause":"unbounded_pagination","summary":"Client can request an unbounded page size"},
+  {"id":"S13","test":"test_13_internal_exception_is_not_returned","root_cause":"exception_detail_leak","summary":"Internal exception text is returned to the caller"},
+  {"id":"S14","test":"test_14_path_traversal_is_rejected","root_cause":"path_traversal","summary":"Resolved file path can escape its allowed root"},
+  {"id":"S15","test":"test_15_delete_returns_no_content","root_cause":"delete_status_contract","summary":"Delete response violates the no-content contract"},
+  {"id":"S16","test":"test_16_inventory_cannot_be_reserved_below_zero","root_cause":"inventory_invariant","summary":"Reservation permits stock to become negative"},
+  {"id":"S17","test":"test_17_leaderboard_is_sorted_descending","root_cause":"result_ordering","summary":"Leaderboard ignores the documented sort order"},
+  {"id":"S18","test":"test_18_payment_retry_is_idempotent","root_cause":"idempotency","summary":"Retry creates a duplicate payment charge"},
+  {"id":"S19","test":"test_19_empty_search_query_is_rejected","root_cause":"empty_query_validation","summary":"Empty search query returns the entire catalog"},
+  {"id":"S20","test":"test_20_readiness_reports_unavailable_dependency","root_cause":"readiness_check","summary":"Readiness endpoint reports ready while a dependency is down"}
+]

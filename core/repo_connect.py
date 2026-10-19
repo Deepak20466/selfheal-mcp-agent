@@ -9,12 +9,11 @@ checks need no change: a connected app's `allowed_write_paths` is just
 `["connected_apps/<name>/"]`, resolved and validated exactly like
 `apps/target_app/` always has been.
 
-The clone itself briefly embeds `GITHUB_TOKEN` in the remote URL for
-authentication (GitHub's supported `https://x-access-token:<token>@...`
-form), then immediately rewrites the remote back to a plain, tokenless URL
---- the token never lands in `.git/config` on disk. The same GitHub PAT
-this project already requires for every other GitHub call is reused; no new
-service or credential is introduced.
+The clone uses a tokenless HTTPS URL and passes its authorization header in
+the child process environment. The token is absent from Git's argv and is
+never written to `.git/config` or inherited by repository-controlled
+subprocesses. System and global Git configuration are disabled for these
+commands so ambient credential helpers and filters cannot run.
 """
 
 from __future__ import annotations
@@ -31,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
+from core.git_env import git_subprocess_env, scrub_git_message
 from core.language_tools import detect_profile
 from core.models import MonitoredApp
 from mcp_server.github_client import GitHubClient, GitHubClientError
@@ -159,11 +159,13 @@ async def check_repo_access(owner_repo: str) -> dict[str, object]:
     return data
 
 
-async def _run_git(args: list[str], *, cwd: Path) -> None:
+async def _run_git(args: list[str], *, cwd: Path, github_token: str | None = None) -> None:
+    env, sensitive_values = git_subprocess_env(github_token=github_token)
     process = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=str(cwd),
+        env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -172,21 +174,26 @@ async def _run_git(args: list[str], *, cwd: Path) -> None:
     except TimeoutError as exc:
         process.kill()
         await process.wait()
-        raise RepoConnectError(f"git {' '.join(args)} timed out") from exc
+        raise RepoConnectError(
+            scrub_git_message(f"git {' '.join(args)} timed out", sensitive_values)
+        ) from exc
     if process.returncode != 0:
-        raise RepoConnectError(f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}")
+        message = f"git {' '.join(args)} failed: {stderr.decode(errors='replace')}"
+        raise RepoConnectError(scrub_git_message(message, sensitive_values))
 
 
 async def clone_repo(owner_repo: str, name: str, *, github_token: str) -> Path:
-    """Shallow-clone `owner_repo` into `connected_apps/<name>/`, then strip the
-    embedded token from the remote URL."""
+    """Shallow-clone `owner_repo` using a process-scoped authorization header."""
     CONNECTED_APPS_ROOT.mkdir(exist_ok=True)
     dest = CONNECTED_APPS_ROOT / name
     if dest.exists():
         raise RepoConnectError(f"An app named {name!r} is already connected")
-    auth_url = f"https://x-access-token:{github_token}@github.com/{owner_repo}.git"
     plain_url = f"https://github.com/{owner_repo}.git"
-    await _run_git(["clone", "--depth", "1", auth_url, str(dest)], cwd=CONNECTED_APPS_ROOT)
+    await _run_git(
+        ["clone", "--depth", "1", plain_url, str(dest)],
+        cwd=CONNECTED_APPS_ROOT,
+        github_token=github_token,
+    )
     await _run_git(["remote", "set-url", "origin", plain_url], cwd=dest)
     return dest
 

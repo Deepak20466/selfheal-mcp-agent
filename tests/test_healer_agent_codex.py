@@ -1,5 +1,4 @@
-"""healer.agent_codex: the (documented-only, not live-verified) OpenAI Codex
-CLI backend.
+"""healer.agent_codex: the OpenAI Codex CLI backend.
 
 Mirrors `tests/test_healer_agent_free.py`'s structure exactly: `run_codex_cli`
 is tested against a mocked subprocess (never a real `codex` call, per
@@ -16,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,7 +27,15 @@ from sqlalchemy import select
 
 from core.config import settings as core_settings
 from core.db import session_scope
-from core.models import AuditLog, Error, HealJob, HealJobStatus, HealJobType, OpenResolvedStatus
+from core.models import (
+    AuditLog,
+    Error,
+    FixAttempt,
+    HealJob,
+    HealJobStatus,
+    HealJobType,
+    OpenResolvedStatus,
+)
 from healer import agent_codex
 from healer.agent_codex import (
     CLIMalformedOutputError,
@@ -45,11 +53,18 @@ from mcp_server.sandbox import REPO_ROOT
 from mcp_server.server import mcp
 
 
+def _path_exists(path: str) -> bool:
+    return Path(path).exists()
+
+
 @pytest.fixture(autouse=True)
-def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Force the non-Windows-shim `create_subprocess_exec` path by default,
-    same rationale as `test_healer_agent_free.py`'s equivalent fixture."""
+    and never copy a real user CODEX_HOME auth file into a test subprocess."""
     monkeypatch.setattr("healer.agent_codex.shutil.which", lambda _name: None)
+    isolated_codex_home = tmp_path / "source-codex-home"
+    isolated_codex_home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(isolated_codex_home))
 
 
 @dataclass
@@ -133,6 +148,7 @@ async def test_run_codex_cli_success_parses_result_and_usage(
     argv = list(fake.calls[0]["args"])
     assert argv[0] == "codex"
     assert argv[1:4] == ["exec", "-", "--json"]
+    assert "--ephemeral" in argv
     assert "-c" in argv
 
     kwargs = fake.calls[0]["kwargs"]
@@ -155,6 +171,33 @@ async def test_run_codex_cli_success_parses_result_and_usage(
         assert key not in env
     # A dedicated CODEX_HOME (restricted MCP config) is set.
     assert "CODEX_HOME" in env
+
+
+async def test_run_codex_cli_parses_current_nested_event_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    usage = {"input_tokens": 31, "output_tokens": 7, "cached_input_tokens": 4}
+    stdout = _jsonl(
+        {"type": "thread.started", "thread_id": "thread-current"},
+        {
+            "type": "item.completed",
+            "item": {"id": "msg-1", "type": "agent_message", "text": "SELFHEAL_SMOKE_OK"},
+        },
+        {"type": "turn.completed", "usage": usage},
+    )
+    fake = _FakeExec(process=_FakeProcess(stdout_bytes=stdout))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    result = await run_codex_cli("prompt", cwd=REPO_ROOT)
+
+    assert result.result_text == "SELFHEAL_SMOKE_OK"
+    assert result.is_error is False
+    assert result.subtype == "item.completed"
+    assert result.num_turns == 1
+    assert result.session_id == "thread-current"
+    assert result.input_tokens == 31
+    assert result.output_tokens == 7
+    assert result.cache_read_input_tokens == 4
 
 
 async def test_run_codex_cli_writes_selfheal_only_mcp_config(
@@ -192,9 +235,39 @@ async def test_run_codex_cli_writes_selfheal_only_mcp_config(
     assert 'approval_policy = "never"' in config_text
 
 
+async def test_run_codex_cli_copies_only_the_existing_login_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_home = Path(os.environ["CODEX_HOME"])
+    (source_home / "auth.json").write_text('{"access_token":"test-only-token"}', encoding="utf-8")
+    (source_home / "config.toml").write_text("mcp_servers = {}", encoding="utf-8")
+    captured: dict[str, str] = {}
+
+    @dataclass
+    class _CapturingFakeExec(_FakeExec):
+        async def __call__(self, *args: Any, **kwargs: Any) -> _FakeProcess:
+            codex_home = Path(kwargs["env"]["CODEX_HOME"])
+            captured["home"] = str(codex_home)
+            captured["auth"] = (codex_home / "auth.json").read_text(encoding="utf-8")
+            captured["files"] = ",".join(sorted(os.listdir(codex_home)))
+            return await super().__call__(*args, **kwargs)
+
+    fake = _CapturingFakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    await run_codex_cli("prompt", cwd=tmp_path)
+
+    assert captured["auth"] == '{"access_token":"test-only-token"}'
+    assert captured["files"] == "auth.json,config.toml"
+    assert not _path_exists(captured["home"])
+
+
 async def test_run_codex_cli_strips_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("GEMINI_API_KEY", "should-not-leak-either")
+    monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:secret@localhost/db")
+    monkeypatch.setenv("OPENAI_API_KEY", "codex-provider-key-is-allowed")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
 
@@ -203,6 +276,9 @@ async def test_run_codex_cli_strips_env_vars(monkeypatch: pytest.MonkeyPatch) ->
     env = fake.calls[0]["kwargs"]["env"]
     assert "ANTHROPIC_API_KEY" not in env
     assert "GEMINI_API_KEY" not in env
+    assert "GITHUB_TOKEN" not in env
+    assert "DATABASE_URL" not in env
+    assert env["OPENAI_API_KEY"] == "codex-provider-key-is-allowed"
 
 
 async def test_run_codex_cli_error_event_still_parses(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -342,13 +418,16 @@ _TEST_FILE = "apps/target_app/test_average_rating_zero_regression_codex.py"
 _TEST_FILE_CONTENT = (
     "from __future__ import annotations\n"
     "\n"
-    "from apps.target_app import bugs, seed_data\n"
-    "from core.db import session_scope\n"
+    "from types import SimpleNamespace\n"
+    "from apps.target_app import bugs\n"
+    "\n"
+    "class _FakeSession:\n"
+    "    async def get(self, _model: object, _item_id: int):\n"
+    "        return SimpleNamespace(rating_sum=0, rating_count=0)\n"
     "\n"
     "\n"
     "async def test_average_rating_zero_reviews_returns_zero() -> None:\n"
-    "    async with session_scope() as session:\n"
-    "        result = await bugs.average_rating(session, seed_data.UNRATED_ITEM_ID)\n"
+    "    result = await bugs.average_rating(_FakeSession(), 999)\n"
     "    assert result == 0.0\n"
 )
 
@@ -426,7 +505,13 @@ async def test_run_heal_job_codex_fixes_zero_division_error_end_to_end(
     async with session_scope() as session:
         refreshed = await session.get(HealJob, job.id)
         assert refreshed is not None
-        assert refreshed.status == HealJobStatus.PR_OPENED
+        attempts = (
+            (await session.execute(select(FixAttempt).where(FixAttempt.heal_job_id == job.id)))
+            .scalars()
+            .all()
+        )
+        evidence = attempts[-1].test_output if attempts else refreshed.error_message
+        assert refreshed.status == HealJobStatus.PR_OPENED, evidence
         assert refreshed.pr_number == 401
         assert refreshed.branch_name is not None
 

@@ -6,6 +6,7 @@ Runs against the real repo (read-only ops) and a real, disposable
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 
@@ -108,16 +109,111 @@ async def test_apply_diff_rejects_a_diff_that_does_not_match(
         await git_utils.apply_diff(bogus_diff, cwd=worktree_path, check_only=True)
 
 
+async def test_apply_diff_recounts_inaccurate_hunk_counts(tmp_path: Path) -> None:
+    target = tmp_path / "app.py"
+    target.write_text("def value():\n    return 1\n", encoding="utf-8")
+    patch = (
+        "diff --git a/app.py b/app.py\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1,8 +1,9 @@\n"
+        " def value():\n"
+        "-    return 1\n"
+        "+    return 2\n"
+    )
+
+    await git_utils.apply_diff(patch, cwd=tmp_path)
+
+    assert target.read_text(encoding="utf-8") == "def value():\n    return 2\n"
+
+
+async def test_apply_diff_timeout_kills_git_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class HangingProcess:
+        returncode: int | None = None
+        killed = False
+        waited = False
+
+        async def communicate(self, input: bytes | None = None) -> tuple[bytes, bytes]:
+            await asyncio.Event().wait()
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            self.waited = True
+            return self.returncode or 0
+
+    process = HangingProcess()
+
+    async def create_process(*args: object, **kwargs: object) -> HangingProcess:
+        del args, kwargs
+        return process
+
+    monkeypatch.setattr(git_utils, "GIT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+
+    with pytest.raises(git_utils.GitCommandError, match="git apply timed out"):
+        await git_utils.apply_diff("diff", cwd=tmp_path)
+
+    assert process.killed is True
+    assert process.waited is True
+
+
+async def test_apply_diff_accepts_lf_patch_for_crlf_checkout(
+    tmp_path: Path,
+) -> None:
+    from core.git_env import git_subprocess_env
+
+    source = tmp_path / "connected-repo"
+    source.mkdir()
+    (source / "app.py").write_bytes(b"VALUE = 1\r\n")
+    env, _ = git_subprocess_env()
+
+    async def run_git(*args: str, cwd: Path) -> None:
+        process = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=str(cwd),
+            env=env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        assert process.returncode == 0, stderr.decode(errors="replace")
+
+    for args in (
+        ["init", "-b", "main"],
+        ["add", "-A"],
+        ["commit", "-m", "initial"],
+    ):
+        await run_git(*args, cwd=source)
+    worktree_path = tmp_path / "worktree"
+    await run_git("clone", str(source), str(worktree_path), cwd=tmp_path)
+    target = worktree_path / "app.py"
+    assert b"\r\n" in target.read_bytes()
+    diff_text = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-VALUE = 1\n+VALUE = 2\n"
+    new_line = "VALUE = 2"
+
+    await git_utils.apply_diff(diff_text, cwd=worktree_path)
+
+    assert target.read_text(encoding="utf-8").splitlines()[0] == new_line
+
+
 async def test_run_pytest_passes_for_a_trivially_passing_test(
     git_worktree: tuple[str, Path],
 ) -> None:
     _, worktree_path = git_worktree
-    scratch_test = worktree_path / "tests" / "test_mcp_git_utils_scratch.py"
+    scratch_test = worktree_path / "apps" / "target_app" / "test_mcp_git_utils_scratch.py"
     scratch_test.write_text("def test_always_passes():\n    assert True\n", encoding="utf-8")
 
-    result = await git_utils.run_pytest("tests/test_mcp_git_utils_scratch.py", cwd=worktree_path)
+    result = await git_utils.run_pytest(
+        "apps/target_app/test_mcp_git_utils_scratch.py", cwd=worktree_path
+    )
 
-    assert result["passed"] is True
+    assert result["passed"] is True, result
     assert result["timed_out"] is False
 
 
@@ -125,11 +221,11 @@ async def test_run_pytest_reports_failure_for_a_failing_test(
     git_worktree: tuple[str, Path],
 ) -> None:
     _, worktree_path = git_worktree
-    scratch_test = worktree_path / "tests" / "test_mcp_git_utils_scratch_fail.py"
+    scratch_test = worktree_path / "apps" / "target_app" / "test_mcp_git_utils_scratch_fail.py"
     scratch_test.write_text("def test_always_fails():\n    assert False\n", encoding="utf-8")
 
     result = await git_utils.run_pytest(
-        "tests/test_mcp_git_utils_scratch_fail.py", cwd=worktree_path
+        "apps/target_app/test_mcp_git_utils_scratch_fail.py", cwd=worktree_path
     )
 
     assert result["passed"] is False

@@ -14,6 +14,7 @@ notify/fallback wait instead of spinning.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,53 @@ from core.db import session_scope
 from core.models import HealJob, HealJobStatus, HealJobType, MonitoredApp
 from core.queue import dequeue_heal_job, enqueue_heal_job
 from healer import worker as worker_module
+
+
+@pytest.mark.asyncio
+async def test_concurrent_workers_do_not_claim_the_same_job() -> None:
+    """PostgreSQL SKIP LOCKED lets a second worker move on while one claim is open."""
+    job_types = tuple(HealJobType)
+    async with session_scope() as session:
+        while True:
+            stale = await dequeue_heal_job(session, types=job_types)
+            if stale is None:
+                break
+            stale.status = HealJobStatus.FAILED
+        job = await enqueue_heal_job(
+            session,
+            type=HealJobType.RUNTIME_ERROR,
+            fingerprint=f"test-concurrent-claim-{uuid.uuid4().hex}",
+        )
+        job_id = job.id
+
+    claimed = asyncio.Event()
+    release_first_worker = asyncio.Event()
+    first_claimed_ids: list[int] = []
+
+    async def _first_worker_claims_and_holds_transaction() -> None:
+        async with session_scope() as session:
+            row = await dequeue_heal_job(session, types=job_types)
+            assert row is not None
+            first_claimed_ids.append(row.id)
+            claimed.set()
+            await release_first_worker.wait()
+
+    first_worker = asyncio.create_task(_first_worker_claims_and_holds_transaction())
+    try:
+        await asyncio.wait_for(claimed.wait(), timeout=5)
+        async with session_scope() as session:
+            second_claim = await dequeue_heal_job(session, types=job_types)
+            assert second_claim is None
+    finally:
+        release_first_worker.set()
+        await first_worker
+
+    assert first_claimed_ids == [job_id]
+    async with session_scope() as session:
+        row = await session.get(HealJob, job_id)
+        assert row is not None
+        assert row.status == HealJobStatus.RUNNING
+        row.status = HealJobStatus.FAILED
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from healer import mcp_client
 from healer.mcp_client import MCPToolClient, MCPToolError, ReconnectingMCPToolClient
 
 
@@ -69,3 +70,16 @@ async def test_gives_up_after_attempts() -> None:
             await client.call_tool("x", {})
     finally:
         await client.aclose()
+
+
+async def test_http_connection_context_reconnects_after_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connects: list[int] = []
+    fake_connect = _factory(connects, 1)
+    monkeypatch.setattr(mcp_client, "connect_http", lambda _url: fake_connect())
+
+    async with mcp_client.connect_http_reconnecting("http://mcp.test/mcp") as client:
+        assert await client.call_tool("get_metrics", {}) == {"ok": "get_metrics"}
+
+    assert len(connects) == 2

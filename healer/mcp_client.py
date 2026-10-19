@@ -182,3 +182,14 @@ class ReconnectingMCPToolClient(MCPToolClient):
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         return await self._with_retry(lambda c: c.call_tool(name, arguments))
+
+
+@asynccontextmanager
+async def connect_http_reconnecting(url: str) -> AsyncIterator[ReconnectingMCPToolClient]:
+    """Keep a healer MCP client available across MCP pod restarts."""
+    client = ReconnectingMCPToolClient(lambda: connect_http(url))
+    await client.start()
+    try:
+        yield client
+    finally:
+        await client.aclose()

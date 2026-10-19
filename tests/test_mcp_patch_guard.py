@@ -166,6 +166,19 @@ def test_patch_within_file_and_line_limits_passes() -> None:
     check_patch_limits(_LEGITIMATE_FIX_DIFF, {"apps/target_app/bugs.py"})
 
 
+def test_existing_file_patch_requires_context_lines() -> None:
+    diff = (
+        "--- a/apps/target_app/bugs.py\n"
+        "+++ b/apps/target_app/bugs.py\n"
+        "@@ -29 +29 @@\n"
+        "-    return value\n"
+        "+    return value + 1\n"
+    )
+
+    with pytest.raises(SandboxViolation, match="must include context lines"):
+        check_patch_limits(diff, {"apps/target_app/bugs.py"})
+
+
 def test_patch_over_file_limit_is_rejected() -> None:
     touched = {f"apps/target_app/f{i}.py" for i in range(10)}
     with pytest.raises(SandboxViolation, match="files"):

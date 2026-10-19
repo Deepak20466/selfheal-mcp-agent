@@ -122,7 +122,10 @@ async def test_missing_tools_are_skipped_not_failed(tmp_path) -> None:
     assert drafts == []
     assert tests_passed is None
     assert len(skipped) == 4
-    assert all("skipped: tool not installed" in s for s in skipped)
+    assert skipped[0].startswith("install: skipped: repository dependency installs")
+    assert skipped[1].startswith("tests: skipped: tool not installed")
+    assert skipped[2].startswith("lint: skipped: tool not installed")
+    assert skipped[3] == "audit: skipped: no safe metadata-only adapter for this ecosystem"
 
 
 async def test_present_tool_failure_becomes_a_finding(tmp_path) -> None:

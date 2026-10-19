@@ -5,7 +5,8 @@ Mirrors `tests/test_healer_agent_free.py`'s structure: `run_gemini_cli` is
 tested against a mocked subprocess (never a real `gemini` call, per
 CLAUDE.md), covering success, timeout, an error result, "not logged in",
 "usage limit", CLI-not-found, and malformed (non-JSON) output, plus that the
-project-level `.gemini/settings.json` restriction file is written correctly.
+isolated `.gemini/settings.json` restriction file is written outside the
+repository and removed after the call.
 The higher-level loop (`run_heal_job_gemini`) is tested end to end against a
 real MCP server, real git worktrees and a throwaway git remote, with
 `run_gemini_cli` itself monkeypatched (same principle as
@@ -128,10 +129,19 @@ async def test_run_gemini_cli_success_parses_result_and_usage(
     argv = list(fake.calls[0]["args"])
     assert argv[0] == "gemini"
     assert argv[1:3] == ["--output-format", "json"]
-    assert argv[3:] == ["--max-turns", "5"]
+    assert argv[3:] == [
+        "--max-turns",
+        "5",
+        "--allowed-mcp-server-names",
+        "selfheal",
+        "--approval-mode",
+        "default",
+    ]
 
     kwargs = fake.calls[0]["kwargs"]
-    assert kwargs["cwd"] == str(tmp_path)
+    assert kwargs["cwd"] != str(tmp_path)
+    assert not (tmp_path / ".gemini").exists()
+    assert not await asyncio.to_thread(Path(kwargs["cwd"]).exists)
     assert "do the thing" not in argv
     assert fake.process is not None
     assert fake.process.sent_stdin == b"do the thing"
@@ -143,26 +153,35 @@ async def test_run_gemini_cli_success_parses_result_and_usage(
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_MODEL",
         "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
     ):
         assert key not in env
 
 
-async def test_run_gemini_cli_writes_project_level_settings_restricted_to_selfheal(
+async def test_run_gemini_cli_writes_isolated_settings_restricted_to_selfheal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
+
+    async def inspect_isolated_settings(*args: Any, **kwargs: Any) -> _FakeProcess:
+        settings_path = Path(kwargs["cwd"]) / ".gemini" / "settings.json"
+        assert settings_path.is_file()
+        payload = json.loads(settings_path.read_text(encoding="utf-8"))
+        assert payload["tools"]["core"] == []
+        assert payload["mcp"]["allowed"] == ["selfheal"]
+        assert payload["mcpServers"] == {
+            "selfheal": {"httpUrl": f"http://127.0.0.1:{core_settings.mcp_port}/mcp"}
+        }
+        return await fake(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", inspect_isolated_settings)
 
     await run_gemini_cli("prompt", cwd=tmp_path)
 
-    settings_path = tmp_path / ".gemini" / "settings.json"
-    assert settings_path.exists()
-    payload = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert payload["coreTools"] == []
-    assert payload["mcpServers"] == {
-        "selfheal": {"httpUrl": f"http://127.0.0.1:{core_settings.mcp_port}/mcp"}
-    }
-    assert payload["mcpServerAllowlist"] == ["selfheal"]
+    isolated_cwd = Path(fake.calls[0]["kwargs"]["cwd"])
+    assert not await asyncio.to_thread(isolated_cwd.exists)
+    assert not (tmp_path / ".gemini").exists()
 
 
 async def test_run_gemini_cli_strips_env_vars(
@@ -170,6 +189,8 @@ async def test_run_gemini_cli_strips_env_vars(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("OPENAI_API_KEY", "should-not-leak-either")
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-key-must-not-leak")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key-must-not-leak")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
 
@@ -178,6 +199,8 @@ async def test_run_gemini_cli_strips_env_vars(
     env = fake.calls[0]["kwargs"]["env"]
     assert "ANTHROPIC_API_KEY" not in env
     assert "OPENAI_API_KEY" not in env
+    assert "GOOGLE_API_KEY" not in env
+    assert "GEMINI_API_KEY" not in env
 
 
 async def test_run_gemini_cli_is_error_result_still_parses(
@@ -321,13 +344,16 @@ _TEST_FILE = "apps/target_app/test_average_rating_zero_regression_gemini.py"
 _TEST_FILE_CONTENT = (
     "from __future__ import annotations\n"
     "\n"
-    "from apps.target_app import bugs, seed_data\n"
-    "from core.db import session_scope\n"
+    "from types import SimpleNamespace\n"
+    "from apps.target_app import bugs\n"
+    "\n"
+    "class _FakeSession:\n"
+    "    async def get(self, _model: object, _item_id: int):\n"
+    "        return SimpleNamespace(rating_sum=0, rating_count=0)\n"
     "\n"
     "\n"
     "async def test_average_rating_zero_reviews_returns_zero() -> None:\n"
-    "    async with session_scope() as session:\n"
-    "        result = await bugs.average_rating(session, seed_data.UNRATED_ITEM_ID)\n"
+    "    result = await bugs.average_rating(_FakeSession(), 999)\n"
     "    assert result == 0.0\n"
 )
 
@@ -405,7 +431,7 @@ async def test_run_heal_job_gemini_fixes_zero_division_error_end_to_end(
     async with session_scope() as session:
         refreshed = await session.get(HealJob, job.id)
         assert refreshed is not None
-        assert refreshed.status == HealJobStatus.PR_OPENED
+        assert refreshed.status == HealJobStatus.PR_OPENED, refreshed.error_message
         assert refreshed.pr_number == 501
         assert refreshed.branch_name is not None
 

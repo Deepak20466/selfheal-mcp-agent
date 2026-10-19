@@ -4,6 +4,7 @@ run_tests, propose_patch — especially propose_patch's scope enforcement.
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import uuid
 from pathlib import Path
@@ -115,6 +116,55 @@ async def test_search_code_returns_empty_for_no_matches() -> None:
     assert results == []
 
 
+async def test_search_code_treats_option_like_pattern_as_a_pattern() -> None:
+    # `-e` prevents a model supplied pattern from becoming a Git option.
+    pattern = "--open-files-" + "in-pager=cmd.exe"
+    assert await search_code(pattern) == []
+
+
+async def test_search_code_timeout_kills_git_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    class HangingProcess:
+        returncode: int | None = None
+        killed = False
+        waited = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.Event().wait()
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            self.waited = True
+            return self.returncode or 0
+
+    process = HangingProcess()
+
+    async def create_process(*args: object, **kwargs: object) -> HangingProcess:
+        del args, kwargs
+        return process
+
+    async def ignore_audit_log(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr("mcp_server.tools.code.GIT_SEARCH_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("mcp_server.audit.log_tool_call", ignore_audit_log)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
+
+    with pytest.raises(ToolError, match="search_code timed out"):
+        await search_code("needle")
+
+    assert process.killed is True
+    assert process.waited is True
+
+
+@pytest.mark.parametrize("max_results", [0, -1, 1001, True])
+async def test_search_code_caps_result_count(max_results: int) -> None:
+    with pytest.raises(ToolError, match="max_results"):
+        await search_code("needle", max_results=max_results)
+
+
 async def test_list_files_finds_target_app_python_files() -> None:
     files = await list_files("apps/target_app/*.py")
     assert "apps/target_app/bugs.py" in files
@@ -149,11 +199,13 @@ async def test_get_recent_commits_returns_history() -> None:
 
 async def test_run_tests_in_a_worktree(git_worktree: tuple[str, Path]) -> None:
     name, worktree_path = git_worktree
-    scratch = worktree_path / "tests" / "test_mcp_tools_code_scratch.py"
+    scratch = worktree_path / "apps" / "target_app" / "test_mcp_tools_code_scratch.py"
     scratch.write_text("def test_ok():\n    assert 1 + 1 == 2\n", encoding="utf-8")
 
-    result = await run_tests(worktree=name, test_path="tests/test_mcp_tools_code_scratch.py")
-    assert result["passed"] is True
+    result = await run_tests(
+        worktree=name, test_path="apps/target_app/test_mcp_tools_code_scratch.py"
+    )
+    assert result["passed"] is True, result
 
 
 async def test_run_tests_rejects_unknown_worktree() -> None:
@@ -258,6 +310,29 @@ async def test_propose_patch_rejects_a_diff_that_does_not_apply(
         await propose_patch(heal_job_id=job_id, worktree=name, unified_diff=bogus_diff)
 
 
+async def test_propose_patch_rejects_context_free_existing_file_hunk(
+    git_worktree: tuple[str, Path],
+) -> None:
+    name, worktree_path = git_worktree
+    job_id = await _make_heal_job(HealJobType.CI_FAILURE)
+    relative_path = "apps/target_app/seed_data.py"
+    target = worktree_path / relative_path
+    original = target.read_bytes()
+    first_line = original.decode("utf-8").splitlines()[0]
+    context_free_diff = (
+        f"--- a/{relative_path}\n"
+        f"+++ b/{relative_path}\n"
+        "@@ -1 +1 @@\n"
+        f"-{first_line}\n"
+        f"+{first_line}  # changed\n"
+    )
+
+    with pytest.raises(ToolError, match="must include context lines"):
+        await propose_patch(heal_job_id=job_id, worktree=name, unified_diff=context_free_diff)
+
+    assert target.read_bytes() == original
+
+
 async def test_propose_patch_scopes_a_multi_app_job_to_its_own_app(
     git_worktree: tuple[str, Path],
 ) -> None:
@@ -295,7 +370,7 @@ async def test_run_tests_uses_the_apps_own_test_command_for_non_python_apps(
 
     result = await run_tests(worktree=name, heal_job_id=job_id)
 
-    assert result["passed"] is True
+    assert result["passed"] is True, result
     assert "ok" in result["output"]
 
 

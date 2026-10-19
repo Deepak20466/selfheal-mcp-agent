@@ -26,39 +26,17 @@ never argv. `--output-format json` makes it print one JSON object to stdout
 a `stats` block with token usage — this module parses that object the same
 way `agent_free.py` parses Claude Code's `--output-format json`.
 
-**MCP restriction — settings.json-based, not a CLI flag.** Gemini CLI has no
-per-invocation `--allowedTools`/`--mcp-config` flag either; MCP servers and
-tool restrictions are both configured via a `settings.json` the CLI reads
-from `.gemini/settings.json` in the current working directory (project-level
-config) or `~/.gemini/settings.json` (global). Since `run_gemini_cli` is
-always invoked with `cwd` set to a fix-attempt's own worktree (a fresh
-directory each time), this module writes a **project-level**
-`<worktree>/.gemini/settings.json` before every invocation containing:
-- `"mcpServers": {"selfheal": {"httpUrl": "http://127.0.0.1:<mcp_port>/mcp"}}`
-  — mirrors `.mcp.json`'s HTTP-not-stdio choice in `agent_free.py` (a stdio
-  server spawned with this same worktree `cwd` would resolve `mcp_server`'s
-  own `REPO_ROOT` to the worktree, not the real repo — see that module's
-  docstring for the full "why", which applies here too).
-- `"coreTools": []` — Gemini CLI docs describe `coreTools` as an *allowlist*
-  of built-in tools (file read/write, shell, web fetch, etc.); an empty list
-  allows none of them, leaving the MCP server's tools as the only tools
-  available at all. This is a real, documented mechanism (unlike Codex CLI's
-  gap — see `agent_codex.py`'s docstring for the contrast), so free mode's
-  "only our MCP server, no built-in edit/shell" guarantee should actually
-  hold here, modulo not having a live install to confirm against.
-- `"mcpServerAllowlist": ["selfheal"]` (or whatever the installed version's
-  exact key is — documented under slightly different names across doc
-  revisions; if it doesn't exist, `mcpServers` containing only `selfheal`
-  already limits which MCP tools exist to call, so this is defense in
-  depth, not the only restriction).
-
-Whether Gemini CLI still shows an interactive tool-confirmation dialog for
-MCP tool calls with piped/non-TTY stdin (and if so, whether that silently
-hangs or auto-declines) is **not verified** — if you install `gemini` and
-find MCP tool calls get stuck waiting for approval, look for a
-`--yolo`/auto-approve-equivalent flag in that version's `--help` and wire it
-in here explicitly (this module does not pass one by default, to avoid
-guessing at a flag that might auto-approve more than intended).
+**MCP restriction.** Each invocation writes a temporary `.gemini/settings.json`
+outside the repository worktree, uses `tools.core: []` to disable built-in
+file and shell tools, and allows only the `selfheal` MCP server through both
+`mcp.allowed` and `--allowed-mcp-server-names`. The CLI uses its default
+approval mode rather than auto-approving every tool; if a built-in tool is
+unexpectedly enabled or requests approval in non-interactive mode, it should
+fail closed. The temporary settings directory is removed when the CLI exits.
+This avoids overwriting repository-controlled or symlinked
+`.gemini/settings.json` files. These settings and flags were checked against
+Gemini CLI's published reference; live CLI behavior remains unverified
+because Gemini CLI is not installed here.
 
 Everything else mirrors `agent_free.py`: prompt via stdin, `gemini`
 executable resolution + the same Windows `.cmd`/`.bat`-shim handling
@@ -77,6 +55,7 @@ import contextlib
 import json
 import re
 import shutil
+import tempfile
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -135,6 +114,8 @@ _STRIPPED_ENV_VARS = frozenset(
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_MODEL",
         "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
     }
 )
 
@@ -158,16 +139,14 @@ _CLI_INVOCATION_ACTION = "cli_invocation"
 CLIResult = agent_free.CLIResult
 
 
-def _write_gemini_settings(worktree_cwd: Path) -> None:
-    """Write `<worktree>/.gemini/settings.json`, restricting Gemini to the
-    selfheal MCP server only. See this module's docstring for the mechanism
-    and its "not verified live" caveat."""
-    settings_dir = worktree_cwd / ".gemini"
+def _write_gemini_settings(settings_root: Path) -> None:
+    """Write isolated Gemini settings outside the repository worktree."""
+    settings_dir = settings_root / ".gemini"
     settings_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "mcpServers": {"selfheal": {"httpUrl": _MCP_HTTP_URL}},
-        "coreTools": [],
-        "mcpServerAllowlist": ["selfheal"],
+        "tools": {"core": []},
+        "mcp": {"allowed": ["selfheal"]},
     }
     (settings_dir / "settings.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -193,40 +172,51 @@ async def run_gemini_cli(
     turns = max_turns if max_turns is not None else settings.gemini_cli_max_turns
     timeout = timeout_s if timeout_s is not None else settings.gemini_cli_timeout_s
 
-    _write_gemini_settings(cwd)
-
-    rest_args = ["--output-format", "json", "--max-turns", str(turns)]
+    rest_args = [
+        "--output-format",
+        "json",
+        "--max-turns",
+        str(turns),
+        "--allowed-mcp-server-names",
+        "selfheal",
+        "--approval-mode",
+        "default",
+    ]
     env = strip_env_vars(_STRIPPED_ENV_VARS)
-    subprocess_kwargs: dict[str, Any] = {
-        "cwd": str(cwd),
-        "env": env,
-        "stdin": asyncio.subprocess.PIPE,
-        "stdout": asyncio.subprocess.PIPE,
-        "stderr": asyncio.subprocess.PIPE,
-    }
+    with tempfile.TemporaryDirectory(prefix="selfheal-gemini-cli-") as settings_root:
+        settings_path = Path(settings_root)
+        _write_gemini_settings(settings_path)
+        subprocess_kwargs: dict[str, Any] = {
+            "cwd": str(settings_path),
+            "env": env,
+            "stdin": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.PIPE,
+        }
 
-    try:
-        if is_windows_shim(resolved_cli):
-            command = windows_shim_command(resolved_cli, rest_args)
-            process = await asyncio.create_subprocess_shell(command, **subprocess_kwargs)
-        else:
-            process = await asyncio.create_subprocess_exec(
-                resolved_cli, *rest_args, **subprocess_kwargs
+        try:
+            if is_windows_shim(resolved_cli):
+                command = windows_shim_command(resolved_cli, rest_args)
+                process = await asyncio.create_subprocess_shell(command, **subprocess_kwargs)
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    resolved_cli, *rest_args, **subprocess_kwargs
+                )
+        except FileNotFoundError as exc:
+            raise CLINotFoundError(
+                f"gemini CLI not found (tried {resolved_cli!r}); install it and/or "
+                "set GEMINI_CLI_PATH"
+            ) from exc
+
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(prompt.encode("utf-8")), timeout=timeout
             )
-    except FileNotFoundError as exc:
-        raise CLINotFoundError(
-            f"gemini CLI not found (tried {resolved_cli!r}); install it and/or set GEMINI_CLI_PATH"
-        ) from exc
-
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(prompt.encode("utf-8")), timeout=timeout
-        )
-    except TimeoutError:
-        await kill_process_tree(process.pid)
-        with contextlib.suppress(Exception):
-            await process.wait()
-        raise CLITimeoutError(f"gemini CLI timed out after {timeout}s") from None
+        except TimeoutError:
+            await kill_process_tree(process.pid)
+            with contextlib.suppress(Exception):
+                await process.wait()
+            raise CLITimeoutError(f"gemini CLI timed out after {timeout}s") from None
 
     stdout_text = stdout_bytes.decode("utf-8", errors="replace")
     stderr_text = stderr_bytes.decode("utf-8", errors="replace")
@@ -559,15 +549,18 @@ async def run_heal_job_gemini(
                 base_branch = "main"
                 if is_connected_app:
                     assert app is not None
-                    push_remote = (
-                        f"https://x-access-token:{settings.github_token}"
-                        f"@github.com/{app.github_repo}.git"
-                    )
+                    push_remote = f"https://github.com/{app.github_repo}.git"
                     repo_info = await github.get_repo()
                     base_branch = str(repo_info.get("default_branch") or "main")
                 else:
                     push_remote = remote
-                await commit_and_push(worktree_path, branch, message=commit_msg, remote=push_remote)
+                await commit_and_push(
+                    worktree_path,
+                    branch,
+                    message=commit_msg,
+                    remote=push_remote,
+                    github_token=settings.github_token if is_connected_app else None,
+                )
                 evidence = FixEvidence(
                     heal_job_id=job_id,
                     fingerprint=fingerprint,

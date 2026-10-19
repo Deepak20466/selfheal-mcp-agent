@@ -141,19 +141,23 @@ async def test_run_claude_cli_success_parses_result_and_usage(
     assert len(fake.calls) == 1
     argv = list(fake.calls[0]["args"])
     assert argv[0] == "claude"
-    assert argv[1:8] == [
+    assert argv[1:] == [
         "-p",
+        "--no-session-persistence",
         "--output-format",
         "json",
+        "--tools",
+        "",
         "--mcp-config",
         str(REPO_ROOT / ".mcp.json"),
         "--strict-mcp-config",
         "--allowedTools",
+        "mcp__selfheal__*",
+        "--disallowedTools",
+        "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch",
+        "--max-turns",
+        "5",
     ]
-    assert argv[8] == "mcp__selfheal__*"
-    assert argv[9] == "--disallowedTools"
-    assert argv[10] == "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch"
-    assert argv[11:] == ["--max-turns", "5"]
 
     kwargs = fake.calls[0]["kwargs"]
     assert kwargs["cwd"] == str(REPO_ROOT)
@@ -216,8 +220,11 @@ async def test_run_claude_cli_wraps_a_windows_cmd_shim_correctly(
     assert r"C:\fake dir\npm\claude.cmd" in inner
     expected_rest_args = [
         "-p",
+        "--no-session-persistence",
         "--output-format",
         "json",
+        "--tools",
+        "",
         "--mcp-config",
         str(REPO_ROOT / ".mcp.json"),
         "--strict-mcp-config",
@@ -256,6 +263,8 @@ async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
     monkeypatch.setenv("ANTHROPIC_MODEL", "should-not-leak-either")
+    monkeypatch.setenv("GITHUB_TOKEN", "github-token-must-not-leak")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test:secret@localhost/db")
     fake = _FakeExec(process=_FakeProcess(stdout_bytes=_success_stdout()))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake)
 
@@ -264,6 +273,8 @@ async def test_run_claude_cli_strips_anthropic_env_vars_present_in_process_env(
     env = fake.calls[0]["kwargs"]["env"]
     assert "ANTHROPIC_API_KEY" not in env
     assert "ANTHROPIC_MODEL" not in env
+    assert "GITHUB_TOKEN" not in env
+    assert "DATABASE_URL" not in env
 
 
 async def test_run_claude_cli_is_error_result_still_parses(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -407,13 +418,16 @@ _TEST_FILE = "apps/target_app/test_average_rating_zero_regression_free.py"
 _TEST_FILE_CONTENT = (
     "from __future__ import annotations\n"
     "\n"
-    "from apps.target_app import bugs, seed_data\n"
-    "from core.db import session_scope\n"
+    "from types import SimpleNamespace\n"
+    "from apps.target_app import bugs\n"
+    "\n"
+    "class _FakeSession:\n"
+    "    async def get(self, _model: object, _item_id: int):\n"
+    "        return SimpleNamespace(rating_sum=0, rating_count=0)\n"
     "\n"
     "\n"
     "async def test_average_rating_zero_reviews_returns_zero() -> None:\n"
-    "    async with session_scope() as session:\n"
-    "        result = await bugs.average_rating(session, seed_data.UNRATED_ITEM_ID)\n"
+    "    result = await bugs.average_rating(_FakeSession(), 999)\n"
     "    assert result == 0.0\n"
 )
 
@@ -498,7 +512,7 @@ async def test_run_heal_job_free_fixes_zero_division_error_end_to_end(
     async with session_scope() as session:
         refreshed = await session.get(HealJob, job.id)
         assert refreshed is not None
-        assert refreshed.status == HealJobStatus.PR_OPENED
+        assert refreshed.status == HealJobStatus.PR_OPENED, refreshed.error_message
         assert refreshed.pr_number == 301
         assert refreshed.branch_name is not None
 
