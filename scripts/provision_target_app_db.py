@@ -16,34 +16,44 @@ import asyncpg
 from sqlalchemy.engine import URL, make_url
 
 
+class ProvisioningError(RuntimeError):
+    """A sanitized failure description that never includes database secrets."""
+
+
 def _postgres_dsn(url: URL) -> str:
     """Render a SQLAlchemy URL in the URI form accepted by asyncpg."""
     return url.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 async def provision() -> None:
-    admin_url = make_url(os.environ["DATABASE_URL"])
-    target_url = make_url(os.environ["TARGET_APP_DATABASE_URL"])
-    admin_database = admin_url.database
-    target_database = target_url.database
-    target_username = target_url.username
-    target_password = target_url.password
-
-    if not admin_database or not target_database or not target_username or not target_password:
-        raise ValueError("database URLs must include database and target-role credentials")
-    if (
-        target_database in {admin_database, "postgres", "template0", "template1"}
-        or target_username == admin_url.username
-    ):
-        raise ValueError("target-app database and role must be separate from the control plane")
-    if (target_url.host, target_url.port) != (admin_url.host, admin_url.port):
-        raise ValueError(
-            "target-app and control-plane databases must use the configured Postgres service"
-        )
-
-    bootstrap_url = admin_url.set(drivername="postgresql", database="postgres")
-    connection = await asyncpg.connect(_postgres_dsn(bootstrap_url))
+    stage = "parse database URLs"
+    connection: asyncpg.Connection | None = None
     try:
+        admin_url = make_url(os.environ["DATABASE_URL"])
+        target_url = make_url(os.environ["TARGET_APP_DATABASE_URL"])
+        admin_database = admin_url.database
+        target_database = target_url.database
+        target_username = target_url.username
+        target_password = target_url.password
+
+        stage = "validate database separation"
+        if not admin_database or not target_database or not target_username or not target_password:
+            raise ValueError("database URLs must include database and target-role credentials")
+        if (
+            target_database in {admin_database, "postgres", "template0", "template1"}
+            or target_username == admin_url.username
+        ):
+            raise ValueError("target-app database and role must be separate from the control plane")
+        if (target_url.host, target_url.port) != (admin_url.host, admin_url.port):
+            raise ValueError(
+                "target-app and control-plane databases must use the configured Postgres service"
+            )
+
+        stage = "connect to Postgres administration database"
+        bootstrap_url = admin_url.set(drivername="postgresql", database="postgres")
+        connection = await asyncpg.connect(_postgres_dsn(bootstrap_url), timeout=10)
+
+        stage = "verify administrator privileges"
         is_superuser = await connection.fetchval(
             "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
         )
@@ -55,6 +65,7 @@ async def provision() -> None:
         role_exists = await connection.fetchval(
             "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", target_username
         )
+        stage = "create or update restricted target-app role"
         role_verb = "ALTER ROLE" if role_exists else "CREATE ROLE"
         role_statement = (
             "SELECT format($1 || ' %I WITH LOGIN PASSWORD %L "
@@ -73,6 +84,7 @@ async def provision() -> None:
             target_database,
         )
         if database_owner is None:
+            stage = "create isolated target-app database"
             create_database_sql = await connection.fetchval(
                 "SELECT format('CREATE DATABASE %I OWNER %I', $1, $2)",
                 target_database,
@@ -89,6 +101,7 @@ async def provision() -> None:
             "SELECT datname FROM pg_database WHERE datallowconn AND datname <> $1",
             target_database,
         )
+        stage = "restrict PUBLIC access to databases"
         for database_row in database_rows:
             database_name = database_row["datname"]
             revoke_sql = await connection.fetchval(
@@ -108,8 +121,13 @@ async def provision() -> None:
             target_username,
         )
         await connection.execute(grant_target_sql)
+    except Exception as exc:
+        raise ProvisioningError(
+            f"Target-app database provisioning failed during {stage} ({type(exc).__name__})."
+        ) from None
     finally:
-        await connection.close()
+        if connection is not None:
+            await connection.close()
 
     print(
         f"Provisioned isolated target-app database {target_database!r} "
@@ -120,14 +138,10 @@ async def provision() -> None:
 def main() -> None:
     try:
         asyncio.run(provision())
-    except Exception as exc:
-        # Driver and server exceptions can include connection details or SQL.
-        # Do not print them because the migration job handles database secrets.
-        print(
-            "Target-app database provisioning failed "
-            f"({type(exc).__name__}); details suppressed.",
-            file=sys.stderr,
-        )
+    except ProvisioningError as exc:
+        # The exception message contains only a fixed stage name and class;
+        # driver/server details can contain SQL or database credentials.
+        print(str(exc), file=sys.stderr)
         raise SystemExit(1) from None
 
 

@@ -434,6 +434,9 @@ jobs:
             kubectl logs -l app="$app" --tail=500 --all-containers || true
             echo "::endgroup::"
           done
+          echo "::group::kubectl logs -l app=selfheal-migrate"
+          kubectl logs -l app=selfheal-migrate --tail=200 --all-containers --prefix=true || true
+          echo "::endgroup::"
           echo "::group::helm status"
           helm status selfheal || true
           echo "::endgroup::"
