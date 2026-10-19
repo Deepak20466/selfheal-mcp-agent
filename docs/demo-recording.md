@@ -1,6 +1,6 @@
 # End-to-end demo recording guide
 
-This guide describes the intended controlled runtime-failure walkthrough; it is a procedure, not a recording. **The full repair-to-PR recording is currently blocked** because provider CLI execution now fails closed until a network-aware OS sandbox exists. The existing [terminal clip](demo-terminal.mp4) is 0:50 and does not show the repair-to-PR flow.
+This guide describes the intended controlled runtime-failure walkthrough; it is a procedure, not a recording. **The full repair-to-PR recording is currently blocked** because provider CLI execution remains fail-closed and this repository has no provider credential with a verified zero-cost limit. The local Codex login reports ChatGPT authentication, but model use can consume plan allowance or credits; it is not treated as free for this demonstration. The existing [terminal clip](demo-terminal.mp4) is 0:50 and does not show the repair-to-PR flow.
 
 ## Required demo target
 
@@ -11,7 +11,7 @@ Before recording:
 1. Get the exact disposable repository approved. Confirm GitHub Actions are enabled and that the repository can accept a branch and pull request.
 2. Prepare a clean clone with a fresh local PostgreSQL app database and a separate test database. Follow [operations.md](operations.md).
 3. In the demo clone, set `config/monitored_apps.yaml` so the `target_app` entry points to the disposable repository. The `github_repo` value must match the demo repository. Commit this baseline setup before the recording.
-4. Configure a live, authenticated AI backend, a repository-scoped `GITHUB_TOKEN`, and `.env` values for local PostgreSQL and authentication. Do not put secrets in command arguments, source files, or screen captures.
+4. Before configuring a live AI backend, verify from that provider's account settings that the selected inference allowance cannot create paid usage or draw on purchased credits. Do not proceed if that cannot be verified. Configure only the required provider credential, a repository-scoped GitHub App/token, and `.env` values for local PostgreSQL and authentication. Do not put secrets in command arguments, source files, or screen captures.
 5. Confirm automatic merging is disabled in the service. Legacy auto-merge settings cannot enable it; generated PRs always wait for manual review. Start from a clean app database so old errors and PRs do not obscure this run.
 6. Confirm the repo has the seeded `/trigger/zero` controlled failure, a real regression-test command, and a GitHub Actions workflow that runs those tests. Do not use a mock provider, fixture transcript, or fabricated output.
 

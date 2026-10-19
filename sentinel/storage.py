@@ -252,6 +252,11 @@ async def record_pipeline_event(session: AsyncSession, payload: CIWebhookPayload
     """
     stmt = select(PipelineRun).where(PipelineRun.run_id == payload.run_id)
     run = (await session.execute(stmt)).scalar_one_or_none()
+    is_new_failed_completion = (
+        payload.status == "completed"
+        and payload.conclusion == "failure"
+        and (run is None or run.status != "completed" or run.conclusion != "failure")
+    )
 
     if run is None:
         run = PipelineRun(
@@ -267,7 +272,11 @@ async def record_pipeline_event(session: AsyncSession, payload: CIWebhookPayload
             finished_at=payload.finished_at,
         )
         session.add(run)
-    else:
+    elif run.status != "completed" or payload.status == "completed":
+        # GitHub can deliver the `in_progress` and `completed` workflow_run
+        # notifications out of order because they execute as separate runs.
+        # Once terminal, a run is immutable: a late start event must not
+        # regress its status or make a duplicate failure look new.
         run.status = payload.status
         run.conclusion = payload.conclusion
         run.failed_job = payload.failed_job
@@ -277,7 +286,7 @@ async def record_pipeline_event(session: AsyncSession, payload: CIWebhookPayload
     await session.flush()
 
     heal_job_id: int | None = None
-    if payload.status == "completed" and payload.conclusion == "failure":
+    if is_new_failed_completion:
         fingerprint = f"ci:{payload.branch}:{payload.pr_number or 'none'}"
         in_flight = await _in_flight_ci_job(session, fingerprint)
         if in_flight is not None:

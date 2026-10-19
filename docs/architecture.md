@@ -101,6 +101,16 @@ are restricted to `autofix/*` and
 `selfheal-onboarding/*` by default, and protected branches are refused before
 Git starts. AI-generated PRs always require human review and manual merging.
 
+GitHub Actions uses a separate trust boundary for CI notifications. The
+`pull_request` CI workflow has no repository-secret references and runs with
+read-only repository permissions. A `workflow_run` notifier checks out only
+the trusted `main` branch, reads the source run's metadata, and sends a signed
+webhook event; it never checks out the source branch or downloads its
+artifacts. Since GitHub dispatches the `in_progress` and `completed`
+notifications as separate runs, the webhook receiver treats terminal run
+records as immutable and queues a failure repair only on the first transition
+to a failed completion.
+
 Provider CLI execution is **disabled**. The previous implementation launched
 Codex, Claude Code, and Gemini on the host; provider-managed read-only settings,
 tool allowlists, environment filtering, and timeout cleanup do not provide OS

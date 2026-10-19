@@ -30,7 +30,6 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://selfheal:selfheal@localhost:5432/selfheal
       TEST_DATABASE_URL: postgresql+asyncpg://selfheal:selfheal@localhost:5432/selfheal_test
       SESSION_SECRET: ci-only-not-a-real-secret
-      HEALER_WEBHOOK_SECRET: ci-only-not-a-real-secret
       ADMIN_PASSWORD_HASH: ""
       USE_CLAUDE_CODE: "true"
 
@@ -109,14 +108,6 @@ jobs:
         # no-op there.
         run: git show-ref --verify --quiet refs/heads/main || git branch main origin/main
 
-      - name: Report CI start to healer webhook
-        if: always() && vars.HEALER_WEBHOOK_URL != ''
-        continue-on-error: true
-        env:
-          HEALER_WEBHOOK_URL: ${{ vars.HEALER_WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.HEALER_WEBHOOK_SECRET }}
-        run: python scripts/ci_webhook_notify.py --status started
-
       - name: ruff check
         id: ruff_check
         run: ruff check .
@@ -132,12 +123,3 @@ jobs:
       - name: pytest with coverage
         id: pytest
         run: pytest --cov --cov-report=term-missing --cov-report=xml
-
-      - name: Report CI finish to healer webhook
-        if: always() && vars.HEALER_WEBHOOK_URL != ''
-        continue-on-error: true
-        env:
-          HEALER_WEBHOOK_URL: ${{ vars.HEALER_WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.HEALER_WEBHOOK_SECRET }}
-          JOB_CONCLUSION: ${{ job.status }}
-        run: python scripts/ci_webhook_notify.py --status finished --conclusion "$JOB_CONCLUSION"

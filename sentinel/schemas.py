@@ -17,7 +17,7 @@ class RequestMetricEvent(BaseModel):
 
 
 class CIWebhookPayload(BaseModel):
-    """Body of `POST /webhooks/ci`, sent by ci.yml / ci-failure.yml (SPEC.md CI/CD section)."""
+    """Body of `POST /webhooks/ci`, signed by the trusted workflow_run notifier."""
 
     run_id: int
     workflow: str

@@ -1,35 +1,31 @@
-name: CI failure -> AI fix
+name: CI run event -> healer
 
 on:
   workflow_run:
     workflows: ["CI"]
-    types: [completed]
+    types: [in_progress, completed]
 
 permissions:
   contents: read
 
 jobs:
-  notify-on-failure:
-    if: github.event.workflow_run.conclusion == 'failure'
+  notify-ci-run:
+    if: github.event.workflow_run.status == 'in_progress' || github.event.workflow_run.status == 'completed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # The workflow_run notifier uses the default-branch script and only
-          # needs the checkout contents; no Git credential should persist.
+          # This privileged workflow checks out only trusted default-branch
+          # code. Never check out the failed run's head or download its artifacts.
+          ref: main
           persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: POST the failed run to the healer webhook (starts the AI CI-fix flow)
-        # SOURCE_* (not GITHUB_*): GitHub Actions silently ignores a step's
-        # attempt to override its own reserved GITHUB_* env vars with the
-        # runner's real values for the CURRENTLY EXECUTING workflow (this
-        # one, ci-failure.yml) -- see ci_webhook_notify.py's comment. Using
-        # non-reserved names is the only way to actually pass through the
-        # original CI run's real run id/branch/sha/workflow name.
+      - name: POST CI start metadata from the trusted workflow
+        if: github.event.workflow_run.status == 'in_progress'
         env:
           HEALER_WEBHOOK_URL: ${{ vars.HEALER_WEBHOOK_URL }}
           WEBHOOK_SECRET: ${{ secrets.HEALER_WEBHOOK_SECRET }}
@@ -38,4 +34,21 @@ jobs:
           SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
           SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-        run: python scripts/ci_webhook_notify.py --status finished --conclusion failure
+        run: python scripts/ci_webhook_notify.py --status started
+
+      - name: POST the completed CI result from the trusted workflow
+        if: github.event.workflow_run.status == 'completed'
+        # SOURCE_* (not GITHUB_*): GitHub Actions silently ignores a step's
+        # attempt to override its own reserved GITHUB_* env vars with the
+        # runner's real values for this workflow_run. These fields identify
+        # the completed CI run; they are data only and are never executed.
+        env:
+          HEALER_WEBHOOK_URL: ${{ vars.HEALER_WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.HEALER_WEBHOOK_SECRET }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_WORKFLOW: ${{ github.event.workflow_run.name }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          JOB_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: python scripts/ci_webhook_notify.py --status finished --conclusion "$JOB_CONCLUSION"
