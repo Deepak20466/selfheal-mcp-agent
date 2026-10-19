@@ -176,6 +176,10 @@ class Settings(BaseSettings):
     github_app_id: str | None = None
     github_app_installation_id: str | None = None
     github_app_private_key: str | None = None
+    # Exact owner/repository names that this installation may access. When
+    # unset, GITHUB_REPO is the only authorized repository; multi-repo
+    # deployments must enumerate every repository explicitly.
+    github_allowed_repositories: str | None = None
     # Branches this service must never push to, even if a caller passes one
     # explicitly. GitHub branch protection remains the server-side control.
     github_protected_branches: str = "main,master,develop,trunk,production"
@@ -293,6 +297,21 @@ class Settings(BaseSettings):
         if not self.allowed_repo_owners:
             return []
         return [o.strip().lower() for o in self.allowed_repo_owners.split(",") if o.strip()]
+
+    @property
+    def github_allowed_repositories_list(self) -> list[str]:
+        """Exact authorized GitHub repositories, defaulting to GITHUB_REPO only."""
+        if self.github_allowed_repositories:
+            return list(
+                dict.fromkeys(
+                    repo.strip().casefold()
+                    for repo in self.github_allowed_repositories.split(",")
+                    if repo.strip()
+                )
+            )
+        if self.github_repo and self.github_repo.strip():
+            return [self.github_repo.strip().casefold()]
+        return []
 
     @property
     def github_app_auth_configured(self) -> bool:

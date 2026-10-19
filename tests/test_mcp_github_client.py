@@ -30,6 +30,47 @@ async def test_missing_github_repo_raises(monkeypatch: pytest.MonkeyPatch) -> No
             await client.list_workflow_runs()
 
 
+async def test_repository_outside_explicit_allowlist_is_rejected_before_api_call(
+    monkeypatch: pytest.MonkeyPatch,
+    respx_mock,
+) -> None:
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", "dev-test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    monkeypatch.setattr(core_settings, "github_allowed_repositories", "acme/repo,octo/tool")
+
+    async with GitHubClient(repo="other/private") as client:
+        with pytest.raises(GitHubClientError, match="not in the configured repository allowlist"):
+            await client.get_repo()
+
+    assert not respx_mock.calls
+
+
+async def test_unset_allowlist_restricts_access_to_configured_default_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", "dev-test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    monkeypatch.setattr(core_settings, "github_allowed_repositories", None)
+
+    async with GitHubClient(repo="octo/tool") as client:
+        with pytest.raises(GitHubClientError, match="not in the configured repository allowlist"):
+            await client.get_access_token()
+
+
+async def test_repository_allowlist_comparison_is_case_insensitive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(core_settings, "environment", "production")
+    monkeypatch.setattr(core_settings, "github_token", "dev-test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    monkeypatch.setattr(core_settings, "github_allowed_repositories", "ACME/Repo,octo/tool")
+
+    async with GitHubClient(repo="Acme/Repo") as client:
+        assert client._validate_repository("Acme/Repo") == "Acme/Repo"
+
+
 async def test_production_rejects_a_long_lived_pat(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -66,22 +107,21 @@ async def test_github_app_token_is_short_lived_and_repository_scoped(
     monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
 
     expires_at = (datetime.now(UTC) + timedelta(minutes=55)).isoformat()
-    token_route = respx_mock.post(f"{GITHUB_API_BASE}/app/installations/987654/access_tokens").mock(
-        return_value=httpx.Response(
+
+    def issue_token(request: httpx.Request) -> httpx.Response:
+        requested = json.loads(request.content)["permissions"]
+        return httpx.Response(
             201,
             json={
                 "token": "ghs-short-lived",
                 "expires_at": expires_at,
                 "repositories": [{"full_name": "acme/repo"}],
-                "permissions": {
-                    "actions": "write",
-                    "contents": "write",
-                    "issues": "write",
-                    "pull_requests": "write",
-                    "metadata": "read",
-                },
+                "permissions": {**requested, "metadata": "read"},
             },
         )
+
+    token_route = respx_mock.post(f"{GITHUB_API_BASE}/app/installations/987654/access_tokens").mock(
+        side_effect=issue_token
     )
     repo_route = respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo").mock(
         return_value=httpx.Response(200, json={"full_name": "acme/repo"})
@@ -93,7 +133,9 @@ async def test_github_app_token_is_short_lived_and_repository_scoped(
 
     assert repo["full_name"] == "acme/repo"
     assert repo_route.calls.last.request.headers["Authorization"] == "Bearer ghs-short-lived"
-    assert token_route.call_count == 1
+    assert token_route.call_count == 2
+    read_scope = json.loads(token_route.calls[0].request.content)["permissions"]
+    assert read_scope == {"contents": "read"}
     request = token_route.calls.last.request
     assert request.headers["Authorization"].startswith("Bearer ")
     claims = jwt.decode(
@@ -104,12 +146,7 @@ async def test_github_app_token_is_short_lived_and_repository_scoped(
     assert claims["exp"] - claims["iat"] == 600
     assert json.loads(request.content) == {
         "repositories": ["repo"],
-        "permissions": {
-            "actions": "write",
-            "contents": "write",
-            "issues": "write",
-            "pull_requests": "write",
-        },
+        "permissions": {"contents": "write"},
     }
 
 
@@ -152,6 +189,33 @@ async def test_github_app_token_rejects_extra_repository_permissions(
     async with GitHubClient() as client:
         with pytest.raises(GitHubClientError, match="exactly the authorized"):
             await client.get_access_token()
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "expected"),
+    [
+        ("GET", "/repos/acme/repo/actions/runs", {"actions": "read"}),
+        ("POST", "/repos/acme/repo/actions/runs/3/rerun-failed-jobs", {"actions": "write"}),
+        ("GET", "/repos/acme/repo/pulls/3", {"pull_requests": "read"}),
+        ("POST", "/repos/acme/repo/pulls", {"pull_requests": "write"}),
+        ("GET", "/repos/acme/repo/issues/3/comments", {"issues": "read"}),
+        ("POST", "/repos/acme/repo/issues/3/comments", {"issues": "write"}),
+        ("GET", "/repos/acme/repo/commits/abc/check-runs", {"checks": "read"}),
+        ("GET", "/repos/acme/repo/git/ref/heads/main", {"contents": "read"}),
+        ("POST", "/repos/acme/repo/git/refs", {"contents": "write"}),
+    ],
+)
+def test_github_app_permission_is_minimal_for_each_api_operation(
+    method: str,
+    path: str,
+    expected: dict[str, str],
+) -> None:
+    assert GitHubClient._permissions_for_request(method, path) == expected
+
+
+def test_github_app_permission_policy_rejects_unmapped_mutation() -> None:
+    with pytest.raises(GitHubClientError, match="no permission policy"):
+        GitHubClient._permissions_for_request("DELETE", "/repos/acme/repo/unknown")
 
 
 async def test_non_2xx_response_raises_with_status_and_body(

@@ -2,14 +2,14 @@
 
 **Project:** `selfheal-mcp-agent`
 **Audit date:** 2026-10-19
-**Scope:** the current PR #23 security follow-up, test infrastructure,
-subprocess isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD
-configuration, dependencies, and deployment manifests. Earlier findings and
-merged follow-ups are identified as historical below.
+**Scope:** PR #23 and the repository-authorization follow-up stacked on it,
+test infrastructure, subprocess isolation, AI benchmark, GitHub automation,
+provider CLIs, CI/CD configuration, dependencies, and deployment manifests.
+Earlier findings and merged follow-ups are identified as historical below.
 
 ## Executive assessment
 
-The security follow-up in PR #23 adds scoped GitHub App credentials and branch
+The security follow-up in PR #23 adds GitHub App credentials and branch
 guards, removes automatic merging, strengthens patch-path checks, separates
 the target app's database role from the control plane, and adds destination
 checks for Kubernetes egress. Its PostgreSQL-backed CI and Calico kind checks
@@ -24,6 +24,39 @@ separation from the GitHub control plane remain incomplete; live hostile
 repository repair, independent repository trials, and production recovery
 have not been verified. These results are observed evidence, not a security
 certification.
+
+## Repository authorization follow-up — 2026-10-19
+
+Feature branch `security/production-readiness-2026-10-19` is published as
+[PR #24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), stacked
+on PR #23. It adds an exact, case-insensitive
+`GITHUB_ALLOWED_REPOSITORIES` setting for authorized
+repositories. When unset, only `GITHUB_REPO` is authorized. GitHub App tokens
+are minted per repository and per REST-operation permission; unsupported
+operation paths fail closed. The response is checked against the requested
+repository and permission set. Helm, `.env.example`, operations, and
+architecture documentation carry the new setting.
+
+The complete local Windows suite passed using the disposable PostgreSQL helper:
+**720 passed, 8 skipped, 3 `getpass` warnings in 712.03 seconds**. Ruff,
+formatting, strict mypy (88 source files), and `git diff --check` passed. A
+fresh temporary venv audit found no known vulnerabilities in installed
+dependencies after upgrading its bootstrap `pip`; the unpublished local
+package was skipped. Node tests passed 2/2 with no npm advisories. Helm lint
+and YAML rendering passed with 27 objects. PR #24's hosted
+[CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153298)
+and [Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153207)
+passed on commit `8bd3b58`. The ephemeral kind run installed Calico, rendered
+and installed the chart, and completed its auth, policy, migration, smoke,
+credential-separation, and recovery steps. This does not establish behavior
+on a production cluster.
+
+This change narrows repository access and App-token permissions but does not
+separate GitHub credentials from the repair worker: the current Helm chart
+still supplies App credentials to both healer and MCP workloads. Provider CLI
+execution remains fail-closed; there was no live repair, three-repository
+trial, production deployment, cloud mutation, backup/restore, or rollback.
+PR #24 remains open and unmerged. Production readiness remains **NO-GO**.
 
 ## Current security follow-up — PR #23
 

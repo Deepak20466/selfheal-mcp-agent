@@ -90,11 +90,14 @@ for controlled operations is passed through a child-only Git configuration
 environment, not the command line; failure output is scrubbed before logging.
 
 In production, the GitHub client requires a GitHub App. It requests a
-short-lived installation token for one exact repository and only the API
-permissions used by the service, then rejects responses with a different
-repository or broader permissions. Mutation and token-mint events are logged
-without credentials. The Helm chart omits the long-lived development token in
-production. Pushes are restricted to `autofix/*` and
+short-lived installation token for one exact repository and the minimum
+permission needed for each REST operation (for example, `actions:read` for
+workflow logs or `contents:write` for a branch push), then rejects responses
+with a different repository or broader permissions. `GITHUB_ALLOWED_REPOSITORIES`
+is an exact comma-separated allowlist; when unset, only `GITHUB_REPO` is
+authorized. Mutation and token-mint events are logged without credentials.
+The Helm chart omits the long-lived development token in production. Pushes
+are restricted to `autofix/*` and
 `selfheal-onboarding/*` by default, and protected branches are refused before
 Git starts. AI-generated PRs always require human review and manual merging.
 

@@ -71,6 +71,8 @@ postgresql+asyncpg://{{ .Values.postgres.targetAppUsername }}:{{ .Values.postgre
 {{- end }}
 - name: GITHUB_REPO
   value: {{ .Values.env.githubRepo | quote }}
+- name: GITHUB_ALLOWED_REPOSITORIES
+  value: {{ .Values.env.githubAllowedRepositories | quote }}
 - name: GITHUB_APP_ID
   value: {{ .Values.env.githubAppId | quote }}
 - name: GITHUB_APP_INSTALLATION_ID

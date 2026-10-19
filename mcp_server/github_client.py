@@ -19,12 +19,8 @@ from core.config import settings
 
 GITHUB_API_BASE = "https://api.github.com"
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_APP_TOKEN_PERMISSIONS = {
-    "actions": "write",
-    "contents": "write",
-    "issues": "write",
-    "pull_requests": "write",
-}
+_APP_PERMISSION_NAMES = frozenset({"actions", "checks", "contents", "issues", "pull_requests"})
+_GIT_PUSH_PERMISSIONS = {"contents": "write"}
 logger = structlog.get_logger(__name__)
 
 
@@ -43,14 +39,22 @@ class GitHubClient:
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(base_url=GITHUB_API_BASE, timeout=15.0)
         self._repo_override = repo
-        self._app_tokens: dict[str, tuple[str, datetime]] = {}
+        self._app_tokens: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[str, datetime]] = {}
 
-    @staticmethod
-    def _validate_repository(repo: str) -> str:
+    def _validate_repository(self, repo: str) -> str:
         if not _REPOSITORY_RE.fullmatch(repo) or any(
             part in {".", ".."} for part in repo.split("/")
         ):
             raise GitHubClientError("GitHub repository must use the exact owner/repo form")
+        allowed = set(settings.github_allowed_repositories_list)
+        if not allowed and settings.environment.lower() == "production":
+            raise GitHubClientError(
+                "Production GitHub access requires GITHUB_ALLOWED_REPOSITORIES or GITHUB_REPO"
+            )
+        if allowed and repo.casefold() not in allowed:
+            raise GitHubClientError(
+                f"GitHub repository {repo!r} is not in the configured repository allowlist"
+            )
         return repo
 
     def _repo_or_raise(self) -> str:
@@ -65,14 +69,29 @@ class GitHubClient:
             return self._validate_repository(f"{parts[1]}/{parts[2]}")
         return self._repo_or_raise()
 
-    async def get_access_token(self, repo: str | None = None) -> str:
+    async def get_access_token(
+        self,
+        repo: str | None = None,
+        *,
+        permissions: dict[str, str] | None = None,
+    ) -> str:
         """Return a repository-scoped GitHub App token, or a dev PAT.
 
         Production refuses long-lived PAT fallback. Installation tokens are
-        scoped to one repository and expire per GitHub's installation-token
-        policy; the token is held only by this trusted client instance.
+        scoped to one repository and the requested API permission set. The
+        default scope is for a Git push; REST calls choose narrower scopes.
         """
         target_repo = self._validate_repository(repo or self._repo_or_raise())
+        requested_permissions = permissions or _GIT_PUSH_PERMISSIONS
+        if (
+            not requested_permissions
+            or not set(requested_permissions).issubset(_APP_PERMISSION_NAMES)
+            or any(
+                not isinstance(level, str) or level not in {"read", "write"}
+                for level in requested_permissions.values()
+            )
+        ):
+            raise GitHubClientError("GitHub App permission scope is invalid")
         app_values = (
             settings.github_app_id,
             settings.github_app_installation_id,
@@ -90,7 +109,7 @@ class GitHubClient:
                 or not settings.github_app_installation_id.isdigit()
             ):
                 raise GitHubClientError("GitHub App and installation IDs must be numeric")
-            return await self._installation_token(target_repo)
+            return await self._installation_token(target_repo, requested_permissions)
         if settings.environment.lower() == "production":
             raise GitHubClientError(
                 "Production GitHub access requires a GitHub App installation; configure "
@@ -100,9 +119,12 @@ class GitHubClient:
             return settings.github_token
         raise GitHubClientError("GITHUB_TOKEN or GitHub App credentials are not configured")
 
-    async def _installation_token(self, repo: str) -> str:
+    async def _installation_token(self, repo: str, permissions: dict[str, str]) -> str:
         now = datetime.now(UTC)
-        cached = self._app_tokens.get(repo)
+        requested_permissions = dict(permissions)
+        permission_key = tuple(sorted(requested_permissions.items()))
+        cache_key = (repo.casefold(), permission_key)
+        cached = self._app_tokens.get(cache_key)
         if cached is not None and cached[1] > now + timedelta(minutes=2):
             return cached[0]
 
@@ -130,7 +152,7 @@ class GitHubClient:
             },
             json={
                 "repositories": [repo.split("/", 1)[1]],
-                "permissions": _APP_TOKEN_PERMISSIONS,
+                "permissions": requested_permissions,
             },
         )
         if response.status_code >= 400:
@@ -149,24 +171,24 @@ class GitHubClient:
         if not isinstance(token, str) or not token or not isinstance(expires_at, str):
             raise GitHubClientError("GitHub App returned an invalid installation token response")
         repositories = data.get("repositories")
-        actual_repositories = (
-            {
-                item.get("full_name")
-                for item in repositories
-                if isinstance(item, dict) and isinstance(item.get("full_name"), str)
-            }
-            if isinstance(repositories, list)
-            else set()
-        )
-        permissions = data.get("permissions")
-        allowed_permission_names = set(_APP_TOKEN_PERMISSIONS) | {"metadata"}
+        actual_repositories: set[str] = set()
+        if isinstance(repositories, list):
+            for item in repositories:
+                if isinstance(item, dict):
+                    full_name = item.get("full_name")
+                    if isinstance(full_name, str):
+                        actual_repositories.add(full_name)
+        granted_permissions = data.get("permissions")
         if (
-            actual_repositories != {repo}
-            or not isinstance(permissions, dict)
-            or not set(permissions).issubset(allowed_permission_names)
-            or set(_APP_TOKEN_PERMISSIONS).difference(permissions)
-            or any(permissions.get(name) != level for name, level in _APP_TOKEN_PERMISSIONS.items())
-            or permissions.get("metadata", "read") != "read"
+            {name.casefold() for name in actual_repositories} != {repo.casefold()}
+            or not isinstance(granted_permissions, dict)
+            or not set(granted_permissions).issubset(_APP_PERMISSION_NAMES | {"metadata"})
+            or any(
+                granted_permissions.get(name) != level
+                for name, level in requested_permissions.items()
+            )
+            or set(granted_permissions).difference(set(requested_permissions) | {"metadata"})
+            or granted_permissions.get("metadata", "read") != "read"
         ):
             raise GitHubClientError(
                 "GitHub App did not grant exactly the authorized repository and "
@@ -178,11 +200,11 @@ class GitHubClient:
             raise GitHubClientError("GitHub App returned an invalid token expiration") from exc
         if expires.tzinfo is None or expires <= datetime.now(UTC) + timedelta(minutes=2):
             raise GitHubClientError("GitHub App returned an expired or near-expiry token")
-        self._app_tokens[repo] = (token, expires)
+        self._app_tokens[cache_key] = (token, expires)
         logger.info(
             "github.app.installation_token_minted",
             repository=repo,
-            permissions=permissions,
+            permissions=granted_permissions,
             expires_at=expires.isoformat(),
             github_request_id=response.headers.get("x-github-request-id"),
         )
@@ -199,7 +221,10 @@ class GitHubClient:
         await self.aclose()
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        token = await self.get_access_token(self._repository_from_path(path))
+        token = await self.get_access_token(
+            self._repository_from_path(path),
+            permissions=self._permissions_for_request(method, path),
+        )
         headers = {
             **kwargs.pop("headers", {}),
             "Authorization": f"Bearer {token}",
@@ -224,6 +249,29 @@ class GitHubClient:
                 f"GitHub API {method} {path} failed: {response.status_code} {response.text[:500]}"
             )
         return response
+
+    @staticmethod
+    def _permissions_for_request(method: str, path: str) -> dict[str, str]:
+        """Choose only the GitHub App scope required by this REST operation."""
+        parts = path.strip("/").split("/")
+        verb = method.upper()
+        if len(parts) < 3 or parts[0] != "repos":
+            raise GitHubClientError("GitHub API operation has no permission policy")
+        endpoint = parts[3:]
+        mutating = verb in {"POST", "PUT", "PATCH", "DELETE"}
+        if endpoint and endpoint[0] == "actions":
+            return {"actions": "write" if mutating else "read"}
+        if endpoint and endpoint[0] == "pulls":
+            return {"pull_requests": "write" if mutating else "read"}
+        if endpoint and endpoint[0] == "issues":
+            return {"issues": "write" if mutating else "read"}
+        if endpoint and endpoint[0] == "commits":
+            return {"checks": "read"}
+        if endpoint and endpoint[0] in {"git", "contents"}:
+            return {"contents": "write" if mutating else "read"}
+        if not endpoint and not mutating:
+            return {"contents": "read"}
+        raise GitHubClientError("GitHub API operation has no permission policy")
 
     async def get_repo(self, repo: str | None = None) -> dict[str, Any]:
         """Fetch repo metadata — used by the "connect a repo" flow to confirm

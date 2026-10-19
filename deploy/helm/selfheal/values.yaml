@@ -54,6 +54,9 @@ env:
   anthropicBaseUrl: "http://127.0.0.1:9"
   githubToken: "ci-dummy-token"
   githubRepo: "owner/repo"
+  # Exact owner/repo allowlist for multi-repository production installs.
+  # Empty means that only githubRepo is authorized.
+  githubAllowedRepositories: ""
   githubAppId: ""
   githubAppInstallationId: ""
   # Supply through an external secret store in real deployments.
