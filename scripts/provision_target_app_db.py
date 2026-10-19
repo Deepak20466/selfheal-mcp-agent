@@ -67,13 +67,13 @@ async def provision() -> None:
         )
         stage = "create or update restricted target-app role"
         role_verb = "ALTER ROLE" if role_exists else "CREATE ROLE"
-        role_statement = (
-            "SELECT format($1 || ' %I WITH LOGIN PASSWORD %L "
-            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 20', $2, $3)"
+        role_template = (
+            f"{role_verb} %I WITH LOGIN PASSWORD %L "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT 20"
         )
         role_sql = await connection.fetchval(
-            role_statement,
-            role_verb,
+            "SELECT format($1::text, $2::text, $3::text)",
+            role_template,
             target_username,
             target_password,
         )
