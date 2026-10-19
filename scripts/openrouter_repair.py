@@ -393,15 +393,23 @@ def generate_patch(
         try:
             validate_patch(candidate, repository)
         except PatchRejected as exc:
-            if attempt == 0 and str(exc) == "patch does not apply cleanly to the selected commit":
+            rejection = str(exc)
+            if attempt == 0 and rejection in {
+                "patch does not apply cleanly to the selected commit",
+                "patch must modify one to three distinct source files",
+            }:
+                reason = (
+                    "The previous patch passed path and content policy checks but failed "
+                    "git apply --check; it was discarded before any repository code ran."
+                    if rejection == "patch does not apply cleanly to the selected commit"
+                    else "The previous response contained no policy-accepted source diff and "
+                    "was discarded before any repository code ran."
+                )
                 prompt = _prompt(
                     source,
                     failure,
-                    content,
-                    correction_reason=(
-                        "The previous patch passed path and content policy checks but failed "
-                        "git apply --check; it was discarded before any repository code ran."
-                    ),
+                    _scrub(content),
+                    correction_reason=reason,
                 )
                 continue
             raise InferenceError(f"generated patch rejected by policy: {exc}") from exc

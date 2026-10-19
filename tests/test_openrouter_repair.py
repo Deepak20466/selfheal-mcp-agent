@@ -309,14 +309,26 @@ def test_generation_is_tool_free_and_rejects_paid_response(
     assert not output.exists()
 
 
-def test_inapplicable_candidate_gets_one_bounded_free_correction(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("invalid_patch", "rejection_fragment"),
+    [
+        (PATCH.replace(b"-return 1", b"-return 9"), "failed git apply --check"),
+        (
+            b"The likely fix is to remove the extra one. sk-or-v1-" + b"x" * 32,
+            "no policy-accepted source diff",
+        ),
+    ],
+)
+def test_rejected_candidate_gets_one_bounded_free_correction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    invalid_patch: bytes,
+    rejection_fragment: str,
 ) -> None:
     repository = _repository(tmp_path)
     failure = tmp_path / "failure.txt"
     failure.write_text("AssertionError: 43 != 42", encoding="utf-8")
     output = tmp_path / "patch.diff"
-    invalid_patch = PATCH.replace(b"-return 1", b"-return 9")
     completion_prompts: list[str] = []
 
     def fake_request(
@@ -345,12 +357,10 @@ def test_inapplicable_candidate_gets_one_bounded_free_correction(
 
     assert output.read_bytes() == PATCH
     assert len(completion_prompts) == 2
-    assert (
-        "passed path and content policy checks but failed git apply --check"
-        in completion_prompts[1]
-    )
+    assert rejection_fragment in completion_prompts[1]
     assert "<previous_patch>" in completion_prompts[1]
     assert TEST_API_KEY not in completion_prompts[1]
+    assert "sk-or-v1-" not in completion_prompts[1]
 
 
 def test_prompt_redacts_openrouter_keys() -> None:
