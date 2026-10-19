@@ -188,6 +188,9 @@ async def _insert_heal_job(
 
 
 def _mock_github_pr_and_labels(respx_mock: Any, *, pr_number: int = 101) -> None:
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
         return_value=httpx.Response(
             201, json={"number": pr_number, "html_url": "https://example/pr"}

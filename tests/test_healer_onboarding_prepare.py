@@ -175,6 +175,9 @@ async def test_run_onboarding_prepare_opens_a_labeled_pr_after_local_verificatio
         respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/onboard").mock(
             return_value=httpx.Response(200, json={"default_branch": "main"})
         )
+        respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/onboard/pulls").mock(
+            return_value=httpx.Response(200, json=[])
+        )
         respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/onboard/pulls").mock(
             return_value=httpx.Response(
                 201, json={"number": 901, "html_url": "https://example/pr/901"}
