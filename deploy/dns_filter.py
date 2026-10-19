@@ -69,7 +69,7 @@ def query_is_allowed(
     _transaction_id, _flags, name, query_type, query_class, _question_end = question
     if query_class != 1 or query_type not in {1, 28}:
         return False
-    return name in allowed_hosts or name in internal_hosts or name.endswith(".svc.cluster.local")
+    return name in allowed_hosts or name in internal_hosts
 
 
 def sanitized_query(packet: bytes) -> bytes:
