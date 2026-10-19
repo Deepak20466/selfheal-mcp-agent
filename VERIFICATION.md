@@ -32,13 +32,17 @@ it does not prove host-side Git control-plane isolation or API provider
 containment. Live provider repair and the three-repository validation remain
 skipped.
 
-The Kubernetes CI workflow on this follow-up branch configures kind without
-the default CNI, installs Calico, confirms healer-to-MCP access, and checks
-that an unselected pod's TCP connection to MCP times out. This run must pass
-before actual NetworkPolicy enforcement is marked verified. The current chart
-allows public IPv4 TCP 443 for provider/GitHub traffic, so external HTTPS is
-not destination-restricted. No local Docker or PostgreSQL service is present;
-this follow-up's full local regression and PostgreSQL checks are not run.
+The [follow-up CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266203)
+passed with **671 passed, 5 skipped, 3 warnings**. The hosted
+[Calico-backed kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266263)
+passed: healer-to-MCP access worked, a request without the bearer token was
+rejected, and an unselected pod's TCP connection to MCP timed out. Migration,
+readiness, runtime smoke, and recovery checks also passed. This verifies the
+chart policy in that ephemeral CNI environment, not production clusters. The
+chart allows public IPv4 TCP 443 for provider/GitHub traffic, so external
+HTTPS is not destination-restricted. No local Docker or PostgreSQL service is
+present; this follow-up's full local regression and PostgreSQL checks were not
+run locally; hosted PostgreSQL CI passed.
 
 PR [#18](https://github.com/Deepak20466/selfheal-mcp-agent/pull/18) merged
 into `main` at

@@ -118,10 +118,9 @@ NetworkPolicy that accepts MCP traffic only from healer pods. Its egress
 allows PostgreSQL, cluster DNS, and public TCP 443 while excluding private,
 link-local, and reserved IPv4 ranges. That HTTPS rule still permits connections
 to arbitrary public hosts, so it is not a destination allowlist or a complete
-data-exfiltration boundary. This follow-up configures a Calico-backed hosted
-kind test for allowed and denied ingress; it must pass before enforcement can
-be reported verified. Production-cluster enforcement and destination
-allowlisting remain unverified.
+data-exfiltration boundary. The hosted Calico-backed kind test passed allowed
+and denied ingress checks for this follow-up. Production-cluster enforcement
+and destination allowlisting remain unverified.
 
 The MCP server's Git metadata operations use direct, fixed argument lists and
 filtered Git environments rather than shell commands. Blame/log, patch

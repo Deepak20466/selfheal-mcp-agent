@@ -46,6 +46,7 @@ The CLI, healer API, and MCP endpoint bind to loopback for local use. Only the s
 |---|---|
 | GitHub Actions CI on merged `main` | **668 passed, 5 skipped, 3 warnings** at [`51ce676`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/51ce6768907db6ea2c69f36e67616af45ef02bdf); [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454765) |
 | Kubernetes chart and recovery checks | **Passed** on merged `main`; [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39217454823) |
+| Security follow-up PR checks | **671 passed, 5 skipped, 3 warnings**; Calico NetworkPolicy allowed and denied connection checks passed in the [full CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266203) and [hosted Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39218266263) |
 | Repair benchmark | **20/20** diagnosis labels and repairs on the fixed scenario set; one scenario used a regression retry. See [method and limits](docs/benchmark.md). |
 | Historical live repairs | [PR #10](https://github.com/Deepak20466/selfheal-mcp-agent/pull/10) and [PR #15](https://github.com/Deepak20466/selfheal-mcp-agent/pull/15) verified runtime fixes; [PR #14](https://github.com/Deepak20466/selfheal-mcp-agent/pull/14) demonstrated CI repair and a green rerun. These are historical runs, not a new live repair in the current audit. |
 
