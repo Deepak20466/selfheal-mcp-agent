@@ -79,6 +79,7 @@ from healer.cli_common import (
     CLIUsageLimitError,
     is_windows_shim,
     kill_process_tree,
+    provider_mcp_token,
     strip_env_vars,
     windows_shim_command,
 )
@@ -146,13 +147,13 @@ _CLI_INVOCATION_ACTION = "cli_invocation"
 CLIResult = agent_free.CLIResult
 
 
-def _write_gemini_settings(settings_root: Path) -> None:
+def _write_gemini_settings(settings_root: Path, provider_token: str | None) -> None:
     """Write isolated Gemini settings outside the repository worktree."""
     settings_dir = settings_root / ".gemini"
     settings_dir.mkdir(parents=True, exist_ok=True)
     server_config: dict[str, Any] = {"httpUrl": _MCP_HTTP_URL}
-    if settings.mcp_auth_token:
-        server_config["headers"] = {"Authorization": f"Bearer {settings.mcp_auth_token}"}
+    if provider_token:
+        server_config["headers"] = {"Authorization": f"Bearer {provider_token}"}
     payload = {
         "mcpServers": {"selfheal": server_config},
         "tools": {"core": []},
@@ -168,6 +169,8 @@ async def run_gemini_cli(
     max_turns: int | None = None,
     timeout_s: int | None = None,
     cli_path: str | None = None,
+    heal_job_id: int | None = None,
+    run_id: int | None = None,
 ) -> CLIResult:
     """Run one non-interactive Gemini CLI turn and parse its JSON result.
 
@@ -196,12 +199,17 @@ async def run_gemini_cli(
         "default",
     ]
     env = strip_env_vars(_STRIPPED_ENV_VARS)
-    if settings.mcp_auth_token:
-        env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
+    provider_token = provider_mcp_token(
+        settings.mcp_auth_token,
+        cwd=cwd,
+        timeout_seconds=timeout,
+        heal_job_id=heal_job_id,
+        run_id=run_id,
+    )
     env["MCP_CLIENT_URL"] = _MCP_HTTP_URL
     with tempfile.TemporaryDirectory(prefix="selfheal-gemini-cli-") as settings_root:
         settings_path = Path(settings_root)
-        _write_gemini_settings(settings_path)
+        _write_gemini_settings(settings_path, provider_token)
         subprocess_kwargs: dict[str, Any] = {
             "cwd": str(settings_path),
             "env": env,
@@ -479,7 +487,7 @@ async def run_heal_job_gemini(
             )
 
             try:
-                cli_result = await run_gemini_cli(prompt, cwd=worktree_path)
+                cli_result = await run_gemini_cli(prompt, cwd=worktree_path, heal_job_id=job_id)
             except CLINotLoggedInError as exc:
                 async with session_scope() as session:
                     await _record_cli_invocation(
@@ -690,7 +698,9 @@ async def run_ci_heal_job_gemini(
         outcome = "failed"
 
         try:
-            cli_result = await run_gemini_cli(prompt, cwd=worktree_path)
+            cli_result = await run_gemini_cli(
+                prompt, cwd=worktree_path, heal_job_id=job_id, run_id=run_id
+            )
             async with session_scope() as session:
                 await _record_cli_invocation(
                     session, heal_job_id=job_id, cli_result=cli_result, error=None

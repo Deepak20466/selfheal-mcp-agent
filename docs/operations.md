@@ -98,6 +98,13 @@ filter forwards exact hosts from `egress.allowedHosts` and Kubernetes service
 names, strips EDNS data, and refuses other external names. Among the chart
 workloads, only the filter can query CoreDNS.
 
+Provider CLI launches derive a short-lived, job/worktree-scoped MCP capability
+from this secret; the full healer bearer token is not placed in the CLI
+environment or provider config. This limits which MCP operations the provider
+can request, but it does not make provider execution safe by itself. CLI
+execution remains fail-closed until its process tree and network egress have
+verified OS isolation.
+
 Healer and MCP use the `selfheal-egress` CONNECT gateway for external HTTPS.
 It rejects wildcard entries, non-443 CONNECT, mismatched TLS SNI, encrypted
 ClientHello, and DNS answers that include private or reserved addresses. The

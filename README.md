@@ -71,7 +71,7 @@ Before starting, set an authenticated `AI_BACKEND` in `.env` if you plan to run 
 
 ## Limits and safety
 
-This is an engineering project, not a production certification for unattended repair of arbitrary repositories. Provider CLI execution currently fails closed because the provider and descendant processes lack verified OS containment. Kubernetes policy enforcement, live hostile-repository and multi-repository reliability, and deployment recovery tests remain incomplete. Review [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and the [sandbox trust-boundary notes](docs/architecture.md#trust-boundaries) before connecting a repository.
+This is an engineering project, not a production certification for unattended repair of arbitrary repositories. Provider CLI execution currently fails closed because the provider and descendant processes lack verified OS containment. A future provider session receives a short-lived, job/worktree-scoped MCP token; that limits tool access but does not provide process or network isolation. Kubernetes policy enforcement, live hostile-repository and multi-repository reliability, and deployment recovery tests remain incomplete. Review [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and the [sandbox trust-boundary notes](docs/architecture.md#trust-boundaries) before connecting a repository.
 
 ## Documentation
 

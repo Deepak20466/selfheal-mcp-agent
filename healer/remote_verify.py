@@ -230,7 +230,9 @@ async def run_heal_job_remote_verify(
             source_kind=source_kind, source=source, heal_job_id=job_id, worktree=worktree_name
         )
         try:
-            cli_result = await agent_free.run_claude_cli(prompt, cwd=worktree_path)
+            cli_result = await agent_free.run_claude_cli(
+                prompt, cwd=worktree_path, heal_job_id=job_id
+            )
         except agent_free.ClaudeCLINotLoggedInError as exc:
             async with session_scope() as session:
                 await agent_free._record_cli_invocation(

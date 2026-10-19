@@ -258,7 +258,9 @@ async def _retry_one(job_id: int) -> None:
             )
             del local_repo_path  # write-scope is derived server-side from app_id, not here
             try:
-                cli_result = await agent_free.run_claude_cli(prompt, cwd=worktree_path)
+                cli_result = await agent_free.run_claude_cli(
+                    prompt, cwd=worktree_path, heal_job_id=job_id
+                )
             except agent_free._CLI_INFRA_ERRORS as exc:
                 async with session_scope() as session:
                     await agent_free._record_cli_invocation(

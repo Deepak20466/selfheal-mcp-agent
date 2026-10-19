@@ -2,7 +2,33 @@
 
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
-**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23 requires review. PR #24's `test` and `k8s` checks passed; no production deployment occurred.
+**Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23) and stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. An earlier push-triggered `k8s` run on that SHA was canceled. No production deployment occurred.
+
+## Provider MCP capability follow-up — local, 2026-10-19
+
+Local branch `feature/provider-mcp-capability-2026-10-19` adds HMAC-signed
+provider tokens that expire within 15 minutes. Each token limits MCP calls to
+an explicit tool set and binds patch/test requests to the caller's heal job and
+worktree. CI repair tokens may rerun only the associated workflow run, once.
+Provider CLIs no longer receive the healer's full MCP bearer token or GitHub
+App private key in their environment/config. The MCP server enforces these
+limits on HTTP requests. The regular developer `.mcp.json` configuration is
+unchanged.
+
+Focused provider checks passed: **52 passed** across MCP auth/provider-gate
+tests and Codex, Claude Code, and Gemini launcher tests. The wider offline
+security subset passed **63 tests** with **3 skipped**. Full-repository Ruff
+lint and formatting passed; full CI-scope mypy passed for **89 Python files**.
+The Node example tests passed (**2**) and `npm audit` found **0 vulnerabilities**.
+The 20-scenario fixture validator passed: all broken baselines failed and all
+reference repairs passed. Full PostgreSQL-backed pytest was not run because
+the session hook requires a reachable PostgreSQL server, which is unavailable
+here. No local PostgreSQL or Docker installation, provider call, GitHub repair
+operation, cloud resource, or deployment was made.
+
+This is an authorization boundary improvement, not provider process isolation.
+The provider CLI gate still fails closed; no live repair-to-PR flow, three
+repository trials, provider egress test, or deployment verification was run.
 
 The dated 2026-09-29 live-system report is preserved in
 [`VERIFICATION-historical-2026-09-29.md`](VERIFICATION-historical-2026-09-29.md).

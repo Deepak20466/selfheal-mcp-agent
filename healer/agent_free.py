@@ -63,6 +63,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -79,7 +80,11 @@ from core.process_env import sanitized_subprocess_env
 from core.untrusted import UNTRUSTED_DATA_SYSTEM_PROMPT_NOTE, wrap_untrusted
 from healer import ci_agent
 from healer.circuit_breaker import fingerprint_circuit_open
-from healer.cli_common import CLISandboxUnavailableError, require_provider_cli_sandbox
+from healer.cli_common import (
+    CLISandboxUnavailableError,
+    provider_mcp_token,
+    require_provider_cli_sandbox,
+)
 from healer.full_suite import combine_evidence, run_full_suite
 from healer.github_ops import (
     CIFixOutcome,
@@ -264,7 +269,9 @@ async def run_claude_cli(
     max_turns: int | None = None,
     timeout_s: int | None = None,
     cli_path: str | None = None,
+    heal_job_id: int | None = None,
     allowed_tools: str | None = None,
+    run_id: int | None = None,
 ) -> CLIResult:
     """Run one non-interactive Claude Code CLI turn and parse its JSON result.
 
@@ -286,9 +293,38 @@ async def run_claude_cli(
     resolved_cli = shutil.which(cli_path or settings.claude_cli_path or "claude") or (
         cli_path or settings.claude_cli_path or "claude"
     )
-    mcp_config = mcp_config_path or _MCP_CONFIG_PATH
     turns = max_turns if max_turns is not None else settings.claude_cli_max_turns
     timeout = timeout_s if timeout_s is not None else settings.claude_cli_timeout_s
+    provider_token = provider_mcp_token(
+        settings.mcp_auth_token,
+        cwd=cwd,
+        timeout_seconds=timeout,
+        allowed_tools=allowed_tools,
+        heal_job_id=heal_job_id,
+        run_id=run_id,
+    )
+
+    provider_config_dir = tempfile.TemporaryDirectory(prefix="selfheal-claude-mcp-")
+    mcp_config = Path(provider_config_dir.name) / "mcp.json"
+    mcp_config.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "selfheal": {
+                        "type": "http",
+                        "url": settings.mcp_client_url
+                        or f"http://127.0.0.1:{settings.mcp_port}/mcp",
+                        **(
+                            {"headers": {"Authorization": f"Bearer {provider_token}"}}
+                            if provider_token
+                            else {}
+                        ),
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
 
     rest_args = [
         "-p",
@@ -312,8 +348,6 @@ async def run_claude_cli(
         for key, value in sanitized_subprocess_env().items()
         if key.upper() not in _STRIPPED_ANTHROPIC_ENV_VARS
     }
-    if settings.mcp_auth_token:
-        env["MCP_AUTH_TOKEN"] = settings.mcp_auth_token
     env["MCP_CLIENT_URL"] = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
     subprocess_kwargs: dict[str, Any] = {
         "cwd": str(cwd),
@@ -326,27 +360,31 @@ async def run_claude_cli(
         subprocess_kwargs["start_new_session"] = True
 
     try:
-        if _is_windows_shim(resolved_cli):
-            command = _windows_shim_command(resolved_cli, rest_args)
-            process = await asyncio.create_subprocess_shell(command, **subprocess_kwargs)
-        else:
-            process = await asyncio.create_subprocess_exec(
-                resolved_cli, *rest_args, **subprocess_kwargs
-            )
-    except FileNotFoundError as exc:
-        raise ClaudeCLINotFoundError(
-            f"claude CLI not found (tried {resolved_cli!r}); install it and/or set CLAUDE_CLI_PATH"
-        ) from exc
+        try:
+            if _is_windows_shim(resolved_cli):
+                command = _windows_shim_command(resolved_cli, rest_args)
+                process = await asyncio.create_subprocess_shell(command, **subprocess_kwargs)
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    resolved_cli, *rest_args, **subprocess_kwargs
+                )
+        except FileNotFoundError as exc:
+            raise ClaudeCLINotFoundError(
+                f"claude CLI not found (tried {resolved_cli!r}); install it and/or "
+                "set CLAUDE_CLI_PATH"
+            ) from exc
 
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(prompt.encode("utf-8")), timeout=timeout
-        )
-    except TimeoutError:
-        await _kill_process_tree(process.pid)
-        with contextlib.suppress(Exception):
-            await process.wait()
-        raise ClaudeCLITimeoutError(f"claude CLI timed out after {timeout}s") from None
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(prompt.encode("utf-8")), timeout=timeout
+            )
+        except TimeoutError:
+            await _kill_process_tree(process.pid)
+            with contextlib.suppress(Exception):
+                await process.wait()
+            raise ClaudeCLITimeoutError(f"claude CLI timed out after {timeout}s") from None
+    finally:
+        provider_config_dir.cleanup()
 
     stdout_text = stdout_bytes.decode("utf-8", errors="replace")
     stderr_text = stderr_bytes.decode("utf-8", errors="replace")
@@ -847,7 +885,7 @@ async def run_heal_job_free(
             )
 
             try:
-                cli_result = await run_claude_cli(prompt, cwd=worktree_path)
+                cli_result = await run_claude_cli(prompt, cwd=worktree_path, heal_job_id=job_id)
             except ClaudeCLINotLoggedInError as exc:
                 async with session_scope() as session:
                     await _record_cli_invocation(
@@ -1061,7 +1099,9 @@ async def run_ci_heal_job_free(
         outcome = "failed"
 
         try:
-            cli_result = await run_claude_cli(prompt, cwd=worktree_path)
+            cli_result = await run_claude_cli(
+                prompt, cwd=worktree_path, heal_job_id=job_id, run_id=run_id
+            )
             async with session_scope() as session:
                 await _record_cli_invocation(
                     session, heal_job_id=job_id, cli_result=cli_result, error=None

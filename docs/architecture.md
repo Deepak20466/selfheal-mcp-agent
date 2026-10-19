@@ -109,6 +109,17 @@ executable starts. Mock-based tests can bypass the gate only in their test
 process. API-backed provider modes are separate and do not prove CLI process
 isolation.
 
+If a provider invocation is enabled after OS containment is verified, its MCP
+connection receives a short-lived HMAC-signed capability instead of the
+healer's bearer token. The capability expires within 15 minutes and limits
+calls to diagnosis, source inspection, sandboxed tests, and patch proposals for
+the caller's heal job and worktree. A CI repair may rerun only its recorded
+workflow run once. Rollback, cancellation, other workflow mutations, and PR
+creation are not provider capabilities. MCP checks these limits on every HTTP
+request, including tool name, job, worktree, and run ID. These authorization
+checks reduce the provider's MCP authority; they do not contain the provider
+process or its network traffic, so the OS execution gate remains necessary.
+
 The trusted healer and MCP workloads still hold GitHub App credentials for
 control-plane work. Repository test subprocesses do not inherit those values
 and are denied network access. The current deployment does not yet have a
