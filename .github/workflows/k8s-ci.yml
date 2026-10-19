@@ -14,9 +14,9 @@ name: k8s-ci
 
 on:
   push:
-    branches: ["main", "k8s-ci-dev"]
+    branches: ["main", "k8s-ci-dev", "security/**"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "security/**"]
 
 permissions:
   contents: read
