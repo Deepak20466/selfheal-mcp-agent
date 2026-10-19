@@ -30,8 +30,24 @@ def _docker_exec(
     )
 
 
-def _database_command(container_id: str, tool: str, *args: str) -> None:
-    _docker_exec(container_id, tool, "-U", "selfheal", *args)
+def _database_command(
+    container_id: str,
+    tool: str,
+    *args: str,
+    input_stream: object | None = None,
+    output_stream: object | None = None,
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
+    return _docker_exec(
+        container_id,
+        tool,
+        "-U",
+        "selfheal",
+        *args,
+        input_stream=input_stream,
+        output_stream=output_stream,
+        capture_output=capture_output,
+    )
 
 
 def main() -> None:
