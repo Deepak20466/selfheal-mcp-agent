@@ -129,8 +129,12 @@ jobs:
             echo "DNS filter Service IP $DNS_FILTER_IP is already allocated"
             exit 1
           fi
+          # Do not use --wait here: app readiness depends on the schema made
+          # by the post-install migration hook, which Helm runs after waiting
+          # for resources. The explicit migration/readiness checks below run
+          # once the hook has completed.
           helm install selfheal deploy/helm/selfheal \
-            --wait --timeout 10m \
+            --timeout 10m \
             --set-string dns.upstreamServiceIP="$DNS_SERVICE_IP" \
             --set-string dns.filterServiceIP="$DNS_FILTER_IP" \
             --set image.tag=ci \
