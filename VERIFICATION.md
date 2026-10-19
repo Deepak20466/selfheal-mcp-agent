@@ -34,10 +34,16 @@ symlink aliases, process-tree cleanup behavior, and fail-closed sandbox setup.
 On this Windows host, Ruff, formatting, strict mypy, and the complete suite
 passed. The PostgreSQL helper provisioned a disposable loopback-only PostgreSQL
 16.2 server. **656 passed, 7 skipped, 3 warnings in 642.46 seconds.** The
-POSIX descendant process integration and Linux Bubblewrap validation remain
-unverified on this local run and need a Linux CI run for this follow-up branch.
-The three warnings are mocked CLI login tests where `getpass` cannot control
+three warnings are mocked CLI login tests where `getpass` cannot control
 terminal echo.
+
+After publication, PR [#19](https://github.com/Deepak20466/selfheal-mcp-agent/pull/19)
+passed Linux CI on Ubuntu 22.04: **658 passed, 5 skipped, 3 warnings in 86.66
+seconds**. The new POSIX process-tree integration test ran (`tests/test_cli_process_tree.py`:
+2 passed), and the Bubblewrap setup/preflight also passed. The [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807)
+and [Kubernetes run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174813)
+both completed successfully. This is hosted-runner integration evidence, not a
+claim of kernel-level escape resistance.
 
 The earlier full local audit and the post-merge Actions run above are evidence
 for their respective commits; neither includes this unpushed follow-up change.
@@ -60,7 +66,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Boundary or workflow | Status | Evidence / blocker |
 |---|---|---|
 | Windows untrusted-command sandbox | PASS (tested boundary) | Full local suite passed on Windows, including AppContainer/Job Object filesystem, network, environment, process, timeout, and fail-closed tests. |
-| Linux Bubblewrap sandbox | PASS on merged `main`; pending this branch | The Ubuntu 22.04 run for merged `main` passed install and namespace preflight. This unpushed follow-up has not run on Linux; process-group descendant integration is skipped on Windows. |
+| Linux Bubblewrap sandbox and POSIX process cleanup | PASS (PR #19 CI) | Ubuntu 22.04 installed Bubblewrap and passed namespace preflight; `tests/test_cli_process_tree.py` passed both tests in the [PR CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). This is hosted-runner integration evidence, not a kernel-escape assessment. |
 | MCP credential-path filtering | PASS (known filenames only) | Full local suite passed. Filtering does not identify secrets in arbitrary filenames or ordinary source text. |
 | Provider CLI OS containment | FAIL / unverified | Codex/Claude/Gemini orchestration processes are not wrapped in the project's OS sandbox; provider-specific isolation is not independently proven. |
 | MCP HTTP authentication and network policy | FAIL | Container configuration binds beyond loopback; the cluster service is internal, but no MCP bearer authentication or Kubernetes NetworkPolicy is configured. |
@@ -69,7 +75,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Independent repository reliability | SKIPPED | The 20-case benchmark uses one synthetic repository, not three independent repositories. |
 | Provider validation | PARTIAL | Codex fixed-fixture benchmark passed 20/20 previously. Claude is unauthenticated, Gemini CLI is unavailable, and live API providers were not tested. |
 | Deployment, health, backup/restore, rollback | SKIPPED | Static configuration checks only; no infrastructure or production database was used. |
-| Full PostgreSQL-backed suite (this branch) | PASS | 656 passed, 7 skipped, 3 warnings in 642.46 seconds using disposable PostgreSQL 16.2. |
+| Full PostgreSQL-backed suite (this branch) | PASS | Windows local: 656 passed, 7 skipped, 3 warnings in 642.46 seconds using disposable PostgreSQL 16.2. Ubuntu PR CI: 658 passed, 5 skipped, 3 warnings in 86.66 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). |
 | Production decision for unattended arbitrary-repository repair | **NO-GO** | Critical provider and MCP transport boundaries are unverified or absent, and live hostile-repository end-to-end evidence is missing. |
 
 ## Result matrix
@@ -79,7 +85,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Ruff lint | PASS | `python -m ruff check .` |
 | Ruff formatting | PASS | `python -m ruff format --check .`; 220 files already formatted |
 | Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
-| Full pytest suite | PASS (current local branch and merged main) | This branch: Windows with disposable PostgreSQL 16.2, 656 passed, 7 skipped, 3 warnings in 642.46 seconds. Merged-main CI: Ubuntu 22.04 with GitHub-hosted PostgreSQL, 634 passed, 4 skipped, 3 warnings in 98.58 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454). |
+| Full pytest suite | PASS (current branch and merged main) | This branch: Ubuntu 22.04 GitHub-hosted PostgreSQL, 658 passed, 5 skipped, 3 warnings in 86.66 seconds; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). Windows local: 656 passed, 7 skipped, 3 warnings in 642.46 seconds. Merged-main CI: 634 passed, 4 skipped, 3 warnings; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39204934454). |
 | Post-suite PostgreSQL smoke | PASS | After setting Alembic `path_separator = os`, the database helper ran migrations and 3 focused tests passed with no startup deprecation warning. |
 | PostgreSQL migrations and integration | PASS | Fresh PostgreSQL 16.2 cluster; migrations 0001–0007 applied, demo seed completed, separate `selfheal_app` and `selfheal_test` databases |
 | Pytest skips | SKIPPED | Linux Bubblewrap integration and venv-only Windows sandbox integration are unavailable in this base-Python Windows run; one capture case skips because its seeded bug is already fixed |
@@ -95,7 +101,7 @@ for their respective commits; neither includes this unpushed follow-up change.
 | Windows sandbox boundaries | PASS | AppContainer/Job Object tests blocked outside filesystem access, loopback, inherited secrets, common credential files, and `.git`; tested process limits, timeout cleanup, and read-only trusted runtime access |
 | Provider CLI OS isolation | WARN / unverified | Codex used its own read-only mode; provider CLI processes were not inside the project's AppContainer, and their filesystem-read boundary and prompt-injection behavior were not independently verified |
 | Host-side Git operations | WARN / limited | Fixed direct-argv Git operations now have timeouts and filtered environments, but are not AppContainer-isolated; clone/push remain explicit network-bearing control-plane operations |
-| Linux sandbox | PASS (merged-main CI) | Ubuntu 22.04 Bubblewrap install and namespace preflight passed; Linux sandbox boundary tests ran in the 634-test CI suite. The new process-group descendant test in this follow-up remains pending a Linux run. |
+| Linux sandbox | PASS (PR #19 CI) | Ubuntu 22.04 Bubblewrap install and namespace preflight passed; Linux sandbox boundary tests and the new process-group descendant integration passed in [PR CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807). |
 | Node runtime in sandbox | PASS (limited) | `node -e` ran inside AppContainer |
 | npm in Windows sandbox | PASS (limited) | Node and npm were staged in the workspace; `npm test` passed 2 tests. Node `--test` worker mode timed out, so the example script runs its `node:test` file directly. |
 | Gitleaks current workspace | WARN | Two redacted matches in generated test bytecode; no suppression was added. |

@@ -57,13 +57,19 @@ source files or arbitrary filenames.
 
 The completed follow-up full suite passed on Windows using the disposable
 PostgreSQL helper: **656 passed, 7 skipped, 3 warnings in 642.46 seconds**.
+After publication, PR #19 also passed Ubuntu 22.04 CI: **658 passed, 5
+skipped, 3 warnings in 86.66 seconds**. The Linux run executed both tests in
+`tests/test_cli_process_tree.py` and passed Bubblewrap setup and namespace
+preflight. [CI details](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174807)
+and [Kubernetes checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39209174813)
+passed.
 Ruff, formatting, strict mypy, and the Node example tests (2/2) also passed;
 `npm audit` reported zero vulnerabilities. A direct audit of the shared
 system Python still reports 91 known advisory entries across 8 packages; the
 audit is not scoped to this project's isolated dependencies, and no global
 packages were changed. Gitleaks found two redacted matches in generated test
-bytecode, not source files; no suppression was added. The follow-up branch has
-not been pushed, so GitHub Actions has not run for it.
+bytecode, not source files; no suppression was added. The production-readiness
+limitations below remain despite the green checks.
 
 The readiness recommendation remains **NO-GO for unattended operation on
 untrusted repositories**. The provider CLI process itself is still outside the

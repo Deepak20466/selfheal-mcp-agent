@@ -105,7 +105,8 @@ Provider CLI timeout handling now starts POSIX processes in their own session
 and kills the process group, so child helpers do not outlive a timed-out turn.
 The Windows path uses `taskkill /T`. These are lifecycle controls; they do
 not place the provider CLI inside AppContainer or Bubblewrap, and the POSIX
-descendant integration test still needs a Linux run for this follow-up change.
+descendant integration test passed on Ubuntu 22.04 in PR #19 CI. This is
+hosted-runner integration evidence, not a kernel-escape assessment.
 
 The native MCP HTTP listener defaults to loopback. The Docker image changes
 the bind address to `0.0.0.0`, and the Helm chart exposes it as a ClusterIP
@@ -125,8 +126,8 @@ not exercised against GitHub in this audit.
 
 - The Windows AppContainer path passed its integration boundary checks and
   ran the 20-scenario regression runner. Ubuntu 22.04 GitHub Actions passed
-  Bubblewrap preflight and the full test suite on merged `main`; this
-  follow-up's process-group cleanup test has not yet run on Linux.
+  Bubblewrap preflight and the full test suite on merged `main` and PR #19;
+  the follow-up's process-group cleanup test passed on that hosted Linux run.
 - The sandbox stages Node and npm inside its workspace and sets Node's
   preserve-symlinks options so the launcher does not need to traverse the
   protected root of C:. `npm test` passed the Node example's two in-process
@@ -136,8 +137,9 @@ not exercised against GitHub in this audit.
   runs the same `node:test` file directly.
 - The sandbox uses common filename and directory rules to omit credential
   files. It does not scan every file for secret-like content.
-- A live prompt-injection exercise, a live GitHub repair/PR in this follow-up,
-  a staging deployment, and a live Kubernetes rollback were not run.
+- A live prompt-injection exercise, a live self-healing repair PR, a staging
+  deployment, and a live Kubernetes rollback were not run. PR #19 is the
+  source-review PR for this hardening change, not a self-healing repair demo.
 
 See [AUDIT_REPORT.md](AUDIT_REPORT.md) and [VERIFICATION.md](../VERIFICATION.md)
 for the dated evidence and remaining readiness gates.
