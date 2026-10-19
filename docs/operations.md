@@ -46,7 +46,7 @@ The app API, CLI-facing healer API, and MCP server use loopback by default. `sel
 Set values in the local `.env` file; never commit it or show it in a recording.
 
 - `AI_BACKEND` selects one provider. `AI_CHAIN` and `CHAT_CHAIN` optionally configure ordered fallbacks.
-- Provider choices include Claude Code, Codex, and Gemini CLIs; the Anthropic API; and Groq, Gemini, and OpenRouter APIs. **Provider CLI execution currently fails closed** until a network-aware OS sandbox contains the provider and its descendants.
+- Provider choices include Claude Code, Codex, and Gemini CLIs; the Anthropic API; and Groq, Gemini, and OpenRouter APIs. **Provider CLI execution currently fails closed on Linux and other platforms** until a network-aware OS sandbox contains the provider and its descendants. Existing Bubblewrap confinement has no network and cannot safely host these CLIs.
 - The historical Codex CLI benchmark ran before this gate was added and is not a current live-workflow result. Claude Code was unauthenticated, Gemini CLI was unavailable, and API calls were mock-tested in the audit. See [benchmark.md](benchmark.md) and [VERIFICATION.md](../VERIFICATION.md) for evidence.
 - Set `GITHUB_TOKEN` to a fine-grained token restricted to the exact repository, with Metadata read, Contents read/write, Pull requests read/write, Issues read/write, and Actions read/write only when using run retry/cancel or rollback dispatch. Set `GITHUB_REPO` to the intended target and keep `AUTO_MERGE=false`. Do not reuse a production token for a demo repository.
 - The target application's `github_repo` in `config/monitored_apps.yaml` determines where its repair PR is opened. For an isolated demo, use a disposable repository and check this value before starting the services.

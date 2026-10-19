@@ -131,6 +131,16 @@ not exercised against GitHub in this audit.
 
 ## Limits found in this audit
 
+### Linux provider execution target
+
+The production execution target is Linux. The existing Bubblewrap runner
+provides a non-root, no-network boundary for repository-controlled commands;
+it is not suitable for a provider CLI that needs model and MCP connectivity.
+No network-aware provider sandbox, egress broker, or credential broker is
+implemented. Codex, Claude Code, and Gemini therefore remain fail-closed on
+Linux as well as other platforms. Windows AppContainer tests cover the
+existing repository-command sandbox only, not provider execution.
+
 - The Windows AppContainer path passed its integration boundary checks and
   ran the 20-scenario regression runner. Ubuntu 22.04 GitHub Actions passed
   Bubblewrap preflight and the full test suite on merged `main` and PR #19;

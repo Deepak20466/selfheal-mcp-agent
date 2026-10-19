@@ -4,9 +4,8 @@
 **Audit date:** 2026-10-19
 **Scope:** local source and uncommitted changes, test infrastructure, subprocess
 isolation, AI benchmark, GitHub automation, provider CLIs, CI/CD configuration,
-dependencies, and deployment manifests. At the time of this local audit,
-publication was limited to a feature branch; no pull request, merge, or
-deployment had been performed. See the post-merge follow-up below.
+dependencies, and deployment manifests. Initial observations below are
+preserved as historical findings; see the current PR #21 follow-up section.
 
 ## Executive assessment
 
@@ -28,6 +27,24 @@ PR or staging deployment/rollback was performed. This report describes
 observed evidence, not a security certification.
 
 ## Post-merge follow-up — 2026-10-19
+
+### PR #21 production-readiness update
+
+PR [#21](https://github.com/Deepak20466/selfheal-mcp-agent/pull/21) is merged
+into `main` at
+[`7892f03c381c982484d7dca223c3507fb9d8b50c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7892f03c381c982484d7dca223c3507fb9d8b50c).
+Its post-merge Python/PostgreSQL CI passed **671 tests** (5 skipped, 3
+warnings); its post-merge Kubernetes CI is listed in `VERIFICATION.md`.
+
+The provider CLI gate now fails closed on every platform. Linux Bubblewrap
+confines repository-controlled test commands with no network, while provider
+CLIs require outbound model/MCP traffic and remain uncontained. A network
+proxy/credential broker and isolated worker boundary are not implemented or
+tested. Do not infer provider isolation from the test-command sandbox. The
+Codex 20/20 benchmark below is historical, from before the gate, and cannot
+be used as current live-workflow evidence. Live provider repair, three
+independent repository trials, and full repair-to-PR validation remain
+SKIPPED. Production readiness remains **NO-GO**.
 
 The source and local test results below describe the audit performed before
 PR #18 was merged. After that audit, PR #18 was merged into `main` at
@@ -72,13 +89,13 @@ bytecode, not source files; no suppression was added. The production-readiness
 limitations below remain despite the green checks.
 
 The readiness recommendation remains **NO-GO for unattended operation on
-untrusted repositories**. The provider CLI process itself is still outside the
-project OS sandbox. This follow-up adds MCP bearer authentication and a chart
-NetworkPolicy, but their cluster enforcement is pending CI and live deployment
-evidence; public TCP 443 egress is not destination-filtered. Live hostile
-repository, multi-repository, GitHub mutation, provider, and deployment-recovery
-scenarios remain to be verified. The main branch's Bubblewrap CI is useful
-platform evidence, but it does not establish kernel escape resistance or
+untrusted repositories**. Provider CLI calls now fail closed before process
+creation, but a network-aware provider sandbox and credential broker are not
+implemented. The post-merge Calico-backed kind run verified MCP authentication
+and NetworkPolicy ingress allow/deny behavior; public TCP 443 egress is still
+not destination-filtered. Live provider repair, multi-repository trials, and
+deployment recovery remain unverified. Hosted Bubblewrap and Calico checks do
+not establish kernel escape resistance, production-cluster behavior, or
 arbitrary-repository reliability.
 
 ## Scope and changes
@@ -94,10 +111,9 @@ arbitrary-repository reliability.
 | Reliability | Added strict single-file diff parsing, nonzero-context validation, private candidate application, one regression retry, report recovery, worker MCP reconnect handling, bounded fixed Git operations with timeouts and cleanup, hardened Git error redaction, and fixed an order-dependent prober assertion. |
 | CI and packaging | Tightened workflow token permissions, added dependency and fixture checks, updated vulnerable Node example dependencies, and corrected Dockerfile runtime users and healthcheck forms. |
 
-The follow-up is isolated on local branch `security-readiness-2026-10-19` in a
-separate worktree based on merged `main`. The original workspace and its
-pre-existing changes were left untouched. This branch has not been pushed or
-run through GitHub Actions.
+The PR #21 follow-up is merged. This report's current-state update is being
+prepared on a separate feature branch based on that merged `main`; the
+original workspace and its pre-existing files remain untouched.
 
 ## PostgreSQL and test results
 
@@ -226,7 +242,10 @@ replaying the mutating PR request. The client does not implement Retry-After
 backoff or queued recovery for GitHub rate limits, and high-volume concurrent
 job stress was not exercised.
 
-## Provider integration status
+## Historical provider integration status (before PR #21 gate)
+
+The following results describe the pre-gate audit only. They are not evidence
+that provider CLI execution is currently enabled or isolated.
 
 | Provider | Status in this audit | Evidence / blocker |
 |---|---|---|
@@ -243,13 +262,13 @@ job stress was not exercised.
 | Mypy | PASS | `python -m mypy core sentinel mcp_server healer`; 87 source files |
 | Python dependency audit | PASS in fresh venv; WARN in global interpreter | A clean temporary venv installed with `.[dev]` and `pip-audit --local` found no known vulnerabilities; the unpublished local project is skipped because it has no PyPI release to match. The active global interpreter audit found 91 advisory entries across 8 installed packages, including stale project transitive packages and unrelated tooling; that interpreter was not upgraded. The project does not commit a lockfile for transitive dependencies. |
 | Node tests and audit | PASS | `npm test` passed 2/2 inside AppContainer; `npm audit` found 0 vulnerabilities. The tests use in-process handlers and no sockets. |
-| GitHub Actions | PASS | PR #20's CI and k8s-ci checks passed: [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557149), [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). |
+| GitHub Actions on merged `main` | PASS | Post-merge PR #21 CI: **671 passed, 5 skipped, 3 warnings** ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326594)). Calico-backed Kubernetes checks passed ([run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664)). |
 | Dockerfiles | PASS (static) | Temporary Hadolint 2.15.1 passed all four Dockerfiles. No Docker installation or image build was performed. |
-| Helm and Kubernetes chart | PASS (hosted kind) | Helm lint, render, install, MCP bearer-auth checks, readiness, and pod-recovery smoke checks passed in [k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39215557085). NetworkPolicy CNI enforcement and restricted-egress behavior were not tested; no production cluster was used. |
+| Helm and Kubernetes chart | PASS (hosted Calico kind, ingress only) | Helm lint/render/install, MCP bearer-auth checks, ingress allow/deny enforcement, readiness, and pod-recovery smoke checks passed in [post-merge k8s-ci](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39220326664). Public TCP 443 is not FQDN-restricted; no production cluster was used. |
 | Render Blueprint | PASS (schema) | `render.yaml` conforms to the official Render JSON Schema using Draft 2020-12 validation. Render CLI was unavailable; no cloud resource was created. |
 | MCP protocol | PASS | Real stdio initialize/list-tools handshake returned protocol version 2025-11-25 and 20 tool names. No database-backed repair action was invoked. |
 | Secret scan | WARN (working tree); PASS (history) | The redacted Gitleaks working-tree scan found two matches in generated test `.pyc` files, not source or credential files. Gitleaks history scan checked 108 commits and found no leaks. No suppression was added. |
-| Kubernetes/deploy/rollback | PARTIAL | Ephemeral kind CI passed chart install, smoke, migration, readiness, and pod-recovery checks. Production health, monitoring, backup/restore, rollback, and CNI enforcement remain unverified. No production deployment was made. |
+| Kubernetes/deploy/rollback | PARTIAL | Ephemeral Calico kind CI enforced MCP ingress allow/deny and passed chart, smoke, migration, readiness, and pod-recovery checks. Production health, monitoring, backup/restore, rollback, and destination-restricted egress remain unverified. No production deployment was made. |
 
 ## Other audit findings and residual risks
 
@@ -272,10 +291,10 @@ job stress was not exercised.
 
 Built a Python/FastAPI self-healing platform using MCP, PostgreSQL,
 OpenTelemetry, GitHub Actions, and pluggable coding-agent CLIs. Hardened
-repository command execution with a fail-closed Windows AppContainer sandbox,
-credential-filtered subprocess environments, and a private scanner tool
-cache. Added disposable PostgreSQL verification, worker reconnection and
-GitHub workflow checks, and measured a 20-scenario live Codex benchmark
-(20/20 diagnoses correct; 20/20 repairs passed regression gates). Documented
-cross-platform isolation, CI, provider, and deployment limits. Publication
-pushes a feature branch only; no PR, merge, or deployment is performed.
+repository command execution with fail-closed Windows AppContainer and Linux
+Bubblewrap sandboxes, credential-filtered subprocess environments, and a
+private scanner tool cache. Added disposable PostgreSQL verification, worker
+reconnection, and GitHub workflow checks. The 20-scenario Codex benchmark is a
+historical pre-gate fixture result, not current live-repair evidence. Provider
+CLI execution remains fail-closed; production readiness is **NO-GO** pending
+verified provider isolation and control-plane separation.
