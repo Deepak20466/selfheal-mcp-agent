@@ -217,6 +217,9 @@ async def test_run_heal_job_remote_verify_opens_a_labeled_pr_never_auto_merged(
                 200, json={"default_branch": "main", "permissions": {"push": True}}
             )
         )
+        respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/heavy/pulls").mock(
+            return_value=httpx.Response(200, json=[])
+        )
         respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/heavy/pulls").mock(
             return_value=httpx.Response(
                 201, json={"number": 501, "html_url": "https://example/pr/501"}

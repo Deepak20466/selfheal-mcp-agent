@@ -101,6 +101,16 @@ are restricted to `autofix/*` and
 `selfheal-onboarding/*` by default, and protected branches are refused before
 Git starts. AI-generated PRs always require human review and manual merging.
 
+GitHub Actions uses a separate trust boundary for CI notifications. The
+`pull_request` CI workflow has no repository-secret references and runs with
+read-only repository permissions. A `workflow_run` notifier checks out only
+the trusted `main` branch, reads the source run's metadata, and sends a signed
+webhook event; it never checks out the source branch or downloads its
+artifacts. Since GitHub dispatches the `in_progress` and `completed`
+notifications as separate runs, the webhook receiver treats terminal run
+records as immutable and queues a failure repair only on the first transition
+to a failed completion.
+
 Provider CLI execution is **disabled**. The previous implementation launched
 Codex, Claude Code, and Gemini on the host; provider-managed read-only settings,
 tool allowlists, environment filtering, and timeout cleanup do not provide OS
@@ -187,13 +197,76 @@ complete exfiltration-prevention boundary.
 
 ## Limits found in this audit
 
-### Linux provider execution target
+### OpenRouter :free repair workflow
+
+`.github/workflows/repair-pr.yml` is a separate repair path. It does not invoke
+Codex, Claude Code, or Gemini CLI and does not relax their fail-closed gate.
+It is disabled unless `SELFHEAL_REPAIR_ENABLED=true`, the repository is in
+`repair-allowed-repositories.txt`, and a failed `CI` run came from the same
+public repository. Fork-originated failures and recursive repair branches are
+rejected.
+
+The inference job checks out the target commit as data and reads a bounded,
+scrubbed CI log. It runs only the trusted controller from the default branch;
+it does not install dependencies, import target modules, or execute repository
+code. The request uses a model listed by OpenRouter with an ID ending in
+`:free` and zero listed prompt/completion prices. It sends no tools, disables
+model-provider fallback, rejects a non-free response, makes no transport-error
+retry, and allows at most one correction request after a regression failure.
+Only the inference step receives `OPENROUTER_API_KEY`.
+
+Patch artifacts are limited to existing Python implementation files under
+approved source roots, at most three files and 200 changed lines. The validator
+checks both diff path headers, rejects symlinks, test/workflow/configuration
+paths, credential references, executable/network primitives, binary data and
+oversized artifacts, then verifies the diff with `git apply --check`. The
+artifact digest produced by the offline test job is checked again before PR
+creation.
+
+Each regression attempt runs on a separate standard `ubuntu-22.04` hosted
+runner with no provider key and read-only repository permission. Repository
+code runs only through `run_untrusted_command`: a disposable snapshot inside
+Bubblewrap with a private network namespace, read-only test-suite mount,
+filtered environment and secret files omitted, resource limits, output caps,
+timeout and cleanup. The initial
+supported scope is Python projects with standard-library `unittest` suites;
+the workflow does not run target dependency installers. A failed sandbox setup
+stops the workflow.
+
+Only the final trusted job receives `contents:write` and
+`pull-requests:write`. It revalidates the exact tested artifact, applies it,
+pushes a review branch, and opens a PR. It never runs target code and never
+merges. All generated PRs still require human review and normal passing CI.
+The workflow is restricted to public repositories because repository source
+and failure output are sent to a third-party inference provider.
+
+OpenRouter documents a Free-tier cap of 20 requests/minute and 50 requests/day;
+availability is not guaranteed, and another use of the same account may consume
+that quota. The implementation makes at most two completion calls per failed
+run and does not buy credits, switch to a paid model, or use paid fallback
+routing. OpenRouter's documented key endpoint confirms Free-tier status but
+does not expose remaining free-request count; the controller makes no claim to
+preflight that value. A 429 or provider error ends the run without retry. See
+[`docs/openrouter-repair.md`](openrouter-repair.md) for setup and current
+verification status.
+
+At implementation head `e2795fb`, the hosted [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316519614)
+and [Calico/kind run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316530109)
+passed. CI exercised the Bubblewrap network, filesystem, read-only tests, and
+secret probes; database recovery, dependency and Node checks, Ruff, mypy, and
+the full pytest suite also passed. Live inference, patch generation, disposable
+repair PRs and post-PR CI have not been demonstrated. The workflow remains
+dormant; add the API secret only after approval, merge, and authorization of the
+disposable repositories.
+
+### Linux provider CLI execution target
 
 The existing Bubblewrap runner provides a non-root, no-network boundary for
 repository-controlled test commands. It cannot host a provider CLI that needs
 model and MCP connectivity. No verified network-aware provider worker is
 available in the current environment, so Codex, Claude Code, and Gemini remain
-fail-closed on every platform.
+fail-closed on every platform. This CLI restriction is unchanged by the
+separate OpenRouter workflow above.
 
 Enabling unattended CLI repair requires a disposable Linux worker on a cluster
 with an enforced isolation runtime such as gVisor or Kata Containers, plus the
@@ -207,8 +280,8 @@ boundaries need adversarial integration tests on the actual Linux cluster
 before changing the provider gate.
 
 The Windows AppContainer tests cover the existing repository-command sandbox,
-not provider execution. Ubuntu hosted CI verifies the Bubblewrap command
-sandbox and the Calico NetworkPolicy path, but it does not test gVisor/Kata,
-provider credentials, kernel escapes, live AI diagnosis, three independent
-repository repairs, or production backup/restore and rollback. No production
-resources or databases were changed.
+not provider CLI execution. Ubuntu hosted CI verifies the Bubblewrap command
+sandbox and the Calico NetworkPolicy path. The OpenRouter path still needs a
+successful hosted security run and real repairs in authorized disposable
+repositories. This does not test gVisor/Kata, kernel escapes, production
+backup/restore and rollback. No production resources or databases were changed.

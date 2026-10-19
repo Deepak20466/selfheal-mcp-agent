@@ -39,8 +39,7 @@ def test_source_vars_win_over_reserved_github_vars() -> None:
 
 
 def test_falls_back_to_ambient_github_vars_when_no_source_vars_set() -> None:
-    """ci.yml's own start/finish calls never set SOURCE_* -- they should use
-    the ambient GITHUB_* vars, which correctly describe ci.yml's own run."""
+    """The helper remains usable from ordinary trusted workflow contexts."""
     env = {
         "GITHUB_RUN_ID": "222",
         "GITHUB_WORKFLOW": "CI",

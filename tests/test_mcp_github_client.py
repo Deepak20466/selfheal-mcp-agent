@@ -247,6 +247,9 @@ async def test_rate_limited_pr_creation_fails_without_replaying_write(
     monkeypatch.setattr(core_settings, "github_token", "test-token")
     monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
 
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     route = respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
         return_value=httpx.Response(status_code, text=body)
     )
@@ -282,6 +285,9 @@ async def test_create_pull_request_posts_title_body_head_base(
     monkeypatch.setattr(core_settings, "github_token", "test-token")
     monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
 
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(200, json=[])
+    )
     route = respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
         return_value=httpx.Response(201, json={"number": 7, "html_url": "https://example/pr/7"})
     )
@@ -302,6 +308,62 @@ async def test_create_pull_request_posts_title_body_head_base(
         "head": "autofix/abc-1",
         "base": "main",
     }
+
+
+async def test_create_pull_request_returns_existing_exact_open_pr_without_write(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    existing = {
+        "number": 7,
+        "state": "open",
+        "head": {"ref": "autofix/abc-1", "repo": {"full_name": "acme/repo"}},
+        "base": {"ref": "main", "repo": {"full_name": "acme/repo"}},
+    }
+    respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(200, json=[existing])
+    )
+    create_route = respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls")
+
+    async with GitHubClient() as client:
+        result = await client.create_pull_request(
+            title="retry title", body="retry body", head="autofix/abc-1", base="main"
+        )
+
+    assert result == existing
+    assert create_route.call_count == 0
+
+
+async def test_create_pull_request_reconciles_concurrent_duplicate_422(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    existing = {
+        "number": 8,
+        "state": "open",
+        "head": {"ref": "autofix/race", "repo": {"full_name": "acme/repo"}},
+        "base": {"ref": "main", "repo": {"full_name": "acme/repo"}},
+    }
+    lookup = respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        side_effect=[
+            httpx.Response(200, json=[]),
+            httpx.Response(200, json=[existing]),
+        ]
+    )
+    create_route = respx_mock.post(f"{GITHUB_API_BASE}/repos/acme/repo/pulls").mock(
+        return_value=httpx.Response(422, json={"message": "A pull request already exists"})
+    )
+
+    async with GitHubClient() as client:
+        result = await client.create_pull_request(
+            title="Auto-fix", body="evidence", head="autofix/race", base="main"
+        )
+
+    assert result == existing
+    assert lookup.call_count == 2
+    assert create_route.call_count == 1
 
 
 @pytest.mark.parametrize(

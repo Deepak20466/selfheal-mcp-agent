@@ -86,6 +86,65 @@ async def test_successful_run_does_not_enqueue_a_heal_job(
     assert jobs == []
 
 
+async def test_late_in_progress_event_does_not_regress_completed_run(
+    sentinel_http_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    completed = _payload(
+        run_id=6300,
+        branch="autofix/out-of-order-event",
+        status="completed",
+        conclusion="failure",
+    )
+    await sentinel_http_client.post(
+        "/webhooks/ci",
+        content=completed,
+        headers={"X-Signature": sign_payload(completed, WEBHOOK_SECRET)},
+    )
+
+    started = _payload(
+        run_id=6300,
+        branch="autofix/out-of-order-event",
+        status="in_progress",
+        conclusion=None,
+        failed_job=None,
+    )
+    await sentinel_http_client.post(
+        "/webhooks/ci",
+        content=started,
+        headers={"X-Signature": sign_payload(started, WEBHOOK_SECRET)},
+    )
+
+    run = (
+        await db_session.execute(select(PipelineRun).where(PipelineRun.run_id == 6300))
+    ).scalar_one()
+    assert run.status == "completed"
+    assert run.conclusion == "failure"
+
+
+async def test_duplicate_failed_completion_does_not_restart_existing_repair(
+    sentinel_http_client: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    body = _payload(run_id=6301, branch="autofix/duplicate-failure", pr_number=631)
+    await sentinel_http_client.post(
+        "/webhooks/ci", content=body, headers={"X-Signature": sign_payload(body, WEBHOOK_SECRET)}
+    )
+
+    job = (
+        await db_session.execute(
+            select(HealJob).where(HealJob.fingerprint == "ci:autofix/duplicate-failure:631")
+        )
+    ).scalar_one()
+    job.status = HealJobStatus.RUNNING
+    await db_session.commit()
+
+    await sentinel_http_client.post(
+        "/webhooks/ci", content=body, headers={"X-Signature": sign_payload(body, WEBHOOK_SECRET)}
+    )
+
+    await db_session.refresh(job)
+    assert job.status == HealJobStatus.RUNNING
+
+
 async def test_unsigned_webhook_is_rejected(sentinel_http_client: httpx.AsyncClient) -> None:
     response = await sentinel_http_client.post("/webhooks/ci", content=_payload())
     assert response.status_code == 401

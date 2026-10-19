@@ -27,6 +27,10 @@ logger = structlog.get_logger(__name__)
 class GitHubClientError(Exception):
     """Raised for a missing configuration value or a non-2xx GitHub response."""
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class GitHubClient:
     """`repo` overrides `GITHUB_REPO` for this instance (`owner/repo`) — used for
@@ -246,7 +250,8 @@ class GitHubClient:
                 logger.info("github.control_plane.mutation", **event)
         if response.status_code >= 400:
             raise GitHubClientError(
-                f"GitHub API {method} {path} failed: {response.status_code} {response.text[:500]}"
+                f"GitHub API {method} {path} failed: {response.status_code} {response.text[:500]}",
+                status_code=response.status_code,
             )
         return response
 
@@ -411,7 +416,12 @@ class GitHubClient:
     async def create_pull_request(
         self, *, title: str, body: str, head: str, base: str = "main"
     ) -> dict[str, Any]:
-        """Open a PR from `head` into `base`. Used by the healer, never surfaced as an MCP tool.
+        """Idempotently open a same-repository PR from `head` into `base`.
+
+        Existing open PRs are returned before attempting a write. If a
+        concurrent worker wins the create race, or a previous create reached
+        GitHub but its response was lost, a 422 is reconciled by looking up
+        the exact open head/base pair. Other failures remain errors.
 
         Not in SPEC.md's mcp-pod tool list — SPEC.md's healer-pod bullet has
         the healer itself "commit ... push and open a PR", so this is called
@@ -419,13 +429,65 @@ class GitHubClient:
         already imports `GitHubClient` directly rather than going through MCP.
         """
         repo = self._repo_or_raise()
-        response = await self._request(
-            "POST",
-            f"/repos/{repo}/pulls",
-            json={"title": title, "body": body, "head": head, "base": base},
-        )
+        existing = await self.find_open_pull_request(head=head, base=base)
+        if existing is not None:
+            return existing
+        try:
+            response = await self._request(
+                "POST",
+                f"/repos/{repo}/pulls",
+                json={"title": title, "body": body, "head": head, "base": base},
+            )
+        except GitHubClientError as exc:
+            if exc.status_code != 422:
+                raise
+            existing = await self.find_open_pull_request(head=head, base=base)
+            if existing is None:
+                raise
+            logger.info(
+                "github.control_plane.pr_create_reconciled",
+                repository=repo,
+                head=head,
+                base=base,
+                pull_number=existing.get("number"),
+            )
+            return existing
         data: dict[str, Any] = response.json()
         return data
+
+    async def find_open_pull_request(
+        self, *, head: str, base: str = "main"
+    ) -> dict[str, Any] | None:
+        """Find an open PR with this exact head/base in the configured repo."""
+        repo = self._repo_or_raise()
+        owner = repo.split("/", 1)[0]
+        response = await self._request(
+            "GET",
+            f"/repos/{repo}/pulls",
+            params={"state": "open", "head": f"{owner}:{head}", "base": base, "per_page": 100},
+        )
+        pulls = response.json()
+        if not isinstance(pulls, list):
+            raise GitHubClientError("GitHub returned an invalid pull request list")
+        for pull in pulls:
+            if not isinstance(pull, dict) or pull.get("state") != "open":
+                continue
+            pull_head = pull.get("head")
+            pull_base = pull.get("base")
+            head_repo = pull_head.get("repo") if isinstance(pull_head, dict) else None
+            base_repo = pull_base.get("repo") if isinstance(pull_base, dict) else None
+            if (
+                isinstance(pull_head, dict)
+                and pull_head.get("ref") == head
+                and isinstance(head_repo, dict)
+                and str(head_repo.get("full_name", "")).casefold() == repo.casefold()
+                and isinstance(pull_base, dict)
+                and pull_base.get("ref") == base
+                and isinstance(base_repo, dict)
+                and str(base_repo.get("full_name", "")).casefold() == repo.casefold()
+            ):
+                return pull
+        return None
 
     async def add_labels(self, issue_or_pr_number: int, labels: list[str]) -> None:
         """Add labels to a PR or issue (PRs are issues for labeling purposes)."""

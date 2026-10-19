@@ -1,15 +1,14 @@
-"""Sign and POST a CI event to sentinel-pod's `POST /webhooks/ci` from inside
-a GitHub Actions job (SPEC.md CI/CD PIPELINE: "sends a start event ... and a
-finish event", and `ci-failure.yml`'s workflow_run notification).
+"""Sign and POST a CI event to sentinel-pod's `POST /webhooks/ci` from the
+trusted `workflow_run` notification job (SPEC.md CI/CD PIPELINE: "sends a
+start event ... and a finish event").
 
 Reads GitHub's own `GITHUB_*`/`GITHUB_EVENT_*` env vars (always present in
 Actions) for run_id/workflow/branch/sha/pr_number, and `HEALER_WEBHOOK_URL`/
 `WEBHOOK_SECRET` for where/how to sign — see `core/hmac_utils.py` for the
 exact `t=<ts>,v1=<hex_hmac>` scheme this must match on the receiving end.
 This has no dependency on the rest of the package (deliberately: it runs
-under whatever bare Python the Actions runner has, via `pip install httpx`
-in the workflow step, before `pip install -e .` even happens for `ci.yml`'s
-own start-of-job ping).
+under whatever bare Python the Actions runner has; it uses only Python's
+standard library).
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ def sign(secret: str, body: bytes, timestamp: int) -> str:
 def build_payload(env: dict[str, str], *, status: str, conclusion: str | None) -> dict[str, object]:
     """Build the webhook JSON body from `env`.
 
-    SOURCE_* (set only by ci-failure.yml) always wins over the ambient
+    SOURCE_* (set by ci-failure.yml) always wins over the ambient
     GITHUB_* vars: GitHub Actions does NOT let a step's `env:` block override
     its own reserved GITHUB_* names (GITHUB_RUN_ID, GITHUB_REF_NAME,
     GITHUB_SHA, GITHUB_WORKFLOW) -- the runner injects its own values for the
@@ -41,10 +40,8 @@ def build_payload(env: dict[str, str], *, status: str, conclusion: str | None) -
     discarding any override. ci-failure.yml is workflow_run-triggered, so
     without this, every field here would describe ci-failure.yml's own run
     (branch "main", its own run_id/sha/workflow name) instead of the CI run
-    that actually failed -- reproduced for real running the live CI
-    self-healing demo, see CLAUDE.md. ci.yml's own start/finish calls never
-    set SOURCE_*, so they correctly fall through to the ambient GITHUB_*
-    vars, which describe ci.yml's own run as intended there.
+    that triggered this notification. The same mapping is used for both the
+    `in_progress` and `completed` workflow_run events.
     """
     run_id = int(env.get("SOURCE_RUN_ID") or env.get("GITHUB_RUN_ID", "0"))
     workflow = env.get("SOURCE_WORKFLOW") or env.get("GITHUB_WORKFLOW", "ci.yml")
