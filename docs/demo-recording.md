@@ -14,16 +14,19 @@ PR; it never merges.
    let the job-scoped GITHUB_TOKEN create PRs. Protect the default branch with
    at least one human approval and required CI checks. Leave automatic merging
    off.
-4. The owner adds OPENROUTER_API_KEY through each disposable repository's
-   Settings > Secrets and variables > Actions page. Do this only after the
-   security checks pass and the repositories are authorized. Never put the key
-   in chat, source, variables, command arguments, or the recording.
-5. Set SELFHEAL_REPAIR_ENABLED=true and OPENROUTER_FREE_MODEL to an available
-   model ID ending in :free. The inference controller checks documented key
-   Free-tier metadata, the live catalog price, and the returned model and cost.
-   OpenRouter does not expose remaining `:free` request count through its
-   documented key endpoint; a 429 or provider error stops the run without
-   retry or a repair PR.
+4. Copy the reviewed controller and workflow to the default branch. Add the
+   exact repository allowlist entry and set `SELFHEAL_REPAIR_ENABLED=true` plus
+   `OPENROUTER_FREE_MODEL` to a currently listed zero-price `:free` model.
+   Confirm the secret list is still empty before enabling the deliberately
+   failing trial.
+5. Immediately before that repository's trial, add the replacement
+   `OPENROUTER_API_KEY` through its Settings > Secrets and variables > Actions
+   page. Never put the key in chat, source, variables, command arguments, or the
+   recording. The inference controller checks documented key Free-tier
+   metadata, the live catalog price, and the returned model and cost. OpenRouter
+   does not expose remaining `:free` request count through its documented key
+   endpoint; a 429 or provider error stops the run without retry or a repair
+   PR.
 
 Use only synthetic code and CI output in these public repositories. OpenRouter
 transmits prompts to the selected model provider; some free providers may retain
@@ -62,8 +65,17 @@ frame before sharing it.
 ## Current evidence status
 
 The hosted Linux sandbox probes, full CI suite, database recovery checks, and
-Kubernetes checks passed on implementation commit e2795fb. No model completion
-has been requested, no key has been configured, no live repair run or recording
-exists, and no disposable test repositories have been created. The workflow is
-dormant. The owner must still approve/merge the implementation and authorize
-the three repositories before the trial can proceed.
+Kubernetes checks passed on implementation commit e2795fb. The correction to
+OpenRouter key metadata handling passed hosted [push CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319431016),
+[PR CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319439813),
+and [Kubernetes checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319439788).
+Three authorized public fixtures now exist: [demo 01](https://github.com/Deepak20466/selfheal-e2e-demo-01),
+[demo 02](https://github.com/Deepak20466/selfheal-e2e-demo-02), and
+[demo 03](https://github.com/Deepak20466/selfheal-e2e-demo-03). Their initial
+CI passed; their `main` branches require passing `test` CI and one human review.
+Actions has read-only default workflow permissions, only GitHub-owned
+SHA-pinned actions allowed, and the narrowly scoped PR-creation setting enabled.
+No controller workflow, repair variables, or OpenRouter secret is installed in
+these fixtures yet. No model completion or live repair run has occurred. The
+source PR stack still needs its required human reviews and merges before the
+reviewed controller can be copied into the fixtures.
