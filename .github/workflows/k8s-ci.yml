@@ -212,7 +212,7 @@ jobs:
           else:
               raise AssertionError("cluster DNS resolved an unlisted external hostname")
           try:
-              socket.gethostbyname("unlisted.default.svc.cluster.local")
+              socket.gethostbyname("unlisted.default.svc.cluster.local.")
           except socket.gaierror:
               print("DNS filter passed: unlisted in-cluster services are refused")
           else:
