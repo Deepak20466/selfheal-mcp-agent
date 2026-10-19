@@ -1,6 +1,6 @@
 # End-to-end demo recording guide
 
-This guide describes a real, controlled runtime-failure walkthrough that produces a verified repair PR. It is a procedure, not a recording. The existing [terminal clip](demo-terminal.mp4) is 0:50 and does not show the repair-to-PR flow.
+This guide describes the intended controlled runtime-failure walkthrough; it is a procedure, not a recording. **The full repair-to-PR recording is currently blocked** because provider CLI execution now fails closed until a network-aware OS sandbox exists. The existing [terminal clip](demo-terminal.mp4) is 0:50 and does not show the repair-to-PR flow.
 
 ## Required demo target
 
@@ -15,7 +15,7 @@ Before recording:
 5. Set `AUTO_MERGE=false` and confirm `selfheal apps set target_app --auto-merge off`. Start from a clean app database so old errors and PRs do not obscure this run.
 6. Confirm the repo has the seeded `/trigger/zero` controlled failure, a real regression-test command, and a GitHub Actions workflow that runs those tests. Do not use a mock provider, fixture transcript, or fabricated output.
 
-The provider CLI runs outside the project's AppContainer. The demo repository must contain no real credentials or private user data. Do not expose the healer API publicly. This runtime-trigger path needs only local sentinel capture and GitHub's normal PR checks; it does not need a public webhook tunnel.
+Do not run the demo until the provider CLI isolation blocker in [architecture.md](architecture.md#trust-boundaries) is resolved and the repaired boundary has been verified. The demo repository must contain no real credentials or private user data. Do not expose the healer API publicly. This runtime-trigger path needs only local sentinel capture and GitHub's normal PR checks; it does not need a public webhook tunnel.
 
 ## Prepare the demo clone
 

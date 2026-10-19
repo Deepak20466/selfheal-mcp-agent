@@ -88,25 +88,27 @@ credential and service variables. Git authentication for controlled GitHub
 operations is passed through a child-only Git configuration environment, not
 the command line. Failure output is scrubbed before logging.
 
-The provider CLI is the only subprocess that receives its provider login
-material. The Codex benchmark copies the existing auth file into a
-short-lived private home and removes that temporary home at completion.
+Historically, provider CLI processes received provider login material. The
+Codex benchmark copied the existing auth file into a short-lived private home
+and removed that temporary home at completion. Provider CLI execution is now
+blocked by the fail-closed gate described below.
 Claude Code was installed but unauthenticated. Gemini CLI was not installed.
 Neither was reported as a live success.
 
-The provider CLI itself is not launched inside the project's AppContainer:
-the model process needs its own network path, and this audit did not verify
-its filesystem-read boundary or behavior under a live prompt injection. The
-Windows AppContainer evidence in this document covers repository scan and
-verification commands. Codex's configured read-only mode is a separate,
-provider-managed control and is not a substitute for the project sandbox.
+Provider CLI execution is currently **disabled**. The previous implementation
+launched Codex, Claude Code, and Gemini on the host; provider-managed read-only
+settings, tool allowlists, environment scrubbing, and timeout cleanup do not
+provide OS containment. `require_provider_cli_sandbox()` now fails closed
+before any provider executable starts. Mock-based adapter tests explicitly
+bypass this gate only inside their test process. API-backed provider modes are
+separate and are not evidence that CLI process isolation is solved.
 
-Provider CLI timeout handling now starts POSIX processes in their own session
-and kills the process group, so child helpers do not outlive a timed-out turn.
-The Windows path uses `taskkill /T`. These are lifecycle controls; they do
-not place the provider CLI inside AppContainer or Bubblewrap, and the POSIX
-descendant integration test passed on Ubuntu 22.04 in PR #19 CI. This is
-hosted-runner integration evidence, not a kernel-escape assessment.
+Host-side Git operations remain trusted control-plane subprocesses because
+they need authenticated remote access. They are not available to provider
+children while CLI mode is blocked, but the repository has not yet defined or
+verified a network-aware OS boundary for these control-plane processes. The
+provider CLI gate therefore does not establish end-to-end isolation for all
+automated repair modes.
 
 The native MCP HTTP listener defaults to loopback. When HTTP authentication
 is configured, the `/mcp` endpoint requires a bearer token of at least 32
@@ -116,8 +118,10 @@ NetworkPolicy that accepts MCP traffic only from healer pods. Its egress
 allows PostgreSQL, cluster DNS, and public TCP 443 while excluding private,
 link-local, and reserved IPv4 ranges. That HTTPS rule still permits connections
 to arbitrary public hosts, so it is not a destination allowlist or a complete
-data-exfiltration boundary. Kubernetes CNI enforcement and a cluster deployment
-have not yet been verified in this audit.
+data-exfiltration boundary. This follow-up configures a Calico-backed hosted
+kind test for allowed and denied ingress; it must pass before enforcement can
+be reported verified. Production-cluster enforcement and destination
+allowlisting remain unverified.
 
 The MCP server's Git metadata operations use direct, fixed argument lists and
 filtered Git environments rather than shell commands. Blame/log, patch

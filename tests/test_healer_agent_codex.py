@@ -62,6 +62,7 @@ def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     """Force the non-Windows-shim `create_subprocess_exec` path by default,
     and never copy a real user CODEX_HOME auth file into a test subprocess."""
     monkeypatch.setattr("healer.agent_codex.shutil.which", lambda _name: None)
+    monkeypatch.setattr("healer.cli_common.require_provider_cli_sandbox", lambda _provider: None)
     isolated_codex_home = tmp_path / "source-codex-home"
     isolated_codex_home.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(isolated_codex_home))

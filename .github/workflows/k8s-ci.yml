@@ -40,12 +40,33 @@ jobs:
           docker build -f deploy/docker/Dockerfile.mcp -t selfheal-mcp:ci .
           docker build -f deploy/docker/Dockerfile.healer -t selfheal-healer:ci .
 
+      - name: Prepare a policy-enforcing kind cluster
+        run: |
+          set -euo pipefail
+          cat > /tmp/kind-config.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            podSubnet: 192.168.0.0/16
+          nodes:
+            - role: control-plane
+          EOF
+
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
           install_only: false
           wait: 120s
           cluster_name: kind
+          config: /tmp/kind-config.yaml
+
+      - name: Install Calico CNI for enforcing NetworkPolicy tests
+        run: |
+          set -euo pipefail
+          kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.33.0/manifests/calico.yaml
+          kubectl rollout status daemonset/calico-node -n kube-system --timeout=300s
+          kubectl wait --for=condition=Ready node --all --timeout=180s
 
       - name: Load images into kind
         run: |
@@ -73,6 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl get networkpolicy selfheal-mcp
+          kubectl get pods -n kube-system -l k8s-app=calico-node -o wide
           HEALER_POD=$(kubectl get pod -l app=selfheal-healer -o jsonpath='{.items[0].metadata.name}')
           test "$(kubectl get networkpolicy selfheal-mcp -o jsonpath='{.spec.ingress[0].from[0].podSelector.matchLabels.app}')" = "selfheal-healer"
           test "$(kubectl get networkpolicy selfheal-mcp -o jsonpath='{.spec.ingress[0].ports[0].port}')" = "8003"
@@ -93,6 +115,24 @@ jobs:
               assert exc.code != 401, f"valid MCP bearer token was rejected: {exc.code}"
           print("MCP bearer authentication passed")
           '
+
+          # A pod without the healer label must not reach the MCP pod. This
+          # times out only when the CNI enforces the ingress NetworkPolicy;
+          # policy object installation alone cannot make this assertion pass.
+          kubectl run mcp-policy-probe --image=python:3.12-alpine --restart=Never \
+            --labels=app=network-policy-probe --command -- sleep 300
+          kubectl wait --for=condition=Ready pod/mcp-policy-probe --timeout=120s
+          MCP_IP=$(kubectl get service selfheal-mcp -o jsonpath='{.spec.clusterIP}')
+          kubectl exec mcp-policy-probe -- env MCP_IP="$MCP_IP" python -c '
+          import os, socket
+          try:
+              socket.create_connection((os.environ["MCP_IP"], 8003), timeout=3)
+          except TimeoutError:
+              print("NetworkPolicy enforcement passed: unselected pod ingress timed out")
+          else:
+              raise AssertionError("unselected pod reached MCP despite healer-only ingress policy")
+          '
+          kubectl delete pod mcp-policy-probe --wait=true
 
       - name: Wait for the migration Job to complete
         run: |

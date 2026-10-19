@@ -51,6 +51,7 @@ from mcp_server.server import mcp
 @pytest.fixture(autouse=True)
 def _deterministic_cli_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("healer.agent_gemini.shutil.which", lambda _name: None)
+    monkeypatch.setattr("healer.cli_common.require_provider_cli_sandbox", lambda _provider: None)
 
 
 @dataclass

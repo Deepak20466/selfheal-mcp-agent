@@ -57,6 +57,23 @@ class CLIError(Exception):
     """Base class for every free-mode CLI backend failure mode."""
 
 
+class CLISandboxUnavailableError(CLIError):
+    """Provider CLI execution is disabled until OS containment is available."""
+
+
+def require_provider_cli_sandbox(provider: str) -> None:
+    """Fail closed: provider CLIs currently have no network-aware OS sandbox.
+
+    Provider CLIs need outbound provider and MCP connectivity, but running
+    them on the host lets their descendants inherit host authority. The
+    repository command sandbox is deliberately not treated as a substitute.
+    """
+    raise CLISandboxUnavailableError(
+        f"{provider} CLI execution is disabled: no verified OS sandbox currently "
+        "contains the provider process, its descendants, and network access"
+    )
+
+
 class CLINotFoundError(CLIError):
     """The CLI executable could not be launched at all."""
 

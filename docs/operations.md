@@ -46,12 +46,12 @@ The app API, CLI-facing healer API, and MCP server use loopback by default. `sel
 Set values in the local `.env` file; never commit it or show it in a recording.
 
 - `AI_BACKEND` selects one provider. `AI_CHAIN` and `CHAT_CHAIN` optionally configure ordered fallbacks.
-- Provider choices include Claude Code, Codex, and Gemini CLIs; the Anthropic API; and Groq, Gemini, and OpenRouter APIs.
-- In the 2026-10-19 audit, Codex CLI completed the 20-scenario repair benchmark. Claude Code CLI was present but unauthenticated, Gemini CLI was unavailable, API calls were mock-tested, and Groq/OpenRouter live checks were historical rather than rerun. See [benchmark.md](benchmark.md) and [VERIFICATION.md](../VERIFICATION.md) for evidence.
+- Provider choices include Claude Code, Codex, and Gemini CLIs; the Anthropic API; and Groq, Gemini, and OpenRouter APIs. **Provider CLI execution currently fails closed** until a network-aware OS sandbox contains the provider and its descendants.
+- The historical Codex CLI benchmark ran before this gate was added and is not a current live-workflow result. Claude Code was unauthenticated, Gemini CLI was unavailable, and API calls were mock-tested in the audit. See [benchmark.md](benchmark.md) and [VERIFICATION.md](../VERIFICATION.md) for evidence.
 - Set `GITHUB_TOKEN` to a fine-grained token restricted to the exact repository, with Metadata read, Contents read/write, Pull requests read/write, Issues read/write, and Actions read/write only when using run retry/cancel or rollback dispatch. Set `GITHUB_REPO` to the intended target and keep `AUTO_MERGE=false`. Do not reuse a production token for a demo repository.
 - The target application's `github_repo` in `config/monitored_apps.yaml` determines where its repair PR is opened. For an isolated demo, use a disposable repository and check this value before starting the services.
 
-The local provider CLI itself is not launched inside the project's AppContainer. Use only repositories you are authorized to share with that provider, and review the limitations in [architecture.md](architecture.md#trust-boundaries).
+Do not remove the CLI execution gate or run provider CLIs against untrusted repositories. Review the blockers in [architecture.md](architecture.md#trust-boundaries) before enabling a provider CLI backend.
 
 ## CLI reference
 
