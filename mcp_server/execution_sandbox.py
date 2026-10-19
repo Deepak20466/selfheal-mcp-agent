@@ -441,7 +441,7 @@ def _run_linux_bubblewrap(
     ]
     for system_path in ("/usr", "/bin", "/sbin", "/lib", "/lib64"):
         if Path(system_path).exists():
-            args.extend(["--ro-bind", system_path, system_path])
+            args.extend(["--dir", system_path, "--ro-bind", system_path, system_path])
     mounted_system_roots = {Path("/usr"), Path("/bin"), Path("/sbin"), Path("/lib"), Path("/lib64")}
     for python_prefix in {Path(sys.base_prefix), Path(sys.prefix)}:
         if not python_prefix.exists() or python_prefix == Path("/usr").resolve():
