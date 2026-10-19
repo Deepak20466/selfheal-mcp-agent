@@ -261,6 +261,8 @@ def test_generation_is_tool_free_and_rejects_paid_response(
     assert completion_url.endswith("/chat/completions")
     assert headers["Authorization"] == f"Bearer {TEST_API_KEY}"
     assert TEST_API_KEY not in json.dumps(payload)
+    assert payload["max_tokens"] == 8192
+    assert payload["reasoning"] == {"effort": "low", "exclude": True}
     assert payload["provider"] == {"allow_fallbacks": False}
     assert payload["usage"] == {"include": True}
     assert "tools" not in payload
