@@ -1,107 +1,64 @@
-# End-to-end demo recording guide
+# Record the OpenRouter repair-to-PR demonstration
 
-This guide describes the intended controlled runtime-failure walkthrough; it is a procedure, not a recording. **The full repair-to-PR recording is currently blocked** because provider CLI execution remains fail-closed and this repository has no provider credential with a verified zero-cost limit. The local Codex login reports ChatGPT authentication, but model use can consume plan allowance or credits; it is not treated as free for this demonstration. The existing [terminal clip](demo-terminal.mp4) is 0:50 and does not show the repair-to-PR flow.
+This demo records the GitHub Actions workflow in
+[openrouter-repair.md](openrouter-repair.md). It does not use the provider CLI,
+a mock response, or a prerecorded transcript. The workflow only opens a repair
+PR; it never merges.
 
-## Required demo target
+## Run only after the gates pass
 
-Use a separate disposable GitHub repository containing this project and its CI workflow. Do not run a deliberately failing demo against `Deepak20466/selfheal-mcp-agent` or another repository with valuable work. The portfolio repository is not the disposable target.
+1. The implementation PR is reviewed and merged, and the default-branch CI run
+   passes the Bubblewrap network, filesystem, secret, and resource-limit probes.
+2. The owner explicitly authorizes three disposable public repositories.
+3. Each repository is allowlisted, has Actions enabled, and is configured to
+   let the job-scoped GITHUB_TOKEN create PRs. Leave automatic merging off.
+4. The owner adds OPENROUTER_API_KEY through each disposable repository's
+   Settings > Secrets and variables > Actions page. Do this only after the
+   security checks pass and the repositories are authorized. Never put the key
+   in chat, source, variables, command arguments, or the recording.
+5. Set SELFHEAL_REPAIR_ENABLED=true and OPENROUTER_FREE_MODEL to an available
+   model ID ending in :free. The inference controller checks the key's current
+   free-model quota, the live catalog price, and the returned model and cost.
+   If any check fails, it stops without a repair PR.
 
-Before recording:
+Use only synthetic code and CI output in these public repositories. OpenRouter
+transmits prompts to the selected model provider; some free providers may retain
+inputs or use them for training. Do not send private code, personal data, or
+secrets.
 
-1. Get the exact disposable repository approved. Confirm GitHub Actions are enabled and that the repository can accept a branch and pull request.
-2. Prepare a clean clone with a fresh local PostgreSQL app database and a separate test database. Follow [operations.md](operations.md).
-3. In the demo clone, set `config/monitored_apps.yaml` so the `target_app` entry points to the disposable repository. The `github_repo` value must match the demo repository. Commit this baseline setup before the recording.
-4. Before configuring a live AI backend, verify from that provider's account settings that the selected inference allowance cannot create paid usage or draw on purchased credits. Do not proceed if that cannot be verified. Configure only the required provider credential, a repository-scoped GitHub App/token, and `.env` values for local PostgreSQL and authentication. Do not put secrets in command arguments, source files, or screen captures.
-5. Confirm automatic merging is disabled in the service. Legacy auto-merge settings cannot enable it; generated PRs always wait for manual review. Start from a clean app database so old errors and PRs do not obscure this run.
-6. Confirm the repo has the seeded `/trigger/zero` controlled failure, a real regression-test command, and a GitHub Actions workflow that runs those tests. Do not use a mock provider, fixture transcript, or fabricated output.
+## Record the real run
 
-Do not run the demo until the provider CLI isolation blocker in [architecture.md](architecture.md#trust-boundaries) is resolved and the repaired boundary has been verified. The demo repository must contain no real credentials or private user data. Do not expose the healer API publicly. This runtime-trigger path needs only local sentinel capture and GitHub's normal PR checks; it does not need a public webhook tunnel.
+For each repository, show the complete timeline in GitHub Actions:
 
-## Prepare the demo clone
+1. Push a deliberately failing source change and regression test to a branch.
+   Capture the failing CI run URL and commit SHA.
+2. Show the repair workflow rejecting unauthorized origins and confirming the
+   same-repository public allowlist.
+3. Show the exact :free model ID, zero-price catalog preflight, and generated
+   patch artifact. Keep credentials and account details off-screen.
+4. Show the separate test job on its own Linux runner, including passing
+   positive/negative probes for network, filesystem, read-only tests, and
+   secret separation. Show the fixed regression command and nonzero test count.
+5. Show the trusted PR job rechecking the patch hash and creating the repair PR.
+   Leave it open for human review.
+6. Show the repair PR's normal CI passing. Capture the CI run URL and PR URL.
 
-Perform setup before recording. The disposable repository's committed `config/monitored_apps.yaml` and the clone's Git remote must both point to that repository.
+If the first candidate fails its regression suite, record the single correction
+attempt and the final passing result. Rate-limit and inference errors are not
+retried. Do not hide failures, substitute fixture output, or merge the repair.
 
-```powershell
-$DemoRepo = "owner/disposable-repo"
-$RepoDir = Join-Path $env:TEMP "selfheal-demo-target"
-gh repo clone $DemoRepo $RepoDir
-Set-Location $RepoDir
-git remote get-url origin
-# Run the secure bootstrap in operations.md, set local .env values, and authenticate the selected AI provider.
-```
+## Recording hygiene
 
-## Exact recording commands
+Use Windows Snipping Tool with Windows+Shift+R or another screen recorder.
+Capture real Actions pages and terminal output, disable notifications, and close
+unrelated tabs. Do not show API-key settings, secrets, personal email, billing
+pages, unrelated repositories, or local paths. Review the export frame by
+frame before sharing it.
 
-Run the commands from the prepared demo clone:
+## Current evidence status
 
-```powershell
-$DemoRepo = "owner/disposable-repo"
-$RepoDir = Join-Path $env:TEMP "selfheal-demo-target"
-Set-Location $RepoDir
-
-# Start the four local processes and authenticate at the hidden password prompt.
-.\.venv\Scripts\selfheal.exe up
-.\.venv\Scripts\selfheal.exe login
-.\.venv\Scripts\selfheal.exe status
-# Clear any stored legacy value; the service does not allow auto-merge.
-.\.venv\Scripts\selfheal.exe apps set target_app --auto-merge off
-```
-
-Open a second terminal tab in the same clone and start the live job monitor before triggering the failure:
-
-```powershell
-$RepoDir = Join-Path $env:TEMP "selfheal-demo-target"
-Set-Location $RepoDir
-.\.venv\Scripts\selfheal.exe watch
-```
-
-In the first tab, trigger the seeded runtime error. Suppress the response body so a traceback cannot reveal local paths:
-
-```powershell
-curl.exe -sS -o NUL -w "HTTP %{http_code}" http://127.0.0.1:8001/trigger/zero
-.\.venv\Scripts\selfheal.exe errors
-```
-
-Keep the monitor visible through diagnosis, patch generation, regression verification, and PR creation. When it reports the PR stage, press Ctrl+C in the monitor tab and inspect the result:
-
-```powershell
-.\.venv\Scripts\selfheal.exe prs
-$PrNumber = Read-Host "Enter the PR number shown by selfheal prs"
-gh pr view $PrNumber --repo $DemoRepo
-gh pr checks $PrNumber --repo $DemoRepo --watch
-```
-
-Show the PR diff to confirm a regression test was added, then the completed Actions checks with a green conclusion. Do not merge. Stop local services afterward:
-
-```powershell
-.\.venv\Scripts\selfheal.exe down
-```
-
-This demonstrates a controlled runtime error followed by AI diagnosis, an automatically proposed code repair, regression-test verification, a GitHub PR, and CI on the PR. The full workflow depends on the approved demo repository and its configured credentials; these steps have not been run against the portfolio repository.
-
-## 3–5 minute edit plan
-
-| Time | Show |
-|---|---|
-| 0:00–0:20 | Project name, architecture, and the disposable target repository |
-| 0:20–0:45 | `selfheal status`; point out the local processes and the manual PR review requirement |
-| 0:45–1:05 | Trigger `/trigger/zero`; show the real HTTP 500 and the captured error |
-| 1:05–2:25 | Show live healer progress and the root-cause explanation; keep real command output visible |
-| 2:25–3:10 | Show the generated code diff and regression test, then verification result |
-| 3:10–4:00 | Open the generated PR and show its successful GitHub Actions checks |
-| 4:00–4:15 | Close on the limitations and link to the benchmark and audit |
-
-If live provider or CI latency exceeds the target, preserve the real sequence and evidence. Cut only idle waiting or speed up actual captured footage; do not fabricate progress, terminal output, screenshots, or a green status.
-
-## Recording setup
-
-No full-flow recording has been made. This execution environment cannot control the Windows desktop or start/stop a screen recorder. The simplest local method is Windows Snipping Tool: press **Windows+Shift+R**, select the terminal/browser region, start recording, then stop with the Snipping Tool toolbar. Save the actual MP4 and review it before publishing:
-
-- Capture the terminal and GitHub PR in 1920×1080; use a second display or record the browser segment separately if region selection cannot include both.
-- Disable desktop notifications and close unrelated tabs. Do not display `.env`, password prompts, token settings, browser profiles, personal email, or local absolute paths.
-- Automatic merging is disabled; do not merge the demo PR. Do not record real credentials or personal information.
-- Review the final export frame by frame and scan terminal text before uploading. Upload the actual full-flow MP4 to the repository's `docs/` folder, then replace the short-clip note and thumbnail link in `README.md` with that real file. Do not add a placeholder or invented external URL.
-
-### Optional failing-CI variant
-
-For a separate CI-failure walkthrough, the repository's `scripts/break_ci_demo.py` changes a genuine assertion in a new branch and prints the manual push/PR commands. Run it only in the approved disposable clone. That CI-fix path repairs an existing PR branch; it does not create the initial PR. The primary runtime-trigger flow above is the one that shows Selfheal opening the repair PR.
+No model completion has been requested, no key has been configured, no live
+repair run or recording exists, and no disposable test repositories have been
+created. The workflow is disabled. The hosted Linux sandbox probes and fresh
+GitHub Actions checks are still required before the owner is asked to authorize
+the three repositories.

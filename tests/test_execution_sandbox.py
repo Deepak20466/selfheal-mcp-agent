@@ -374,3 +374,38 @@ async def test_linux_bubblewrap_enforces_boundaries_and_resource_limits(
         child_marker in " ".join(process.info.get("cmdline") or [])
         for process in psutil.process_iter(["cmdline"])
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="requires Linux Bubblewrap")
+async def test_linux_bubblewrap_can_mount_test_suite_read_only(tmp_path: Path) -> None:
+    if os.geteuid() == 0 or not shutil.which("bwrap"):
+        pytest.skip("Bubblewrap requires a non-root worker and an installed bwrap binary")
+    source = tmp_path / "repo"
+    (source / "src").mkdir(parents=True)
+    (source / "tests").mkdir()
+    test_file = source / "tests" / "test_app.py"
+    test_file.write_text("original", encoding="utf-8")
+    code = (
+        "from pathlib import Path\n"
+        "try:\n"
+        "    Path('tests/test_app.py').write_text('tampered')\n"
+        "except OSError:\n"
+        "    pass\n"
+        "else:\n"
+        "    raise SystemExit('read-only test file was writable')\n"
+        "Path('src/generated.py').write_text('temporary')\n"
+        "print('test suite stayed read-only')\n"
+    )
+
+    result = await run_untrusted_command(
+        [sys.executable, "-c", code],
+        cwd=source,
+        timeout=5,
+        read_only_workspace_paths=("tests",),
+    )
+
+    assert result.get("sandbox") == "bubblewrap", result
+    assert result["passed"] is True, result
+    assert test_file.read_text(encoding="utf-8") == "original"
+    assert not (source / "src" / "generated.py").exists()

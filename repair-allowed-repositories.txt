@@ -1,0 +1,2 @@
+# One exact owner/repository per line. Add repositories only after explicit human authorization.
+Deepak20466/selfheal-mcp-agent

@@ -63,6 +63,11 @@ jobs:
             --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 \
             --proc /proc --dev /dev -- /usr/bin/true
 
+      - name: Verify offline repair sandbox, secret filtering, and filesystem boundary
+        env:
+          SELFHEAL_TEST_SECRET: ci-parent-only-canary
+        run: python scripts/verify_repair_sandbox.py
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

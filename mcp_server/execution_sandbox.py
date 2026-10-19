@@ -318,6 +318,7 @@ async def run_untrusted_command(
     timeout: float,
     merge_stderr: bool = True,
     read_only_paths: Sequence[Path] = (),
+    read_only_workspace_paths: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Run a repo-controlled command in a temp copy under an OS sandbox.
 
@@ -336,10 +337,36 @@ async def run_untrusted_command(
         if not resolved.is_file() and not resolved.is_dir():
             raise ValueError("Sandbox read-only path must be a file or directory")
         allowed_paths.append(resolved)
+    workspace_paths: list[Path] = []
+    for relative_value in read_only_workspace_paths:
+        relative = Path(relative_value)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise ValueError("Sandbox workspace read-only paths must be safe relative paths")
+        candidate = source / relative
+        resolved = candidate.resolve(strict=True)
+        if resolved == source or source not in resolved.parents:
+            raise ValueError("Sandbox workspace read-only path must stay below the repository")
+        if not candidate.is_file() and not candidate.is_dir():
+            raise ValueError("Sandbox workspace read-only path must be a file or directory")
+        current = source
+        for part in relative.parts:
+            current = current / part
+            if _is_reparse_point(current):
+                raise ValueError("Sandbox workspace read-only paths cannot contain links")
+        workspace_paths.append(relative)
     temp_root = Path(tempfile.mkdtemp(prefix="selfheal-exec-sandbox-"))
     workspace = temp_root / "workspace"
     try:
         _snapshot_repo(source, workspace)
+        snapshot_read_only_paths = [workspace / relative for relative in workspace_paths]
+        if any(not path.exists() for path in snapshot_read_only_paths):
+            raise SandboxUnavailableError(
+                "A requested read-only path was excluded from the repository snapshot"
+            )
         child_env = _safe_child_environment(workspace, _command_text(command))
         if isinstance(command, str):
             child_command: str | list[str] = command.replace(str(source), str(workspace))
@@ -362,6 +389,7 @@ async def run_untrusted_command(
                 limits=limits,
                 merge_stderr=merge_stderr,
                 read_only_paths=allowed_paths,
+                read_only_workspace_paths=snapshot_read_only_paths,
             )
         elif sys.platform.startswith("linux"):
             result = await asyncio.to_thread(
@@ -372,6 +400,7 @@ async def run_untrusted_command(
                 limits=limits,
                 merge_stderr=merge_stderr,
                 read_only_paths=allowed_paths,
+                read_only_workspace_paths=snapshot_read_only_paths,
             )
         else:
             raise SandboxUnavailableError(
@@ -416,6 +445,7 @@ def _run_linux_bubblewrap(
     limits: SandboxLimits,
     merge_stderr: bool,
     read_only_paths: Sequence[Path] = (),
+    read_only_workspace_paths: Sequence[Path] = (),
 ) -> _CommandResult:
     # Resolve Bubblewrap only from root-owned system package locations. A
     # caller-controlled PATH must not be able to substitute the executable
@@ -496,6 +526,9 @@ def _run_linux_bubblewrap(
                 continue
             args.extend(["--dir", str(parent)])
         args.extend(["--ro-bind", str(read_only_path), str(read_only_path)])
+    for read_only_path in read_only_workspace_paths:
+        relative = read_only_path.relative_to(cwd)
+        args.extend(["--ro-bind", str(read_only_path), str(Path("/workspace") / relative)])
     if isinstance(command, str):
         args.extend(["--", "/bin/sh", "-lc", command])
     else:
@@ -613,9 +646,14 @@ def _run_windows_appcontainer(
     limits: SandboxLimits,
     merge_stderr: bool,
     read_only_paths: Sequence[Path] = (),
+    read_only_workspace_paths: Sequence[Path] = (),
 ) -> _CommandResult:
     if not sys.platform.startswith("win"):
         raise SandboxUnavailableError("Windows AppContainer is only available on Windows")
+    if read_only_workspace_paths:
+        raise SandboxUnavailableError(
+            "Windows workspace subpath write-deny is not implemented; refusing execution"
+        )
     return _windows_process_boundary(
         command,
         cwd=cwd,
