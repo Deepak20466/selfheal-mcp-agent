@@ -126,9 +126,11 @@ products; do not send private or sensitive code.
 - **demo-01 remains successful evidence:** failed baseline
   [CI run 39344920267](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344920267),
   repair workflow
-  [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966),
-  open review [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11),
-  and passing PR [CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328).
+  [secure Gemini repair run 39377817751](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39377817751),
+  valid review [PR #16](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16),
+  and passing PR [CI run 39377964370](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39377964370).
+  The earlier comment-only Demo-01 PR #11 was invalid, is closed, and is not
+  evidence of a repair.
 - **demo-02 remains an intentionally failing fixture:** seed
   [PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/4).
   Its current OpenRouter attempt

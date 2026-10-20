@@ -7,7 +7,7 @@ never merges.
 
 ## Published full-flow recording
 
-The [1:56 MP4](demo-e2e-repairs.mp4) and [animated preview](demo-e2e-repairs.gif) show the real public GitHub pages for all three successful repair workflows, their generated repair commits, review-only PRs, and passing PR CI. The browser capture returned HTTP 200 for every evidence page. Intro/outro cards and lower-third captions identify each step; the GitHub pages and results are live evidence. No credentials, secret values, or private settings are shown.
+The [2:13 MP4](demo-e2e-repairs.mp4) and [animated preview](demo-e2e-repairs.gif) show live public GitHub pages for all three successful repair workflows, generated fixes, review-only PRs, and passing PR CI. The updated capture includes Demo-01 PR #16's exact +1 correction; its former comment-only PR #11 is closed and excluded. The browser returned HTTP 200 for every evidence page. Intro/outro cards and lower-third captions identify each step; GitHub pages and results are live evidence. No credentials, secret values, or private settings are shown.
 
 ## Run only after the gates pass
 
@@ -23,11 +23,11 @@ The [1:56 MP4](demo-e2e-repairs.mp4) and [animated preview](demo-e2e-repairs.gif
 4. Copy the reviewed controller and workflow to each target's default branch.
    Add the exact repository allowlist entry and set
    `SELFHEAL_REPAIR_ENABLED=true`. Immediately before each Gemini trial, check
-   AI Studio: use a Free Tier project with billing disabled and no purchased
-   credits, then verify positive free quota for each model you may use. Prefer
-   Gemini 3.8 Flash, with Gemini 3.5 Flash-Lite as a backup when both show
-   positive free quota. Set the `GEMINI_*` quota/free-project variables described in
-   [provider setup](openrouter-repair.md).
+   AI Studio: use a Free Tier project with paid billing and purchased credits
+   disabled, then verify positive free quota for the selected model. Use only a
+   model with fresh positive quota, and set its matching `GEMINI_*` variables
+   described in [provider setup](openrouter-repair.md). Skip zero-quota models;
+   do not fall back to a paid provider.
 5. Add `GEMINI_API_KEY` privately at the target repository's **Settings >
    Secrets and variables > Actions > New repository secret** page. Never put
    the key in chat, source, variables, command arguments, or the recording.
@@ -77,10 +77,10 @@ Capture real Actions pages and terminal output with a screen recorder, disable n
 
 | Trial | Secure repair workflow | Review-only repair PR | Passing PR CI |
 |---|---|---|---|
-| demo-01 | [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966) | [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| demo-01 | [secure run 39377817751](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39377817751) — Gemini diagnosed the off-by-one; Bubblewrap test passed 1/1 | [PR #16](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16) — `return left + right + 1` → `return left + right` | [run 39377964370](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39377964370) |
 | demo-02 | [run 39362641443](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362641443) | [PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
 | demo-03 | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) — real Gemini 3.5 Flash-Lite diagnosis and four isolated tests | [PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
 
-Show the controlled failing seed, the actual generated diff, the secret-free sandbox test logs, and the passing PR CI for each trial. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. Explain that PRs are created for human review only and intentionally remain unmerged.
+Show the controlled failing seed, the actual generated diff, the secret-free sandbox test result, and the passing PR CI for each trial. Demo-01 PR #11 was a comment-only proposal and is closed; PR #16 is the valid fix. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. The three valid repair PRs are for human review and intentionally remain unmerged.
 
-The published [full-flow MP4](demo-e2e-repairs.mp4) was captured from the public GitHub UI at 1280x720 and encoded as H.264. The lower-thirds are editorial labels only; every workflow, repair commit, PR, and CI result shown belongs to the linked real run. The separate [50-second terminal walkthrough](demo-terminal.mp4) remains a local CLI overview.
+The updated [full-flow MP4](demo-e2e-repairs.mp4) was captured from live public GitHub pages at 1280x720 and encoded as H.264. The lower-thirds are editorial labels only; every workflow, repair commit, PR, and CI result shown belongs to the linked real run. The separate [50-second terminal walkthrough](demo-terminal.mp4) remains a local CLI overview.
