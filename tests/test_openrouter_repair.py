@@ -47,6 +47,13 @@ def test_source_only_existing_python_patch_is_accepted(tmp_path: Path) -> None:
     assert len(digest) == 64
 
 
+def test_prompt_limits_model_to_one_minimal_implementation_file() -> None:
+    prompt = openrouter_repair._prompt("source", "failure", None)
+
+    assert "smallest possible correction in exactly one" in prompt
+    assert "do not touch any other file" in prompt
+
+
 @pytest.mark.parametrize(
     "patch",
     [
