@@ -137,6 +137,43 @@ def test_free_model_must_be_listed_and_zero_priced(monkeypatch: pytest.MonkeyPat
         openrouter_repair.verify_free_model("vendor/other:free", TEST_API_KEY)
 
 
+def test_free_endpoint_check_requires_live_zero_price_for_exact_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def endpoint_response(url: str, **_kwargs: object) -> dict[str, object]:
+        calls.append(url)
+        return {
+            "data": {
+                "id": "vendor/model:free",
+                "endpoints": [
+                    {"status": 1, "pricing": {"prompt": "0", "completion": "0"}},
+                    {"status": 0, "pricing": {"prompt": "0", "completion": "0"}},
+                ],
+            }
+        }
+
+    monkeypatch.setattr(openrouter_repair, "_request", endpoint_response)
+    openrouter_repair.verify_free_endpoint("vendor/model:free", TEST_API_KEY)
+    assert calls == [f"{openrouter_repair.API_ROOT}/models/vendor/model%3Afree/endpoints"]
+
+    monkeypatch.setattr(
+        openrouter_repair,
+        "_request",
+        lambda *_args, **_kwargs: {
+            "data": {
+                "id": "vendor/model:free",
+                "endpoints": [{"status": 0, "pricing": {"prompt": "0", "completion": "0.001"}}],
+            }
+        },
+    )
+    with pytest.raises(
+        openrouter_repair.InferenceError, match="no currently available zero-priced"
+    ):
+        openrouter_repair.verify_free_endpoint("vendor/model:free", TEST_API_KEY)
+
+
 def test_documented_free_tier_key_metadata_is_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -172,7 +209,7 @@ def test_rate_limit_response_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> 
                 "https://openrouter.ai/api/v1/chat/completions",
                 429,
                 "rate limited",
-                {},
+                {"Retry-After": "7"},
                 None,
             )
 
@@ -182,7 +219,7 @@ def test_rate_limit_response_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> 
         lambda *_handlers: RateLimitedOpener(),
     )
 
-    with pytest.raises(openrouter_repair.InferenceError, match="HTTP 429"):
+    with pytest.raises(openrouter_repair.RateLimitedError, match="HTTP 429") as limited:
         openrouter_repair._request(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {TEST_API_KEY}"},
@@ -190,6 +227,137 @@ def test_rate_limit_response_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> 
         )
 
     assert calls == 1
+    assert limited.value.retry_after == 7
+
+
+def test_rate_limit_waits_only_for_retry_after_and_live_free_endpoint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repository = _repository(tmp_path)
+    failure = tmp_path / "failure.txt"
+    failure.write_text("CI failed", encoding="utf-8")
+    calls: list[str] = []
+    waits: list[int] = []
+
+    def fake_request(
+        url: str, *, headers: dict[str, str], body: bytes | None = None
+    ) -> dict[str, object]:
+        calls.append(url)
+        if url.endswith("/key"):
+            return _free_key_info()
+        if url.endswith("/models"):
+            return {
+                "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
+            }
+        if url.endswith("/endpoints"):
+            return {
+                "data": {
+                    "id": "vendor/model:free",
+                    "endpoints": [{"status": 0, "pricing": {"prompt": "0", "completion": "0"}}],
+                }
+            }
+        if calls.count(url) == 1:
+            raise openrouter_repair.RateLimitedError(2)
+        return {
+            "model": "vendor/model:free",
+            "usage": {"cost": 0, "is_byok": False},
+            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+        }
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
+    monkeypatch.setenv("OPENROUTER_FREE_MODEL", "vendor/model:free")
+    monkeypatch.setattr(openrouter_repair, "_request", fake_request)
+    monkeypatch.setattr(openrouter_repair.time, "sleep", waits.append)
+
+    output = tmp_path / "patch.diff"
+    openrouter_repair.generate_patch(repository, failure, output)
+
+    assert output.read_bytes() == PATCH
+    assert waits == [2]
+    assert calls.count(f"{openrouter_repair.API_ROOT}/chat/completions") == 2
+    assert calls.index(f"{openrouter_repair.API_ROOT}/models/vendor/model%3Afree/endpoints") < max(
+        i for i, call in enumerate(calls) if call.endswith("/chat/completions")
+    )
+
+
+def test_rate_limit_without_retry_after_stops_without_second_completion(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repository = _repository(tmp_path)
+    failure = tmp_path / "failure.txt"
+    failure.write_text("CI failed", encoding="utf-8")
+    completions = 0
+
+    def fake_request(
+        url: str, *, headers: dict[str, str], body: bytes | None = None
+    ) -> dict[str, object]:
+        nonlocal completions
+        if url.endswith("/key"):
+            return _free_key_info()
+        if url.endswith("/models"):
+            return {
+                "data": [
+                    {
+                        "id": "vendor/model:free",
+                        "pricing": {"prompt": "0", "completion": "0"},
+                    }
+                ]
+            }
+        completions += 1
+        raise openrouter_repair.RateLimitedError(None)
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
+    monkeypatch.setenv("OPENROUTER_FREE_MODEL", "vendor/model:free")
+    monkeypatch.setattr(openrouter_repair, "_request", fake_request)
+    with pytest.raises(openrouter_repair.InferenceError, match="without a safe retry window"):
+        openrouter_repair.generate_patch(repository, failure, tmp_path / "patch.diff")
+    assert completions == 1
+
+
+def test_rate_limit_does_not_retry_when_free_endpoint_is_down(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repository = _repository(tmp_path)
+    failure = tmp_path / "failure.txt"
+    failure.write_text("CI failed", encoding="utf-8")
+    completions = 0
+
+    def fake_request(
+        url: str, *, headers: dict[str, str], body: bytes | None = None
+    ) -> dict[str, object]:
+        nonlocal completions
+        if url.endswith("/key"):
+            return _free_key_info()
+        if url.endswith("/models"):
+            return {
+                "data": [
+                    {
+                        "id": "vendor/model:free",
+                        "pricing": {"prompt": "0", "completion": "0"},
+                    }
+                ]
+            }
+        if url.endswith("/endpoints"):
+            return {
+                "data": {
+                    "id": "vendor/model:free",
+                    "endpoints": [{"status": 1, "pricing": {"prompt": "0", "completion": "0"}}],
+                }
+            }
+        completions += 1
+        if completions == 1:
+            raise openrouter_repair.RateLimitedError(0)
+        pytest.fail("completion must not be retried when the free endpoint is down")
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
+    monkeypatch.setenv("OPENROUTER_FREE_MODEL", "vendor/model:free")
+    monkeypatch.setattr(openrouter_repair, "_request", fake_request)
+    monkeypatch.setattr(openrouter_repair.time, "sleep", lambda _seconds: None)
+    with pytest.raises(
+        openrouter_repair.InferenceError, match="no currently available zero-priced"
+    ):
+        openrouter_repair.generate_patch(repository, failure, tmp_path / "patch.diff")
+    assert completions == 1
 
 
 def test_nonzero_model_price_fails_before_completion(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,7 +482,10 @@ def test_generation_is_tool_free_and_rejects_paid_response(
 @pytest.mark.parametrize(
     ("invalid_patch", "rejection_fragment"),
     [
-        (PATCH.replace(b"-return 1", b"-return 9"), "failed git apply --check"),
+        (
+            PATCH.replace(b"-return 1", b"-return 9"),
+            "git apply --check rejected src/app.py at line 1",
+        ),
         (
             b"The likely fix is to remove the extra one. sk-or-v1-" + b"x" * 32,
             "no policy-accepted source diff",
@@ -361,8 +532,22 @@ def test_rejected_candidate_gets_one_bounded_free_correction(
     assert len(completion_prompts) == 2
     assert rejection_fragment in completion_prompts[1]
     assert "<previous_patch>" in completion_prompts[1]
+    if rejection_fragment.startswith("git apply"):
+        assert "<selected_source_context>" in completion_prompts[1]
     assert TEST_API_KEY not in completion_prompts[1]
     assert "sk-or-v1-" not in completion_prompts[1]
+
+
+def test_apply_diagnostic_contains_only_allowlisted_path_and_line(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    invalid_patch = PATCH.replace(b"-return 1", b"-return 9")
+
+    with pytest.raises(PatchRejected) as rejected:
+        validate_patch(invalid_patch, repository)
+
+    message = str(rejected.value)
+    assert "git apply --check rejected src/app.py at line 1" in message
+    assert "return 9" not in message
 
 
 def test_prompt_redacts_openrouter_keys() -> None:
