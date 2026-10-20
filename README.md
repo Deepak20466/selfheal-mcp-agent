@@ -1,14 +1,14 @@
 # Selfheal
 
-AI-assisted repair for runtime and CI failures, with verified fixes and reviewable pull requests.
+AI-assisted repair for runtime and CI failures, with verified, isolated fixes and human-reviewable GitHub pull requests. **Three of three controlled end-to-end repair trials passed (2026-10-20).**
 
 [![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml)
 
 ## Demonstration
 
-[![Watch the recorded terminal walkthrough](docs/demo-terminal.gif)](docs/demo-terminal.mp4)
+[![Watch the three verified end-to-end repair trials](docs/demo-e2e-repairs.gif)](docs/demo-e2e-repairs.mp4)
 
-The linked 0:50 recording is a genuine CLI walkthrough against the running app. It does not show the full AI repair-to-PR flow. A timed end-to-end recording plan, exact commands, and capture instructions are in [docs/demo-recording.md](docs/demo-recording.md); no full-flow footage has been recorded yet.
+**1:56 real-browser recording:** the video follows all three public GitHub repair workflows through the secure workflow result, generated fix commit, review-only repair PR, and passing PR CI. It shows the live GitHub pages with stage captions; it contains no credentials or mock results. All repair PRs remain open for human review. The earlier [50-second terminal walkthrough](docs/demo-terminal.mp4) is a separate local CLI overview.
 
 ## What it does
 
@@ -21,7 +21,11 @@ Selfheal captures application errors and CI failures, gathers repository context
 
 ## Technology
 
-Python 3.11+, FastAPI, Typer/Rich, PostgreSQL, SQLAlchemy/Alembic, MCP, GitHub Actions and API, and pluggable provider adapters. Docker, Helm, and Kubernetes manifests are included; the Kubernetes path is exercised in CI. The local default runs as four native processes and needs no Docker installation.
+Python 3.11+, FastAPI, Typer/Rich, PostgreSQL, SQLAlchemy/Alembic, MCP, GitHub Actions and API, and pluggable provider adapters. Docker, Helm, and Kubernetes manifests are included; the Kubernetes path is exercised in CI. The local default runs as four native processes and needs no Docker installation. Supporting repository code and configuration also use Shell, PowerShell, and Helm's Go templates.
+
+## My contribution
+
+I designed and built the repair agent, MCP integration, provider adapters, patch validation and isolated test flow, GitHub Actions security boundaries, and Docker/Helm/Kubernetes deployment assets. I also ran and documented the three controlled end-to-end repair trials shown above. The repository's CI and Kubernetes checks exercise these project components.
 
 ## Architecture
 
@@ -40,21 +44,27 @@ flowchart LR
 
 The CLI, healer API, and MCP endpoint bind to loopback for local use. Only the sentinel webhook can be exposed, and only with the explicit `selfheal up --public` option. See [docs/architecture.md](docs/architecture.md) for data flow and trust boundaries.
 
-## Verified results
+## Verified status — 2026-10-20
 
-| Evidence | Result |
-|---|---|
-| GitHub Actions CI on merged `main` | **Passed** at [`726b21e`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/726b21ef1067db5a39a026b70b0d24c7d4cbf838); [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386393) |
-| Calico-backed Kubernetes checks | **Passed** on merged `main`; [post-merge run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386387) |
-| Production deployment workflow | Completed with deployment steps skipped; [run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39222386390) |
-| Security follow-up PR #23 (open; review required) | **710 passed, 5 skipped, 3 warnings** in [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574999); [Calico-backed kind](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39258574901) passed destination egress, MCP access, isolated app-database, migration, smoke, and recovery checks. No production deployment occurred. |
-| Repository-authorization follow-up [PR #24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), stacked on #23 | Local PostgreSQL suite: **720 passed, 8 skipped, 3 warnings**; hosted [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153298) and [Calico-backed kind](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39277153207) passed. No deployment occurred. |
-| Provider MCP capability [PR #25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25), stacked on #24 | Head [`7d3a4ff`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/7d3a4ff179f0915cefc1012ff6d6bdd24fb41fec): hosted CI **737 passed, 5 skipped, 3 warnings** and Calico-backed Kubernetes checks passed. Workflow checkout credentials are not persisted; release-write permission and internal DNS names are restricted. Provider CLI execution remains fail-closed. [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291930768) · [Calico](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39291938720) |
-| Secure provider-independent repair workflow | Existing GitHub Actions keeps the secret-free Bubblewrap test job, strict patch policy, and review-only PR step. The in-progress update adds Gemini Pro/Flash first, optional free-plan Groq GPT-OSS, and structured-output OpenRouter fallback. Demo-01 has an open repair [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) with passing CI; demo-02 and demo-03 remain failed seeds awaiting Gemini runs. Gemini quota and account security gates are documented in [provider setup](docs/openrouter-repair.md). Full GO is not yet verified. |
-| Repair benchmark | **20/20** diagnosis labels and repairs on the fixed scenario set; one scenario used a regression retry. See [method and limits](docs/benchmark.md). |
-| Historical live repairs | [PR #10](https://github.com/Deepak20466/selfheal-mcp-agent/pull/10) and [PR #15](https://github.com/Deepak20466/selfheal-mcp-agent/pull/15) verified runtime fixes; [PR #14](https://github.com/Deepak20466/selfheal-mcp-agent/pull/14) demonstrated CI repair and a green rerun. These are historical runs, not a new live repair in the current audit. |
+**GO for the controlled, on-demand AI repair-to-PR demonstration: 3 of 3 independent public test repositories passed.** This is an evidence-backed acceptance result for the tested workflow, **not** a claim of unrestricted, continuously available or commercially certified production readiness.
 
-The benchmark measures a small, fixed fixture suite; it does not predict repair success on arbitrary repositories.
+| Independent trial | Secure repair workflow | Repair pull request | Passing GitHub Actions CI |
+|---|---|---|---|
+| Demo-01 - real free-model repair | [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966) | [Repair PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| Demo-02 - Gemini 3.8 Flash | [run 39362641443](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362641443) | [Repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [CI run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| Demo-03 - Gemini 3.5 Flash-Lite | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) | [Repair PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [CI run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+
+All three trials exercised failed-CI detection, an actual AI-generated patch, policy and applicability validation, isolated regression testing, automated repair PR creation, and passing repair-PR CI. In demo-03, the [secure repair workflow](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) identified multiplication in place of addition, proposed a one-line `*` to `+` change, and passed four offline tests in a Bubblewrap-isolated job.
+
+**Security and control-plane boundaries:** The GitHub Actions inference job receives the selected provider credential; the separate test job is secret-free and network-isolated with Bubblewrap; a trusted PR job verifies the patch artifact and creates review-only pull requests. Strict patch validation, repository allowlists, scoped GitHub permissions, free-provider gates, and human review before merge remain enforced. The original provider **CLI** execution gate remains fail-closed until provider-process containment is independently verified; the successfully tested workflow uses **API inference**, not uncontained CLI execution.
+
+**Supporting verification:** The root repository [CI run 39354678521](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39354678521) and [Kubernetes security run 39354678539](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39354678539) passed. Root security PRs [#39](https://github.com/Deepak20466/selfheal-mcp-agent/pull/39) and [#40](https://github.com/Deepak20466/selfheal-mcp-agent/pull/40) were subsequently merged following checks. The earlier [20/20 fixed-fixture benchmark](docs/benchmark.md) is separate, historical evidence; it is not a general reliability guarantee.
+
+**Scope and costs:** The demonstrations used disposable public repositories with synthetic defects and no automatic merging. Provider free-tier eligibility and quota were checked for the relevant trials; reported model usage did not invoke a paid fallback. Overall account billing was not independently audited. API rate limits, model availability, arbitrary-repository success rates, sustained throughput, production-cluster enforcement, and production backup/recovery are **not** established by three trials. The generated repair PRs are intentionally left for review.
+
+**Demo media:** The [1:56 end-to-end recording](docs/demo-e2e-repairs.mp4) captures the three verified GitHub workflows and their actual repair commits, review PRs, and passing CI. The [recording guide](docs/demo-recording.md) lists the source evidence and capture boundaries. The earlier [50-second terminal walkthrough](docs/demo-terminal.mp4) covers the local CLI only.
+
+See the [current verification report](VERIFICATION.md), [provider setup](docs/openrouter-repair.md), and [trust-boundary design](docs/architecture.md) for detailed evidence and limitations.
 
 ## Quick start
 
@@ -73,7 +83,7 @@ Before starting, set an authenticated `AI_BACKEND` in `.env` if you plan to run 
 
 ## Limits and safety
 
-This is an engineering project, not a production certification for unattended repair of arbitrary repositories. Provider CLI execution currently fails closed because the provider and descendant processes lack verified OS containment. A future provider session receives a short-lived, job/worktree-scoped MCP token; that limits tool access but does not provide process or network isolation. Kubernetes policy enforcement, live hostile-repository and multi-repository reliability, and deployment recovery tests remain incomplete. Review [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and the [sandbox trust-boundary notes](docs/architecture.md#trust-boundaries) before connecting a repository.
+The tested on-demand repair-to-PR workflow has a **GO result for three controlled public fixtures**. It is not a certification for unattended repairs to arbitrary production repositories. AI output can fail to apply, provider rate limits and timeouts can prevent completion, and published free-tier models can change. CLI-based provider execution still fails closed without verified OS containment. Generated repair PRs require human review and are not auto-merged. Do not expose secrets or use private source with free providers unless their data-handling terms are acceptable. See [VERIFICATION.md](VERIFICATION.md), [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md), and [docs/architecture.md](docs/architecture.md).
 
 ## Documentation
 

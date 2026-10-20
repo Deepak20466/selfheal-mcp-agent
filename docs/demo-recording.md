@@ -5,6 +5,10 @@ This demo records the GitHub Actions workflow in
 not a mock or prerecorded transcript. The workflow only opens a repair PR; it
 never merges.
 
+## Published full-flow recording
+
+The [1:56 MP4](demo-e2e-repairs.mp4) and [animated preview](demo-e2e-repairs.gif) show the real public GitHub pages for all three successful repair workflows, their generated repair commits, review-only PRs, and passing PR CI. The browser capture returned HTTP 200 for every evidence page. Intro/outro cards and lower-third captions identify each step; the GitHub pages and results are live evidence. No credentials, secret values, or private settings are shown.
+
 ## Run only after the gates pass
 
 1. The implementation PR is reviewed and merged, and the default-branch CI run
@@ -66,33 +70,17 @@ failures, substitute fixture output, or merge the repair.
 
 ## Recording hygiene
 
-Use Windows Snipping Tool with Windows+Shift+R or another screen recorder.
-Capture real Actions pages and terminal output, disable notifications, and close
-unrelated tabs. Do not show API-key settings, secrets, personal email, billing
-pages, unrelated repositories, or local paths. Review the export frame by
-frame before sharing it.
+Capture real Actions pages and terminal output with a screen recorder, disable notifications, and close unrelated tabs. Do not show API-key settings, secrets, personal email, billing pages, unrelated repositories, or local paths. Review the export before sharing it.
+## Current evidence status — 2026-10-20
 
-## Current evidence status
+**Three out of three independent public fixture trials passed the controlled repair-to-PR acceptance criteria.** The [published recording](demo-e2e-repairs.mp4) follows these real evidence pages:
 
-The successful demo-01 evidence is retained: failed baseline
-[CI run 39344920267](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344920267),
-repair workflow
-[run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966),
-open repair [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11),
-and passing PR
-[CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328).
-Demo-02's seed is still open at
-[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/4); its latest
-OpenRouter inference stopped on free quota at
-[run 39351221640](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39351221640).
-Demo-03's seed is still open at
-[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/4); its latest
-OpenRouter attempt produced a stale patch at
-[run 39351224824](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39351224824).
-The Gemini Actions secret and Free Tier attestation are now configured in both
-target repositories. An earlier Gemini 2.5 attempt stopped safely when Google
-returned HTTP 404. The updated controller now prioritizes Gemini 3.8 Flash and
-uses Gemini 3.5 Flash-Lite as the next separately quota-confirmed candidate.
-That controller update and fresh quota checks must reach each target before
-the two real Gemini trials; neither target currently counts as a successful
-Gemini trial. The three-trial acceptance check remains incomplete.
+| Trial | Secure repair workflow | Review-only repair PR | Passing PR CI |
+|---|---|---|---|
+| demo-01 | [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966) | [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| demo-02 | [run 39362641443](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362641443) | [PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| demo-03 | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) — real Gemini 3.5 Flash-Lite diagnosis and four isolated tests | [PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+
+Show the controlled failing seed, the actual generated diff, the secret-free sandbox test logs, and the passing PR CI for each trial. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. Explain that PRs are created for human review only and intentionally remain unmerged.
+
+The published [full-flow MP4](demo-e2e-repairs.mp4) was captured from the public GitHub UI at 1280x720 and encoded as H.264. The lower-thirds are editorial labels only; every workflow, repair commit, PR, and CI result shown belongs to the linked real run. The separate [50-second terminal walkthrough](demo-terminal.mp4) remains a local CLI overview.
