@@ -50,6 +50,10 @@ class FreeQuotaUnavailable(ProviderError):
     """A provider has no usable verified free quota for this request."""
 
 
+class GeminiModelTemporarilyUnavailable(ProviderError):
+    """A Gemini model is temporarily unavailable or overloaded."""
+
+
 @dataclass(frozen=True)
 class ProviderCompletion:
     provider: str
@@ -105,6 +109,10 @@ def _request_json(
             # free-tier Gemini candidates or other independently gated
             # providers.
             raise FreeQuotaUnavailable("Gemini model is unavailable to this project") from None
+        if provider == "Gemini" and exc.code == 503:
+            raise GeminiModelTemporarilyUnavailable(
+                "Gemini model is temporarily unavailable"
+            ) from None
         raise ProviderError(f"{provider} returned HTTP {exc.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise ProviderError(f"{provider} request failed ({type(exc).__name__})") from None
@@ -301,11 +309,11 @@ class GeminiProvider:
         models = self._eligible_models()
         if not models:
             raise FreeQuotaUnavailable("no confirmed free Gemini model is currently available")
-        unavailable: FreeQuotaUnavailable | None = None
+        unavailable: ProviderError | None = None
         for model in models:
             try:
                 return self._generate(model, prompt)
-            except FreeQuotaUnavailable as exc:
+            except (FreeQuotaUnavailable, GeminiModelTemporarilyUnavailable) as exc:
                 unavailable = exc
         raise unavailable or FreeQuotaUnavailable("Gemini free quota is unavailable")
 
