@@ -21,7 +21,11 @@ Selfheal captures application errors and CI failures, gathers repository context
 
 ## Technology
 
-Python 3.11+, FastAPI, Typer/Rich, PostgreSQL, SQLAlchemy/Alembic, MCP, GitHub Actions and API, and pluggable provider adapters. Docker, Helm, and Kubernetes manifests are included; the Kubernetes path is exercised in CI. The local default runs as four native processes and needs no Docker installation.
+Python 3.11+, FastAPI, Typer/Rich, PostgreSQL, SQLAlchemy/Alembic, MCP, GitHub Actions and API, and pluggable provider adapters. Docker, Helm, and Kubernetes manifests are included; the Kubernetes path is exercised in CI. The local default runs as four native processes and needs no Docker installation. Supporting repository code and configuration also use Shell, PowerShell, and Helm's Go templates.
+
+## My contribution
+
+I designed and built the repair agent, MCP integration, provider adapters, patch validation and isolated test flow, GitHub Actions security boundaries, and Docker/Helm/Kubernetes deployment assets. I also ran and documented the three controlled end-to-end repair trials shown above. The repository's CI and Kubernetes checks exercise these project components.
 
 ## Architecture
 
