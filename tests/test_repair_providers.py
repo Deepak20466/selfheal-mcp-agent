@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from scripts import openrouter_repair
+from scripts import openrouter_repair, repair_providers
 from scripts.repair_providers import (
     FreeQuotaUnavailable,
     GeminiProvider,
@@ -38,9 +39,9 @@ def _response(patch: bytes = PATCH, diagnosis: str = "The return value is incorr
     return json.dumps({"diagnosis": diagnosis, "patch": patch.decode()})
 
 
-def _gemini_payload(prompt: str) -> dict[str, Any]:
+def _gemini_payload(prompt: str, model: str = "gemini-2.5-pro") -> dict[str, Any]:
     return {
-        "modelVersion": "gemini-2.5-pro",
+        "modelVersion": model,
         "candidates": [
             {
                 "finishReason": "STOP",
@@ -142,6 +143,98 @@ def test_gemini_uses_flash_when_pro_quota_is_exhausted() -> None:
     assert selected == ["gemini-2.5-pro", "gemini-2.5-flash"]
 
 
+def test_gemini_prefers_confirmed_free_38_flash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "true")
+    output = _response()
+    selected: list[str] = []
+
+    def request_json(
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: bytes | None = None,
+        provider: str,
+    ) -> dict[str, Any]:
+        if url.endswith("/models?pageSize=100"):
+            return _gemini_model_list("gemini-3.8-flash", "gemini-2.5-pro", "gemini-2.5-flash")
+        selected.append(url.split("/models/", 1)[1].split(":", 1)[0])
+        return _gemini_payload(output, "gemini-3.8-flash")
+
+    client = GeminiProvider(
+        GEMINI_KEY,
+        project_free_tier_confirmed="true",
+        pro_quota_confirmed="false",
+        flash_quota_confirmed="true",
+        quota_checked_utc=_fresh_quota_check(),
+        request_json=request_json,
+    )
+
+    result = client.complete("prompt")
+
+    assert result.model == "gemini-3.8-flash"
+    assert selected == ["gemini-3.8-flash"]
+
+
+def test_gemini_skips_404_model_and_uses_next_confirmed_free_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "true")
+    monkeypatch.setenv("GEMINI_35_FLASH_LITE_FREE_QUOTA", "true")
+    output = _response()
+    selected: list[str] = []
+
+    def request_json(
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: bytes | None = None,
+        provider: str,
+    ) -> dict[str, Any]:
+        if url.endswith("/models?pageSize=100"):
+            return _gemini_model_list("gemini-3.8-flash", "gemini-3.5-flash-lite")
+        model = url.split("/models/", 1)[1].split(":", 1)[0]
+        selected.append(model)
+        if model == "gemini-3.8-flash":
+            raise FreeQuotaUnavailable("Gemini model is unavailable to this project")
+        return _gemini_payload(output, model)
+
+    client = GeminiProvider(
+        GEMINI_KEY,
+        project_free_tier_confirmed="true",
+        pro_quota_confirmed="false",
+        flash_quota_confirmed="false",
+        quota_checked_utc=_fresh_quota_check(),
+        request_json=request_json,
+    )
+
+    result = client.complete("prompt")
+
+    assert result.model == "gemini-3.5-flash-lite"
+    assert selected == ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+
+
+def test_gemini_404_is_model_unavailability_not_a_paid_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class NotFoundOpener:
+        def open(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise urllib.error.HTTPError("https://example.invalid", 404, "Not Found", None, None)
+
+    monkeypatch.setattr(
+        repair_providers.urllib.request,
+        "build_opener",
+        lambda *_args: NotFoundOpener(),
+    )
+
+    with pytest.raises(FreeQuotaUnavailable, match="model is unavailable"):
+        repair_providers._request_json(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            headers={"x-goog-api-key": GEMINI_KEY},
+            body=b"{}",
+            provider="Gemini",
+        )
+
+
 def test_gemini_requires_free_project_and_positive_model_quota_before_http() -> None:
     calls = 0
 
@@ -167,7 +260,9 @@ def test_gemini_requires_free_project_and_positive_model_quota_before_http() -> 
         quota_checked_utc=_fresh_quota_check(),
         request_json=request_json,
     )
-    with pytest.raises(FreeQuotaUnavailable, match="no confirmed free quota"):
+    with pytest.raises(
+        FreeQuotaUnavailable, match="no supported Gemini model has confirmed free quota"
+    ):
         no_quota_confirmation.complete("prompt")
     assert calls == 0
 
