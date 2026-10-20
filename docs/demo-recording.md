@@ -72,27 +72,16 @@ unrelated tabs. Do not show API-key settings, secrets, personal email, billing
 pages, unrelated repositories, or local paths. Review the export frame by
 frame before sharing it.
 
-## Current evidence status
+## Current evidence status — 2026-10-20
 
-The successful demo-01 evidence is retained: failed baseline
-[CI run 39344920267](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344920267),
-repair workflow
-[run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966),
-open repair [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11),
-and passing PR
-[CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328).
-Demo-02's seed is still open at
-[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/4); its latest
-OpenRouter inference stopped on free quota at
-[run 39351221640](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39351221640).
-Demo-03's seed is still open at
-[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/4); its latest
-OpenRouter attempt produced a stale patch at
-[run 39351224824](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39351224824).
-The Gemini Actions secret and Free Tier attestation are now configured in both
-target repositories. An earlier Gemini 2.5 attempt stopped safely when Google
-returned HTTP 404. The updated controller now prioritizes Gemini 3.8 Flash and
-uses Gemini 3.5 Flash-Lite as the next separately quota-confirmed candidate.
-That controller update and fresh quota checks must reach each target before
-the two real Gemini trials; neither target currently counts as a successful
-Gemini trial. The three-trial acceptance check remains incomplete.
+**Three out of three independent public fixture trials passed the controlled repair-to-PR acceptance criteria.** Use these genuine GitHub pages as the basis for a recorded walkthrough:
+
+| Trial | Secure repair workflow | Review-only repair PR | Passing PR CI |
+|---|---|---|---|
+| demo-01 | [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966) | [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| demo-02 | [repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) documents the triggering failed CI | [PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| demo-03 | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) — real Gemini 3.5 Flash-Lite diagnosis and four isolated tests | [PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+
+Show the controlled failing seed, the actual generated diff, the secret-free sandbox test logs, and the passing PR CI for each trial. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. Explain that PRs are created for human review only and intentionally remain unmerged.
+
+The originally recorded [50-second terminal video](demo-terminal.mp4) is **not** this full three-trial demonstration. The documentation and linked Actions pages are published; the new video still needs to be recorded. Do not claim a recording exists before it has been captured and reviewed.
