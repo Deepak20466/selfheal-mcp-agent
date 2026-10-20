@@ -120,6 +120,41 @@ def _verify_regular_existing_file(root: Path, relative: PurePosixPath) -> Path:
     return root / Path(*relative.parts)
 
 
+def _safe_apply_diagnostic(output: bytes, paths: list[PurePosixPath], root: Path) -> str:
+    """Expose only a validated source path and numeric Git apply location."""
+    allowed = {path.as_posix() for path in paths}
+    text = output.decode("utf-8", errors="replace")
+    patterns = (
+        re.compile(r"^error: patch failed: ([A-Za-z0-9_./-]+):(\d+)$"),
+        re.compile(r"^error: ([A-Za-z0-9_./-]+): patch does not apply$"),
+    )
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        for pattern in patterns:
+            match = pattern.fullmatch(line)
+            if match and match.group(1) in allowed:
+                if match.lastindex == 2:
+                    number = int(match.group(2))
+                    source = root / Path(*PurePosixPath(match.group(1)).parts)
+                    try:
+                        if source.stat().st_size > 2 * 1024 * 1024:
+                            path = match.group(1)
+                            return f"git apply --check rejected {path} at an unspecified line"
+                        with source.open(encoding="utf-8") as handle:
+                            line_count = sum(1 for _ in handle)
+                    except (OSError, UnicodeError):
+                        line_count = 0
+                    if 1 <= number <= line_count:
+                        return f"git apply --check rejected {match.group(1)} at line {number}"
+                    return f"git apply --check rejected {match.group(1)} at an unspecified line"
+                return f"git apply --check rejected {match.group(1)}"
+        corrupt = re.fullmatch(r"error: corrupt patch at line (\d+)", line)
+        if corrupt:
+            line_number = int(corrupt.group(1))
+            return f"git apply --check rejected a malformed hunk at patch line {line_number}"
+    return "git apply --check rejected the hunk; diagnostic omitted"
+
+
 def validate_patch(patch: bytes, repository: Path, *, check_apply: bool = True) -> str:
     """Validate a small source-only unified diff and optionally run ``git apply --check``."""
     if not patch or len(patch) > MAX_PATCH_BYTES:
@@ -215,7 +250,10 @@ def validate_patch(patch: bytes, repository: Path, *, check_apply: bool = True) 
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise PatchRejected("git could not validate patch applicability") from exc
         if result.returncode:
-            raise PatchRejected("patch does not apply cleanly to the selected commit")
+            diagnostic = _safe_apply_diagnostic(result.stdout, paths, root)
+            raise PatchRejected(
+                "patch does not apply cleanly to the selected commit; " + diagnostic
+            )
     return patch_sha256(patch)
 
 
