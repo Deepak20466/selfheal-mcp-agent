@@ -1,5 +1,23 @@
 # Verification report
 
+## Current acceptance status — 2026-10-20
+
+**FULL VERIFIED GO for the explicitly scoped, on-demand AI repair-to-PR demonstration across three synthetic, independent public repositories (3/3).** This statement is grounded in completed GitHub Actions runs and repair pull requests, not an independent production certification. It supersedes the **current-state claims** in the dated historical audit below.
+
+| Trial | Result | Evidence |
+|---|---|---|
+| demo-01 | **PASS** — generated patch, isolated tests and passing PR CI | [Repair PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11); [passing CI](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| demo-02 | **PASS** — Gemini 3.8 Flash repair and passing PR CI | [Repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13); [passing CI](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| demo-03 | **PASS** — Gemini 3.5 Flash-Lite corrected `*` to `+`, four sandbox tests, passing PR CI | [repair workflow](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704); [Repair PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10); [passing CI](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+
+**System controls verified for this scope:** failed-CI intake, actual model inference, strict patch checks, secret-free isolated testing, GitHub PR artifact verification, passing PR CI, and a human-review-only merge policy. [Root CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39354678521) and [Calico/kind Kubernetes security CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39354678539) passed. Root PRs [#39](https://github.com/Deepak20466/selfheal-mcp-agent/pull/39) and [#40](https://github.com/Deepak20466/selfheal-mcp-agent/pull/40) were merged, preserving the free-only provider selection and bounded fallback safeguards. The native Codex/Claude/Gemini **CLI** execution gate still fails closed; the validated workflow uses a separate API inference job.
+
+**Boundaries:** Three successful synthetic examples do not measure general patch accuracy, resilience to prolonged 429/503 errors, sustained 24/7 operation, production traffic, or real-world commercial deployment security. Production database recovery and unrestricted provider egress have not been verified. Provider model pricing and quotas can change; no paid fallback was used in the described trials, but the entire user's account billing ledger was not audited. Demo repair PRs were left open, not merged. No full end-to-end screen recording has been created; the older 0:50 terminal video is not full workflow evidence.
+
+## Historical audit retained for traceability (status as of 2026-10-19)
+
+The following material documents earlier branches, test counts, and **then-open** PRs. It remains useful as dated engineering history, but references to incomplete three-repository testing and unmerged PRs are **not the current repository status**.
+
 **Report date:** 2026-10-19
 **Prior full local audit:** Windows 11 / Python 3.11.9 with disposable PostgreSQL 16.2
 **Current publication state:** PR #22 is merged into `main`; security follow-up PR [#23](https://github.com/Deepak20466/selfheal-mcp-agent/pull/23), stacked follow-up [#24](https://github.com/Deepak20466/selfheal-mcp-agent/pull/24), and provider MCP capability PR [#25](https://github.com/Deepak20466/selfheal-mcp-agent/pull/25) are open and unmerged. PR #23's checks pass but branch protection still requires review. PR #24 is based on #23; its latest head `1b2da8c` passed `test` and the PR-triggered Calico-backed `k8s` check. PR #25 is stacked on #24; both hosted CI runs and Calico-backed Kubernetes passed on `60c490c`. No production deployment occurred.
