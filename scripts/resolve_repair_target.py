@@ -63,7 +63,11 @@ def resolve(event: dict[str, Any], allowlist: Path, expected_repository: str) ->
             if isinstance(base, dict):
                 base_branch = _string(base.get("ref"))
     if not base_branch:
-        base_branch = _string(repository.get("default_branch"))
+        # A failed push run must create a repair against the branch that
+        # actually failed.  Using the repository default here makes a patch
+        # get tested/applied against the wrong source tree for seed/feature
+        # branches. Pull request runs still use their declared base above.
+        base_branch = head_branch or _string(repository.get("default_branch"))
     if not _SHA.fullmatch(head_sha):
         raise ValueError("workflow run did not provide a full commit SHA")
     if (

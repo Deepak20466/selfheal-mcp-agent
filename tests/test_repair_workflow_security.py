@@ -99,6 +99,15 @@ def test_prepare_rejects_fork_ci_and_nonfailed_or_non_ci_runs(tmp_path: Path) ->
     }
     assert resolve(event, allowlist, "example/app")["base"] == "main"
 
+    push_event = {
+        **event,
+        "workflow_run": {
+            **event["workflow_run"],
+            "head_branch": "trial/seed-ci-failure",
+        },
+    }
+    assert resolve(push_event, allowlist, "example/app")["base"] == "trial/seed-ci-failure"
+
     fork_event = {
         **event,
         "workflow_run": {**event["workflow_run"], "head_repository": {"full_name": "evil/app"}},

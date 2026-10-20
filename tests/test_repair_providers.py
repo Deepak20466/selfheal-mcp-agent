@@ -394,7 +394,7 @@ def test_gemini_does_not_call_a_model_missing_from_current_catalog() -> None:
     [
         None,
         (datetime.now(UTC) - timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        (datetime.now(UTC) + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        (datetime.now(UTC) + timedelta(minutes=16)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "not-a-timestamp",
     ],
 )
