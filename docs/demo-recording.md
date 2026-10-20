@@ -20,17 +20,17 @@ never merges.
    Add the exact repository allowlist entry and set
    `SELFHEAL_REPAIR_ENABLED=true`. Immediately before each Gemini trial, check
    AI Studio: use a Free Tier project with billing disabled and no purchased
-   credits, then verify positive free quota for Pro and/or Flash. Set the
-   four `GEMINI_*` quota/free-project variables described in
+   credits, then verify positive free quota for each model you may use. Prefer
+   Gemini 3.8 Flash, with Gemini 3.5 Flash-Lite as a backup when both show
+   positive free quota. Set the `GEMINI_*` quota/free-project variables described in
    [provider setup](openrouter-repair.md).
 5. Add `GEMINI_API_KEY` privately at the target repository's **Settings >
    Secrets and variables > Actions > New repository secret** page. Never put
    the key in chat, source, variables, command arguments, or the recording.
    Only inference jobs receive it. Google does not expose remaining
    project-specific quota through its API-key API, so the fresh AI Studio check
-   and billing-disabled project are required. Pro is tried first; Flash is
-   used only when its own free quota was confirmed or Pro returns a free quota
-   response.
+   and billing-disabled project are required. Gemini candidates are tried in
+   preference order only when their own free quota was confirmed.
 
 Use only synthetic code and CI output in these public repositories. OpenRouter
 transmits prompts to the selected model provider; some free providers may retain
@@ -89,6 +89,10 @@ Demo-03's seed is still open at
 [PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/4); its latest
 OpenRouter attempt produced a stale patch at
 [run 39351224824](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39351224824).
-Neither result counts as a Gemini trial. The Gemini key is not present in the
-demo-02 or demo-03 Actions secrets, and the updated controller has not yet run
-there. The three-trial acceptance check is therefore incomplete.
+The Gemini Actions secret and Free Tier attestation are now configured in both
+target repositories. An earlier Gemini 2.5 attempt stopped safely when Google
+returned HTTP 404. The updated controller now prioritizes Gemini 3.8 Flash and
+uses Gemini 3.5 Flash-Lite as the next separately quota-confirmed candidate.
+That controller update and fresh quota checks must reach each target before
+the two real Gemini trials; neither target currently counts as a successful
+Gemini trial. The three-trial acceptance check remains incomplete.

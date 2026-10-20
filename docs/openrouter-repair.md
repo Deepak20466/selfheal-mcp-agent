@@ -9,9 +9,13 @@ offline sandbox, and opens a review PR. It never merges.
 
 ## Provider order and free-only gates
 
-1. **Google Gemini API:** use `gemini-2.5-pro` first when its AI Studio
-   project quota was just confirmed positive; use `gemini-2.5-flash` if Pro is
-   not enabled or returns a free quota/rate-limit response. Before inference,
+1. **Google Gemini API:** use `gemini-3.8-flash` first when its AI Studio
+   project quota was just confirmed positive, followed by
+   `gemini-3.5-flash-lite`, then any separately confirmed-free legacy Gemini
+   fallback (`gemini-2.5-pro`, `gemini-2.5-flash`, or
+   `gemini-2.5-flash-lite`). Gemini model
+   inaccessibility and free quota/rate-limit responses skip only that model.
+   Before inference,
    the controller requires the owner-set free-project and model-quota flags
    and checks the live model list for `generateContent` support. It does not
    send an inference request to a model whose quota flag is false.
@@ -30,8 +34,11 @@ offline sandbox, and opens a review PR. It never merges.
    disables provider routing fallbacks and discards any completion unless
    OpenRouter reports the exact model, zero cost, and `is_byok=false`.
 
-Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists
-Free Tier input/output for Gemini 2.5 Pro and Flash. The [rate-limit
+Google's [model guide](https://ai.google.dev/gemini-api/docs/models) lists
+`gemini-3.8-flash` and `gemini-3.5-flash-lite` as supported exact API model
+IDs. Its [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists
+Free Tier input/output for both. The model guide currently limits 2.5 model
+access to projects with prior active use. The [rate-limit
 guide](https://ai.google.dev/gemini-api/docs/rate-limits) says limits are
 project-specific and visible in AI Studio; an API-key-only caller cannot query
 the remaining quota. For that reason, the workflow requires an operator check
@@ -53,14 +60,20 @@ checking the project:
   free quota for `gemini-2.5-pro`; otherwise set it to `false`.
 - `GEMINI_25_FLASH_FREE_QUOTA=true` only when the AI Studio view shows usable
   free quota for `gemini-2.5-flash`; otherwise set it to `false`.
+- `GEMINI_38_FLASH_FREE_QUOTA=true` only when the AI Studio view shows usable
+  free quota for `gemini-3.8-flash`; otherwise set it to `false`.
+- `GEMINI_35_FLASH_LITE_FREE_QUOTA=true` only when the AI Studio view shows
+  usable free quota for `gemini-3.5-flash-lite`; otherwise set it to `false`.
+- `GEMINI_25_FLASH_LITE_FREE_QUOTA=true` only when the AI Studio view shows
+  usable free quota for `gemini-2.5-flash-lite`; otherwise set it to `false`.
 
 The model flags are a fresh operator confirmation, not a claim that Google
-exposes remaining quota through the API. If the quota is used up after the
-check, the API returns a quota/rate-limit error; the controller may then move
-from Pro to confirmed-free Flash. With billing disabled, the call cannot use a
-paid Gemini tier. It will stop safely if neither model has usable free quota.
-Update the timestamp immediately before triggering each repair trial; it is
-passed only to the inference jobs and expires after 15 minutes.
+exposes remaining quota through the API. If a model returns a quota, access, or
+not-found response, the controller moves only to the next separately
+confirmed-free model. With billing disabled, the call cannot use a paid Gemini
+tier. It stops safely if no confirmed-free model is available. Update the
+timestamp immediately before triggering each repair trial; it is passed only
+to the inference jobs and expires after 15 minutes.
 
 ## Private credentials
 
