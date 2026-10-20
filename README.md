@@ -6,9 +6,9 @@ AI-assisted repair for runtime and CI failures, with verified, isolated fixes an
 
 ## Demonstration
 
-[![Watch the recorded terminal walkthrough](docs/demo-terminal.gif)](docs/demo-terminal.mp4)
+[![Watch the three verified end-to-end repair trials](docs/demo-e2e-repairs.gif)](docs/demo-e2e-repairs.mp4)
 
-The linked 0:50 recording is a genuine CLI walkthrough against the running app. It does not show the full AI repair-to-PR flow. A timed end-to-end recording plan, exact commands, and capture instructions are in [docs/demo-recording.md](docs/demo-recording.md); no full-flow footage has been recorded yet.
+**1:56 real-browser recording:** the video follows all three public GitHub repair workflows through the secure workflow result, generated fix commit, review-only repair PR, and passing PR CI. It shows the live GitHub pages with stage captions; it contains no credentials or mock results. All repair PRs remain open for human review. The earlier [50-second terminal walkthrough](docs/demo-terminal.mp4) is a separate local CLI overview.
 
 ## What it does
 
@@ -44,11 +44,11 @@ The CLI, healer API, and MCP endpoint bind to loopback for local use. Only the s
 
 **GO for the controlled, on-demand AI repair-to-PR demonstration: 3 of 3 independent public test repositories passed.** This is an evidence-backed acceptance result for the tested workflow, **not** a claim of unrestricted, continuously available or commercially certified production readiness.
 
-| Independent trial | Repair pull request | Passing GitHub Actions CI |
-|---|---|---|
-| Demo-01 — real free-model repair | [Repair PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
-| Demo-02 — Gemini 3.8 Flash | [Repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [CI run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
-| Demo-03 — Gemini 3.5 Flash-Lite | [Repair PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [CI run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+| Independent trial | Secure repair workflow | Repair pull request | Passing GitHub Actions CI |
+|---|---|---|---|
+| Demo-01 - real free-model repair | [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966) | [Repair PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) | [CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328) |
+| Demo-02 - Gemini 3.8 Flash | [run 39362641443](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362641443) | [Repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [CI run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| Demo-03 - Gemini 3.5 Flash-Lite | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) | [Repair PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [CI run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
 
 All three trials exercised failed-CI detection, an actual AI-generated patch, policy and applicability validation, isolated regression testing, automated repair PR creation, and passing repair-PR CI. In demo-03, the [secure repair workflow](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) identified multiplication in place of addition, proposed a one-line `*` to `+` change, and passed four offline tests in a Bubblewrap-isolated job.
 
@@ -58,7 +58,7 @@ All three trials exercised failed-CI detection, an actual AI-generated patch, po
 
 **Scope and costs:** The demonstrations used disposable public repositories with synthetic defects and no automatic merging. Provider free-tier eligibility and quota were checked for the relevant trials; reported model usage did not invoke a paid fallback. Overall account billing was not independently audited. API rate limits, model availability, arbitrary-repository success rates, sustained throughput, production-cluster enforcement, and production backup/recovery are **not** established by three trials. The generated repair PRs are intentionally left for review.
 
-**Demo media:** The linked [50-second terminal walkthrough](docs/demo-terminal.mp4) is an earlier CLI overview, **not** a recording of the three completed repair-to-PR trials. Use the verified Actions and PR links above, or follow the [full recording guide](docs/demo-recording.md) to capture a new screen recording. No full end-to-end recording is currently published.
+**Demo media:** The [1:56 end-to-end recording](docs/demo-e2e-repairs.mp4) captures the three verified GitHub workflows and their actual repair commits, review PRs, and passing CI. The [recording guide](docs/demo-recording.md) lists the source evidence and capture boundaries. The earlier [50-second terminal walkthrough](docs/demo-terminal.mp4) covers the local CLI only.
 
 See the [current verification report](VERIFICATION.md), [provider setup](docs/openrouter-repair.md), and [trust-boundary design](docs/architecture.md) for detailed evidence and limitations.
 
