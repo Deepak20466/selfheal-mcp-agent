@@ -1,4 +1,4 @@
-"""Validation shared by the OpenRouter repair workflow's trusted jobs.
+"""Validation shared by trusted provider-independent repair jobs.
 
 This module only parses data. It never imports or executes the target repository.
 """
