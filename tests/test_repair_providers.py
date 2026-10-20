@@ -13,6 +13,7 @@ import pytest
 from scripts import openrouter_repair, repair_providers
 from scripts.repair_providers import (
     FreeQuotaUnavailable,
+    GeminiModelTemporarilyUnavailable,
     GeminiProvider,
     GroqProvider,
     ProviderCompletion,
@@ -213,6 +214,44 @@ def test_gemini_skips_404_model_and_uses_next_confirmed_free_model(
     assert selected == ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
 
 
+def test_gemini_falls_back_to_next_confirmed_model_on_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "true")
+    monkeypatch.setenv("GEMINI_35_FLASH_LITE_FREE_QUOTA", "true")
+    output = _response()
+    selected: list[str] = []
+
+    def request_json(
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: bytes | None = None,
+        provider: str,
+    ) -> dict[str, Any]:
+        if url.endswith("/models?pageSize=100"):
+            return _gemini_model_list("gemini-3.8-flash", "gemini-3.5-flash-lite")
+        model = url.split("/models/", 1)[1].split(":", 1)[0]
+        selected.append(model)
+        if model == "gemini-3.8-flash":
+            raise GeminiModelTemporarilyUnavailable("Gemini model is temporarily unavailable")
+        return _gemini_payload(output, model)
+
+    client = GeminiProvider(
+        GEMINI_KEY,
+        project_free_tier_confirmed="true",
+        pro_quota_confirmed="false",
+        flash_quota_confirmed="false",
+        quota_checked_utc=_fresh_quota_check(),
+        request_json=request_json,
+    )
+
+    result = client.complete("prompt")
+
+    assert result.model == "gemini-3.5-flash-lite"
+    assert selected == ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+
+
 def test_gemini_404_is_model_unavailability_not_a_paid_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -229,6 +268,30 @@ def test_gemini_404_is_model_unavailability_not_a_paid_retry(
     with pytest.raises(FreeQuotaUnavailable, match="model is unavailable"):
         repair_providers._request_json(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+            headers={"x-goog-api-key": GEMINI_KEY},
+            body=b"{}",
+            provider="Gemini",
+        )
+
+
+def test_gemini_503_is_temporary_model_unavailability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableOpener:
+        def open(self, *_args: Any, **_kwargs: Any) -> Any:
+            raise urllib.error.HTTPError(
+                "https://example.invalid", 503, "Service Unavailable", None, None
+            )
+
+    monkeypatch.setattr(
+        repair_providers.urllib.request,
+        "build_opener",
+        lambda *_args: UnavailableOpener(),
+    )
+
+    with pytest.raises(GeminiModelTemporarilyUnavailable, match="temporarily unavailable"):
+        repair_providers._request_json(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
             headers={"x-goog-api-key": GEMINI_KEY},
             body=b"{}",
             provider="Gemini",
