@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,38 @@ index 1111111..2222222 100644
 +return 2
 """
 TEST_API_KEY = "sk-or-v1-" + "x" * 32
+
+
+def _structured(patch: bytes) -> str:
+    return json.dumps({"diagnosis": "The return value is incorrect.", "patch": patch.decode()})
+
+
+def _content(patch: bytes) -> str:
+    return _structured(patch) if patch.startswith(b"diff --git ") else patch.decode()
+
+
+def _free_endpoint() -> dict[str, object]:
+    return {
+        "data": {
+            "id": "vendor/model:free",
+            "endpoints": [
+                {
+                    "status": 0,
+                    "pricing": {"prompt": "0", "completion": "0"},
+                    "supported_parameters": ["structured_outputs"],
+                }
+            ],
+        }
+    }
+
+
+@pytest.fixture(autouse=True)
+def gemini_has_no_confirmed_quota(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    monkeypatch.setenv("GEMINI_25_PRO_FREE_QUOTA", "false")
+    monkeypatch.setenv("GEMINI_25_FLASH_FREE_QUOTA", "false")
 
 
 def _free_key_info() -> dict[str, object]:
@@ -131,6 +164,7 @@ def test_free_model_must_be_listed_and_zero_priced(monkeypatch: pytest.MonkeyPat
                 {
                     "id": "vendor/model:free",
                     "pricing": {"prompt": "0", "completion": "0"},
+                    "supported_parameters": ["response_format", "structured_outputs"],
                 }
             ]
         },
@@ -155,8 +189,16 @@ def test_free_endpoint_check_requires_live_zero_price_for_exact_variant(
             "data": {
                 "id": "vendor/model:free",
                 "endpoints": [
-                    {"status": 1, "pricing": {"prompt": "0", "completion": "0"}},
-                    {"status": 0, "pricing": {"prompt": "0", "completion": "0"}},
+                    {
+                        "status": 1,
+                        "pricing": {"prompt": "0", "completion": "0"},
+                        "supported_parameters": ["structured_outputs"],
+                    },
+                    {
+                        "status": 0,
+                        "pricing": {"prompt": "0", "completion": "0"},
+                        "supported_parameters": ["structured_outputs"],
+                    },
                 ],
             }
         }
@@ -171,7 +213,13 @@ def test_free_endpoint_check_requires_live_zero_price_for_exact_variant(
         lambda *_args, **_kwargs: {
             "data": {
                 "id": "vendor/model:free",
-                "endpoints": [{"status": 0, "pricing": {"prompt": "0", "completion": "0.001"}}],
+                "endpoints": [
+                    {
+                        "status": 0,
+                        "pricing": {"prompt": "0", "completion": "0.001"},
+                        "supported_parameters": ["structured_outputs"],
+                    }
+                ],
             }
         },
     )
@@ -257,18 +305,13 @@ def test_rate_limit_waits_only_for_retry_after_and_live_free_endpoint(
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
         if url.endswith("/endpoints"):
-            return {
-                "data": {
-                    "id": "vendor/model:free",
-                    "endpoints": [{"status": 0, "pricing": {"prompt": "0", "completion": "0"}}],
-                }
-            }
+            return _free_endpoint()
         if calls.count(url) == 1:
             raise openrouter_repair.RateLimitedError(2)
         return {
             "model": "vendor/model:free",
             "usage": {"cost": 0, "is_byok": False},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
@@ -310,6 +353,8 @@ def test_rate_limit_without_retry_after_stops_without_second_completion(
                     }
                 ]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         completions += 1
         raise openrouter_repair.RateLimitedError(None)
 
@@ -348,7 +393,13 @@ def test_rate_limit_does_not_retry_when_free_endpoint_is_down(
             return {
                 "data": {
                     "id": "vendor/model:free",
-                    "endpoints": [{"status": 1, "pricing": {"prompt": "0", "completion": "0"}}],
+                    "endpoints": [
+                        {
+                            "status": 1,
+                            "pricing": {"prompt": "0", "completion": "0"},
+                            "supported_parameters": ["structured_outputs"],
+                        }
+                    ],
                 }
             }
         completions += 1
@@ -364,7 +415,7 @@ def test_rate_limit_does_not_retry_when_free_endpoint_is_down(
         openrouter_repair.InferenceError, match="no currently available zero-priced"
     ):
         openrouter_repair.generate_patch(repository, failure, tmp_path / "patch.diff")
-    assert completions == 1
+    assert completions == 0
 
 
 def test_nonzero_model_price_fails_before_completion(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -420,10 +471,12 @@ def test_generation_is_tool_free_and_rejects_paid_response(
             return {
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         return {
             "model": "vendor/model:free",
             "usage": {"cost": 0, "is_byok": False},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-" + "x" * 32)
@@ -432,13 +485,14 @@ def test_generation_is_tool_free_and_rejects_paid_response(
 
     assert openrouter_repair.generate_patch(repository, failure, output) == "vendor/model:free"
     assert output.read_bytes() == PATCH
-    completion_url, headers, payload = calls[2]
+    completion_url, headers, payload = calls[3]
     assert completion_url.endswith("/chat/completions")
     assert headers["Authorization"] == f"Bearer {TEST_API_KEY}"
     assert TEST_API_KEY not in json.dumps(payload)
     assert payload["max_tokens"] == 8192
     assert payload["reasoning"] == {"effort": "low", "exclude": True}
-    assert payload["provider"] == {"allow_fallbacks": False}
+    assert payload["provider"] == {"allow_fallbacks": False, "require_parameters": True}
+    assert payload["response_format"]["type"] == "json_schema"
     assert payload["usage"] == {"include": True}
     assert "tools" not in payload
 
@@ -451,10 +505,12 @@ def test_generation_is_tool_free_and_rejects_paid_response(
             return {
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         return {
             "model": "vendor/paid-model",
             "usage": {"cost": 0.01},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setattr(openrouter_repair, "_request", paid_response)
@@ -474,10 +530,12 @@ def test_generation_is_tool_free_and_rejects_paid_response(
             return {
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         return {
             "model": "vendor/model:free",
             "usage": {"cost": 0, "is_byok": True},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setattr(openrouter_repair, "_request", byok_response)
@@ -495,7 +553,7 @@ def test_generation_is_tool_free_and_rejects_paid_response(
         ),
         (
             b"The likely fix is to remove the extra one. sk-or-v1-" + b"x" * 32,
-            "no policy-accepted source diff",
+            "exact JSON schema",
         ),
     ],
 )
@@ -520,13 +578,15 @@ def test_rejected_candidate_gets_one_bounded_free_correction(
             return {
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         payload = json.loads(body) if body else {}
         completion_prompts.append(str(payload["messages"][1]["content"]))
         patch = invalid_patch if len(completion_prompts) == 1 else PATCH
         return {
             "model": "vendor/model:free",
             "usage": {"cost": 0, "is_byok": False},
-            "choices": [{"message": {"content": patch.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(patch)}}],
         }
 
     monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
@@ -616,10 +676,12 @@ def test_inference_requires_an_explicit_zero_cost_response(
             return {
                 "data": [{"id": "vendor/model:free", "pricing": {"prompt": "0", "completion": "0"}}]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         return {
             "model": "vendor/model:free",
             "usage": {"is_byok": False},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
@@ -630,7 +692,7 @@ def test_inference_requires_an_explicit_zero_cost_response(
     with pytest.raises(openrouter_repair.InferenceError, match="did not report a verifiable"):
         openrouter_repair.generate_patch(repository, failure, output)
 
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert not output.exists()
 
 
@@ -690,10 +752,12 @@ def test_single_retry_requires_authenticated_regression_report(
                     }
                 ]
             }
+        if url.endswith("/endpoints"):
+            return _free_endpoint()
         return {
             "model": "vendor/model:free",
             "usage": {"cost": 0, "is_byok": False},
-            "choices": [{"message": {"content": PATCH.decode("utf-8")}}],
+            "choices": [{"finish_reason": "stop", "message": {"content": _content(PATCH)}}],
         }
 
     monkeypatch.setenv("OPENROUTER_API_KEY", TEST_API_KEY)
@@ -707,10 +771,10 @@ def test_single_retry_requires_authenticated_regression_report(
         retry_patch_file=prior_patch,
         retry_failure_file=report,
     )
-    assert len(calls) == 3
-    prompt = str(calls[2][1]["messages"])
+    assert len(calls) == 4
+    prompt = str(calls[3][1]["messages"])
     assert "untrusted test output" in prompt
-    assert "tools" not in calls[2][1]
+    assert "tools" not in calls[3][1]
 
     report.write_text(
         json.dumps({"retryable": True, "patch_sha256": "0" * 64, "output": "untrusted"}),

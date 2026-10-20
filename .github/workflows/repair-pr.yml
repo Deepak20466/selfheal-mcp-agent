@@ -100,9 +100,17 @@ jobs:
           gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -c 16384 > failure-context.txt
           test -s failure-context.txt
 
-      - name: Generate one patch from a currently listed zero-price :free model
+      - name: Generate a structured patch with a verified free provider
         id: infer
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_FREE_TIER_CONFIRMED: ${{ vars.GEMINI_FREE_TIER_CONFIRMED }}
+          GEMINI_QUOTA_CHECKED_UTC: ${{ vars.GEMINI_QUOTA_CHECKED_UTC }}
+          GEMINI_25_PRO_FREE_QUOTA: ${{ vars.GEMINI_25_PRO_FREE_QUOTA }}
+          GEMINI_25_FLASH_FREE_QUOTA: ${{ vars.GEMINI_25_FLASH_FREE_QUOTA }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_FREE_PLAN_CONFIRMED: ${{ vars.GROQ_FREE_PLAN_CONFIRMED }}
+          GROQ_GPT_OSS_120B_FREE_QUOTA: ${{ vars.GROQ_GPT_OSS_120B_FREE_QUOTA }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
         run: |
@@ -110,13 +118,16 @@ jobs:
           python control/scripts/openrouter_repair.py \
             --repository target \
             --failure-file failure-context.txt \
-            --output-patch patch.diff
+            --output-patch patch.diff \
+            --output-diagnosis diagnosis.json
           echo "patch_sha256=$(sha256sum patch.diff | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: selfheal-patch-initial-${{ github.run_id }}
-          path: patch.diff
+          path: |
+            patch.diff
+            diagnosis.json
           if-no-files-found: error
           retention-days: 1
 
@@ -229,8 +240,16 @@ jobs:
           gh run view "$FAILED_RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed | tail -c 16384 > failure-context.txt
           test -s failure-context.txt
 
-      - name: Generate at most one free-model correction after regression failure
+      - name: Generate one bounded correction with the verified free provider chain
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_FREE_TIER_CONFIRMED: ${{ vars.GEMINI_FREE_TIER_CONFIRMED }}
+          GEMINI_QUOTA_CHECKED_UTC: ${{ vars.GEMINI_QUOTA_CHECKED_UTC }}
+          GEMINI_25_PRO_FREE_QUOTA: ${{ vars.GEMINI_25_PRO_FREE_QUOTA }}
+          GEMINI_25_FLASH_FREE_QUOTA: ${{ vars.GEMINI_25_FLASH_FREE_QUOTA }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_FREE_PLAN_CONFIRMED: ${{ vars.GROQ_FREE_PLAN_CONFIRMED }}
+          GROQ_GPT_OSS_120B_FREE_QUOTA: ${{ vars.GROQ_GPT_OSS_120B_FREE_QUOTA }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
         run: |
@@ -240,12 +259,15 @@ jobs:
             --failure-file failure-context.txt \
             --retry-patch prior-patch/patch.diff \
             --retry-failure prior-test/repair-test-report.json \
-            --output-patch patch.diff
+            --output-patch patch.diff \
+            --output-diagnosis diagnosis.json
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: selfheal-patch-retry-${{ github.run_id }}
-          path: patch.diff
+          path: |
+            patch.diff
+            diagnosis.json
           if-no-files-found: error
           retention-days: 1
 

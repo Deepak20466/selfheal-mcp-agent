@@ -1,9 +1,9 @@
-# Record the OpenRouter repair-to-PR demonstration
+# Record the provider-independent repair-to-PR trials
 
 This demo records the GitHub Actions workflow in
-[openrouter-repair.md](openrouter-repair.md). It does not use the provider CLI,
-a mock response, or a prerecorded transcript. The workflow only opens a repair
-PR; it never merges.
+[openrouter-repair.md](openrouter-repair.md). It uses a real provider response,
+not a mock or prerecorded transcript. The workflow only opens a repair PR; it
+never merges.
 
 ## Run only after the gates pass
 
@@ -16,19 +16,21 @@ PR; it never merges.
    the required approval count to zero because GitHub will not accept an
    author's approval of their own PR. The owner must still inspect each repair
    PR and explicitly authorize any merge; automatic merging stays off.
-4. Copy the reviewed controller and workflow to the default branch. Add the
-   exact repository allowlist entry and set `SELFHEAL_REPAIR_ENABLED=true` plus
-   `OPENROUTER_FREE_MODEL` to a currently listed zero-price `:free` model.
-   Confirm the secret list is still empty before enabling the deliberately
-   failing trial.
-5. Immediately before that repository's trial, add the replacement
-   `OPENROUTER_API_KEY` through its Settings > Secrets and variables > Actions
-   page. Never put the key in chat, source, variables, command arguments, or the
-   recording. The inference controller checks documented key Free-tier
-   metadata, the live catalog price, and the returned model and cost. OpenRouter
-   does not expose remaining `:free` request count through its documented key
-   endpoint; a 429 or provider error stops the run without retry or a repair
-   PR.
+4. Copy the reviewed controller and workflow to each target's default branch.
+   Add the exact repository allowlist entry and set
+   `SELFHEAL_REPAIR_ENABLED=true`. Immediately before each Gemini trial, check
+   AI Studio: use a Free Tier project with billing disabled and no purchased
+   credits, then verify positive free quota for Pro and/or Flash. Set the
+   four `GEMINI_*` quota/free-project variables described in
+   [provider setup](openrouter-repair.md).
+5. Add `GEMINI_API_KEY` privately at the target repository's **Settings >
+   Secrets and variables > Actions > New repository secret** page. Never put
+   the key in chat, source, variables, command arguments, or the recording.
+   Only inference jobs receive it. Google does not expose remaining
+   project-specific quota through its API-key API, so the fresh AI Studio check
+   and billing-disabled project are required. Pro is tried first; Flash is
+   used only when its own free quota was confirmed or Pro returns a free quota
+   response.
 
 Use only synthetic code and CI output in these public repositories. OpenRouter
 transmits prompts to the selected model provider; some free providers may retain
@@ -43,8 +45,10 @@ For each repository, show the complete timeline in GitHub Actions:
    Capture the failing CI run URL and commit SHA.
 2. Show the repair workflow rejecting unauthorized origins and confirming the
    same-repository public allowlist.
-3. Show the exact :free model ID, zero-price catalog preflight, and generated
-   patch artifact. Keep credentials and account details off-screen.
+3. Show the Gemini model selection and free-project/quota preflight, plus the
+   structured diagnosis and patch artifacts. Keep credentials and account
+   details off-screen. If Gemini has no free quota, record the stop or the
+   separately verified free backup that was selected.
 4. Show the separate test job on its own Linux runner, including passing
    positive/negative probes for network, filesystem, read-only tests, and
    secret separation. Show the fixed regression command and nonzero test count.
@@ -54,9 +58,11 @@ For each repository, show the complete timeline in GitHub Actions:
    have the owner approve the workflow run. Then show the repair PR's normal CI
    passing. Capture the CI run URL and PR URL.
 
-If the first candidate fails its regression suite, record the single correction
-attempt and the final passing result. Rate-limit and inference errors are not
-retried. Do not hide failures, substitute fixture output, or merge the repair.
+If a response is malformed or its hunk is stale, record the one bounded model
+correction with exact selected-commit source context. If the first accepted
+candidate fails regression testing, record the workflow's single regression
+correction. Provider errors are not retried through a paid route. Do not hide
+failures, substitute fixture output, or merge the repair.
 
 ## Recording hygiene
 
@@ -68,21 +74,21 @@ frame before sharing it.
 
 ## Current evidence status
 
-The hosted Linux sandbox probes, full CI suite, database recovery checks, and
-Kubernetes checks passed on implementation commit e2795fb. The correction to
-OpenRouter key metadata handling passed hosted [push CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319431016),
-[PR CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319439813),
-and [Kubernetes checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39319439788).
-Three authorized public fixtures now exist: [demo 01](https://github.com/Deepak20466/selfheal-e2e-demo-01),
-[demo 02](https://github.com/Deepak20466/selfheal-e2e-demo-02), and
-[demo 03](https://github.com/Deepak20466/selfheal-e2e-demo-03). Their initial
-CI passed; their `main` branches require passing `test` CI, enforce PR-only
-changes, and block force pushes and deletion. Required approval count is zero
-for the sole maintainer; the owner must manually review and authorize merges.
-Actions has read-only default workflow permissions, only GitHub-owned
-SHA-pinned actions allowed, and the narrowly scoped PR-creation setting enabled.
-The selected `:free` model variable is set but the repair enablement variable is
-`false`. No controller workflow or OpenRouter secret is installed in these
-fixtures yet. No model completion or live repair run has occurred. The source
-PR stack still needs the owner's manual review and explicit merge authorization
-before the reviewed controller can be copied into the fixtures.
+The successful demo-01 evidence is retained: failed baseline
+[CI run 39344920267](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344920267),
+repair workflow
+[run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966),
+open repair [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11),
+and passing PR
+[CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328).
+Demo-02's seed is still open at
+[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/4); its latest
+OpenRouter inference stopped on free quota at
+[run 39351221640](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39351221640).
+Demo-03's seed is still open at
+[PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/4); its latest
+OpenRouter attempt produced a stale patch at
+[run 39351224824](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39351224824).
+Neither result counts as a Gemini trial. The Gemini key is not present in the
+demo-02 or demo-03 Actions secrets, and the updated controller has not yet run
+there. The three-trial acceptance check is therefore incomplete.

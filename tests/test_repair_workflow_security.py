@@ -1,4 +1,4 @@
-"""Trust boundaries for the secret-split OpenRouter workflow."""
+"""Trust boundaries for secret-split provider-independent repair inference."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from scripts.test_repair_patch import _unittest_count
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
+def test_provider_credentials_are_scoped_to_inference_steps_only() -> None:
     workflow_path = ROOT / ".github" / "workflows" / "repair-pr.yml"
     workflow_text = workflow_path.read_text(encoding="utf-8")
     workflow = yaml.safe_load(workflow_text)
@@ -25,7 +25,9 @@ def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
     preflight = jobs["sandbox-preflight"]
     assert preflight["permissions"] == {"contents": "read"}
     assert "secrets." not in str(preflight)
-    assert "OPENROUTER_API_KEY" not in str(preflight)
+    provider_keys = ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY")
+    for key in provider_keys:
+        assert key not in str(preflight)
     assert "verify_repair_sandbox.py" in str(preflight)
     assert "sandbox-preflight" in jobs["create-repair-pr"]["needs"]
     assert jobs["infer-initial"]["permissions"] == {"contents": "read", "actions": "read"}
@@ -41,7 +43,7 @@ def test_openrouter_key_is_scoped_to_inference_steps_only() -> None:
         secret_steps = [
             step
             for step in job.get("steps", [])
-            if "OPENROUTER_API_KEY" in str(step.get("env", {}))
+            if any(key in str(step.get("env", {})) for key in provider_keys)
         ]
         assert len(secret_steps) <= (1 if name in {"infer-initial", "infer-retry"} else 0), name
 
@@ -52,7 +54,8 @@ def test_test_jobs_are_offline_and_no_provider_or_write_secret_is_present() -> N
         job = workflow["jobs"][name]
         serialized = str(job)
         assert "secrets." not in serialized
-        assert "OPENROUTER_API_KEY" not in serialized
+        for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"):
+            assert key not in serialized
         assert "persist-credentials'" in serialized or "persist-credentials" in serialized
         assert "verify_repair_sandbox.py" in serialized
         assert "test_repair_patch.py" in serialized

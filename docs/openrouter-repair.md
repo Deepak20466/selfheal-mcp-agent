@@ -1,140 +1,133 @@
-# OpenRouter free-model repair workflow
+# Provider-independent repair workflow
 
-This is an implementation guide and status record for
-[`.github/workflows/repair-pr.yml`](../.github/workflows/repair-pr.yml). It
-opens a review PR after a failed `CI` run. It never merges a repair. Codex,
-Claude Code, and Gemini CLI execution remain fail-closed and are not used by
-this workflow.
+The controller in [`scripts/openrouter_repair.py`](../scripts/openrouter_repair.py)
+uses a shared prompt, structured response parser, strict patch policy, and
+`RepairProvider` adapter contract. The workflow in
+[`.github/workflows/repair-pr.yml`](../.github/workflows/repair-pr.yml) reads
+untrusted source and bounded CI logs, generates a candidate, tests it in an
+offline sandbox, and opens a review PR. It never merges.
 
-## Scope and boundaries
+## Provider order and free-only gates
 
-- Only public repositories named in `repair-allowed-repositories.txt` are
-  accepted. Fork-originated CI failures and repair branches are rejected.
-- The initial target is Python source with a standard-library `unittest` suite
-  under `tests/`. The workflow does not install target dependencies.
-- The inference job runs controller code from the repository default branch.
-  It reads source and bounded CI logs as untrusted text; it does not import or
-  execute the target repository. The model has no tools.
-- The inference request uses one currently listed `:free` model with zero
-  prompt and completion prices. Provider fallback is disabled. A failed API
-  request is not retried; one additional completion is permitted only when the
-  first generated patch fails the offline regression suite. Before a
-  completion, the controller checks the documented key metadata for a regular
-  OpenRouter Free-tier key, then checks the live model catalog. The documented
-  key endpoint does not expose remaining `:free` request count. Free quota is
-  therefore governed by OpenRouter's published limits; a rate-limit or provider
-  error ends the run without retry. The controller asks OpenRouter to return
-  usage accounting and discards responses unless they confirm no BYOK route
-  and exactly zero cost.
-- The patch validator accepts at most three existing `.py` implementation
-  files and 200 changed lines. It rejects test/config/workflow paths, unsafe or
-  mismatched diff headers, symlinks, binary patches, credential references,
-  common code-execution/network primitives, and artifacts over 64 KiB.
-- Each test attempt uses a new GitHub-hosted Linux VM. Only the trusted
-  controller applies the patch; repository tests run from a disposable snapshot
-  with Bubblewrap, no network namespace access, a read-only test suite, a
-  filtered environment, no provider key, no write-capable GitHub token,
-  resource limits, and cleanup.
-- The final job rechecks the artifact digest and patch policy, then uses
-  `GITHUB_TOKEN` to push a repair branch and open a PR. It does not execute
-  repository code. Human review and ordinary CI remain required.
+1. **Google Gemini API:** use `gemini-2.5-pro` first when its AI Studio
+   project quota was just confirmed positive; use `gemini-2.5-flash` if Pro is
+   not enabled or returns a free quota/rate-limit response. Before inference,
+   the controller requires the owner-set free-project and model-quota flags
+   and checks the live model list for `generateContent` support. It does not
+   send an inference request to a model whose quota flag is false.
+2. **Groq GPT-OSS 120B:** optional. It is considered only when the dedicated
+   key is present and `GROQ_FREE_PLAN_CONFIRMED=true` plus
+   `GROQ_GPT_OSS_120B_FREE_QUOTA=true`. It checks the live model list and uses
+   the on-demand API with JSON Schema output and no tools. The flag must only
+   be set after the Groq account dashboard confirms the Free plan, positive
+   quota, and no paid billing. The Groq [model
+   page](https://console.groq.com/docs/model/openai/gpt-oss-120b) lists a token
+   price for this model on its Developer plan, so do not enable this adapter
+   on a billed account.
+3. **OpenRouter:** retained as a final optional route. The controller verifies
+   a regular Free-tier key, the exact configured `:free` model, an active
+   endpoint with zero input/output prices, and structured-output support. It
+   disables provider routing fallbacks and discards any completion unless
+   OpenRouter reports the exact model, zero cost, and `is_byok=false`.
 
-OpenRouter currently documents Free-tier limits of 20 requests per minute and
-50 requests per day. Limits and free model availability can change, and
-requests made elsewhere on the same account share that capacity. Its documented
-key endpoint verifies Free-tier status but does not report remaining free
-requests. Each failed CI run can make at most two completion requests; a 429
-or provider error is terminal. When free capacity is unavailable, the workflow
-stops; it never selects a paid model, changes to API key billing, or purchases
-credits. The model catalog check and response-model check both require the
-selected `:free` ID and zero advertised prices. A live,
-unauthenticated catalog read on 2026-10-20 returned multiple `:free` models at
-zero prompt and completion prices. That read did not invoke a model and does
-not verify any particular account key or provider availability at call time.
+Google's [pricing page](https://ai.google.dev/gemini-api/docs/pricing) lists
+Free Tier input/output for Gemini 2.5 Pro and Flash. The [rate-limit
+guide](https://ai.google.dev/gemini-api/docs/rate-limits) says limits are
+project-specific and visible in AI Studio; an API-key-only caller cannot query
+the remaining quota. For that reason, the workflow requires an operator check
+immediately before each trial. Use a Google Cloud
+project with billing disabled and no purchased/prepaid credits; that is the
+cost boundary that prevents a request from switching to paid billing. In
+Google AI Studio, confirm the project says **Free Tier** and that the desired
+model has positive quota. Google applies limits per project, across its keys.
 
-Only public repository source and bounded, scrubbed CI output are sent to the
-selected provider. OpenRouter says it does not train on inputs itself, but its
-privacy notice says upstream model providers have different retention and
-training practices. Use synthetic data for the public demonstration; do not
-send private code or secrets.
+Set these repository **variables** in each disposable target repository after
+checking the project:
 
-## Required configuration
+- `GEMINI_FREE_TIER_CONFIRMED=true` only for a Free Tier project with billing
+  disabled and no purchased credits.
+- `GEMINI_QUOTA_CHECKED_UTC=YYYY-MM-DDTHH:MM:SSZ` with the current UTC time
+  immediately after checking AI Studio. The controller rejects a missing,
+  malformed, future, or more than 15-minute-old confirmation.
+- `GEMINI_25_PRO_FREE_QUOTA=true` only when the AI Studio view shows usable
+  free quota for `gemini-2.5-pro`; otherwise set it to `false`.
+- `GEMINI_25_FLASH_FREE_QUOTA=true` only when the AI Studio view shows usable
+  free quota for `gemini-2.5-flash`; otherwise set it to `false`.
 
-The workflow is dormant until the reviewed implementation is on the target
-repository's default branch and its security checks pass. It also requires:
+The model flags are a fresh operator confirmation, not a claim that Google
+exposes remaining quota through the API. If the quota is used up after the
+check, the API returns a quota/rate-limit error; the controller may then move
+from Pro to confirmed-free Flash. With billing disabled, the call cannot use a
+paid Gemini tier. It will stop safely if neither model has usable free quota.
+Update the timestamp immediately before triggering each repair trial; it is
+passed only to the inference jobs and expires after 15 minutes.
 
-1. Add the exact public `owner/repository` to
-   `repair-allowed-repositories.txt` in the default branch.
-2. Add repository variable `SELFHEAL_REPAIR_ENABLED` with value `true`.
-3. Add repository variable `OPENROUTER_FREE_MODEL` with a model ID ending in
-   `:free`. Each inference run verifies the ID and its zero prices against
-   OpenRouter's current public model catalog.
-4. Protect the default branch so changes require a PR and all required CI and
-   security checks pass. GitHub will not count the sole maintainer's approval
-   on their own PR, so a solo-maintainer repository must use zero required
-   approving reviews. The owner must manually inspect each PR and explicitly
-   authorize any merge; a passing check is not merge approval. Automatic merges
-   remain disabled. The repair workflow never approves or merges a PR.
-5. **Only after steps 1–4 and the hosted security checks pass, and immediately
-   before the authorized disposable-repository trial, add the key as a
-   repository Actions secret named `OPENROUTER_API_KEY`.** Create/use an
-   OpenRouter Free account without buying credits or enabling automatic
-   top-ups. Add the secret only to the authorized disposable repositories, not
-   to the main project or fork workflows. Never paste the key into chat,
-   workflow files, command arguments, or repository variables.
+## Private credentials
 
-If the key is missing or malformed, is not reported as a regular Free-tier key,
-the configured model is absent/paid/unavailable, a completion is rate limited,
-or the response omits the exact zero cost or indicates BYOK, inference stops
-without generating an artifact.
+The inference job runs inside each target repository, so add
+`GEMINI_API_KEY` as a **repository Actions secret** in both
+`Deepak20466/selfheal-e2e-demo-02` and
+`Deepak20466/selfheal-e2e-demo-03`:
 
-The current source repository has GitHub Actions enabled, public standard
-Ubuntu runners, default workflow-token permissions set to read, and the setting
-that allows Actions to create or approve pull requests disabled. The repair PR
-job requests narrowly scoped write permissions, but a repository owner must
-enable the create/approve setting for a live disposable-repository trial.
-The workflow itself never approves or merges a PR.
+**Repository → Settings → Secrets and variables → Actions → New repository
+secret**
 
-## Recording a real demonstration
+Add it after the reviewed controller update is on that repository's default
+branch and immediately before its authorized trial. Do not put it in chat,
+source, a workflow file, a variable, command arguments, or the selfheal source
+repository. The workflow maps provider secrets only to `infer-initial` and
+`infer-retry`; neither isolated test job nor the PR creation job receives a
+provider key. Never add the key to demo-01 for these Gemini trials.
 
-After the implementation is reviewed and merged, the owner can authorize three
-disposable public repositories. Seed each with a small Python source bug and a
-failing `unittest`, copy the reviewed controller/workflow and allowlist entry,
-then configure the three repository variables and, immediately before each
-trial, the `OPENROUTER_API_KEY` secret as described above. Keep repair disabled
-until the trial is ready. Push the intentionally failing baseline. Record the
-following GitHub Actions sequence for each repository:
+Groq credentials, if separately approved and verified, use the same private
+Actions secret mechanism with the name `GROQ_API_KEY`. `OPENROUTER_API_KEY`
+continues to be a target-repository Actions secret. Do not add either key to
+untrusted test jobs.
 
-1. The baseline `CI` run fails and its run ID is captured.
-2. `Secure free-model repair PR` validates the same-repository public target.
-3. The inference job verifies the live `:free` catalog entry, records the
-   selected model ID, and uploads a validated patch artifact.
-4. A separate VM validates the artifact, passes the network/filesystem/secret
-   boundary probes, and runs the regression suite offline.
-5. If the first patch fails its regression suite, show the single bounded retry
-   and the passing retry. No API/rate-limit error is retried.
-6. The trusted PR job verifies the tested patch hash and opens a PR. If GitHub
-   holds Actions runs created by `GITHUB_TOKEN` for approval, have the owner
-   approve the workflow run. Show the PR's normal CI passing, then leave it
-   unmerged unless the owner separately authorizes a merge.
+## Output, retries, and isolation
 
-Do not use fixtures or prerecorded model output as evidence. A passing unit
-test of the controller is not a live model demonstration. Preserve the three
-failed-run URLs, repair workflow run URLs, PR URLs, passing-CI run URLs, selected
-model IDs, and per-account OpenRouter usage view with secrets and personal
-details redacted.
+Each provider receives the same bounded, scrubbed source and failure text and
+has no tools. Gemini, Groq, and OpenRouter are asked for JSON Schema output
+with exactly two string properties: `diagnosis` and `patch`. A local parser
+rejects duplicate, missing, extra, or wrongly typed fields before patch
+validation. The diagnosis and selected model are recorded in a short-lived
+artifact without storing raw provider output.
 
-## Current status
+The controller corrects a malformed structured response or a stale/inapplicable
+patch at most once. For stale hunks, it adds exact numbered lines from the
+selected commit as untrusted context. Security-policy rejections are terminal.
+The workflow still permits at most one separate regression-test correction.
+All candidates continue through the existing strict path, secret, hunk,
+size, and changed-line checks. A separate GitHub-hosted VM applies the
+validated candidate to a disposable snapshot and runs tests with Bubblewrap,
+no network, no provider key, no write-capable token, and read-only test files.
+The PR job revalidates the tested digest and patch policy and requires normal
+CI and human review.
 
-At implementation head `e2795fb`, focused tests passed locally (34 passed,
-5 platform-specific skips). Hosted [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316519614)
-passed the Bubblewrap egress/DNS, filesystem, test-suite read-only, and secret
-probes; PostgreSQL recovery, Node and dependency checks, Ruff, strict mypy, and
-the full pytest suite also passed. Hosted [Calico/kind checks](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39316530109)
-passed. The source repository has no `OPENROUTER_API_KEY` and PR creation through
-`GITHUB_TOKEN` is disabled. The disposable fixtures have the currently listed
-zero-price `cohere/north-mini-code:free` model variable and repair disabled; no
-controller workflow or OpenRouter secret is installed there. No OpenRouter
-completion or live repair-to-PR demonstration has run. Keep the workflow dormant
-until the owner reviews and explicitly authorizes the source PR merges and then
-authorizes each disposable trial.
+Only public synthetic fixture data is sent to providers. Google's pricing
+documentation says Free Tier inputs and outputs may be used to improve Google
+products; do not send private or sensitive code.
+
+## Retained trial evidence and current blockers
+
+- **demo-01 remains successful evidence:** failed baseline
+  [CI run 39344920267](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344920267),
+  repair workflow
+  [run 39344936966](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39344936966),
+  open review [PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11),
+  and passing PR [CI run 39345114328](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39345114328).
+- **demo-02 remains an intentionally failing fixture:** seed
+  [PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/4).
+  Its current OpenRouter attempt
+  [run 39351221640](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39351221640)
+  stopped before inference because no safe free-quota retry window was
+  available.
+- **demo-03 remains an intentionally failing fixture:** seed
+  [PR #4](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/4).
+  Its current OpenRouter attempt
+  [run 39351224824](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39351224824)
+  generated a patch that did not apply to the selected commit.
+
+The current Gemini credential is not present in either target repository's
+Actions secret list, and this controller change has not yet run against Gemini.
+Those two trials and the original three-trial acceptance check remain pending.
