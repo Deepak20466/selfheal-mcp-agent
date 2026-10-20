@@ -1,0 +1,632 @@
+{
+  "ai_attempts_are_reference_free": true,
+  "attempts": [
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "request_validation",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S01",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "========== short test summary info ===========================\nFAILED test_scenarios.py::test_01_required_request_field_is_validated - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/01', json={})\n +      where post = <starlette.testclient.TestClient object at 0x000001EBDD60F990>.post\n1 failed, 1 warning in 0.91s\n\n",
+      "verification_seconds": 1.484
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "pagination_offset",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S02",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "s://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_02_page_one_starts_at_first_item - assert [3, 4] == [1, 2]\n  \n  At index 0 diff: 3 != 1\n  \n  Full diff:\n    [\n  -     1,\n  ?     ^\n  +     3,\n  ?     ^\n  -     2,\n  ?     ^\n  +     4,\n  ?     ^\n    ]\n1 failed, 1 warning in 0.87s\n\n",
+      "verification_seconds": 1.312
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "missing_resource_handling",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S03",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "ary info ===========================\nFAILED test_scenarios.py::test_03_missing_widget_returns_not_found - AssertionError: assert 500 == 404\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/03/99')\n +      where get = <starlette.testclient.TestClient object at 0x00000138C072C690>.get\n1 failed, 1 warning in 0.86s\n\n",
+      "verification_seconds": 1.25
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "empty_collection_guard",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S04",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "summary info ===========================\nFAILED test_scenarios.py::test_04_empty_average_is_a_client_error - AssertionError: assert 500 == 422\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/04')\n +      where get = <starlette.testclient.TestClient object at 0x000001E9AF37F990>.get\n1 failed, 1 warning in 0.85s\n\n",
+      "verification_seconds": 1.25
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "timezone_awareness",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S05",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "=================== short test summary info ===========================\nFAILED test_scenarios.py::test_05_event_timestamp_is_timezone_aware - AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x000001E1D7382600>('+00:00')\n +    where <built-in method endswith of str object at 0x000001E1D7382600> = '2030-01-01T12:00:00'.endswith\n1 failed, 1 warning in 0.87s\n\n",
+      "verification_seconds": 1.265
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "decimal_money_arithmetic",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S06",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "allable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_06_money_uses_decimal_precision - AssertionError: assert '0.30000000000000004' == '0.30'\n  \n  - 0.30\n  + 0.30000000000000004\n1 failed, 1 warning in 0.86s\n\n",
+      "verification_seconds": 1.266
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "partial_update_semantics",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S07",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "ead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_07_omitted_patch_field_preserves_existing_value - AssertionError: assert None == 'Ada'\n1 failed, 1 warning in 0.90s\n\n",
+      "verification_seconds": 1.359
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "http_status_contract",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S08",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "ngs.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_08_create_returns_201 - AssertionError: assert 200 == 201\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/08')\n +      where post = <starlette.testclient.TestClient object at 0x0000024C54CEFC90>.post\n1 failed, 1 warning in 0.84s\n\n",
+      "verification_seconds": 1.25
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "duplicate_request_handling",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S09",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "========= short test summary info ===========================\nFAILED test_scenarios.py::test_09_duplicate_order_is_conflict - AssertionError: assert 201 == 409\n +  where 201 = <Response [201 Created]>.status_code\n +    where <Response [201 Created]> = post('/scenario/09/order-1')\n +      where post = <starlette.testclient.TestClient object at 0x000001F479E1F990>.post\n1 failed, 1 warning in 0.86s\n\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "missing_authorization_check",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S10",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_10_private_route_requires_api_key - AssertionError: assert 200 == 401\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/10')\n +      where get = <starlette.testclient.TestClient object at 0x000001BBBCFBC690>.get\n1 failed, 1 warning in 0.91s\n\n",
+      "verification_seconds": 1.328
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "mass_assignment",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S11",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_11_mass_assignment_cannot_grant_admin - assert True is False\n1 failed, 1 warning in 0.86s\n\n",
+      "verification_seconds": 1.265
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "unbounded_pagination",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S12",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "ad.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_12_page_size_is_capped - assert 101 <= 100\n +  where 101 = len([0, 1, 2, 3, 4, 5, ...])\n1 failed, 1 warning in 0.89s\n\n",
+      "verification_seconds": 1.328
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "exception_detail_leak",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S13",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "cs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_13_internal_exception_is_not_returned - assert 'private database password' not in '{\"detail\":\"...e password\"}'\n  \n  'private database password' is contained here:\n    {\"detail\":\"private database password\"}\n1 failed, 1 warning in 0.83s\n\n",
+      "verification_seconds": 1.235
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "path_traversal",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S14",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "====== short test summary info ===========================\nFAILED test_scenarios.py::test_14_path_traversal_is_rejected - AssertionError: assert 200 == 403\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/14?filename=..%2Fsecret.txt')\n +      where get = <starlette.testclient.TestClient object at 0x000002832C79C690>.get\n1 failed, 1 warning in 0.87s\n\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "delete_status_contract",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S15",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_15_delete_returns_no_content - assert 200 == 204\n +  where 200 = <Response [200 OK]>.status_code\n1 failed, 1 warning in 0.92s\n\n",
+      "verification_seconds": 1.328
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "inventory_invariant",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S16",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "============ short test summary info ===========================\nFAILED test_scenarios.py::test_16_inventory_cannot_be_reserved_below_zero - AssertionError: assert 200 == 409\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/16/10')\n +      where post = <starlette.testclient.TestClient object at 0x0000022BE233BD10>.post\n1 failed, 1 warning in 0.97s\n\n",
+      "verification_seconds": 1.391
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "result_ordering",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S17",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": " _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_17_leaderboard_is_sorted_descending - AssertionError: assert 'Ada' == 'Lin'\n  \n  - Lin\n  + Ada\n1 failed, 1 warning in 0.88s\n\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "idempotency",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S18",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "========================== short test summary info ===========================\nFAILED test_scenarios.py::test_18_payment_retry_is_idempotent - AssertionError: assert {'charged': 1} == {'charged': 2}\n  \n  Differing items:\n  {'charged': 1} != {'charged': 2}\n  \n  Full diff:\n    {\n  -     'charged': 2,\n  ?                ^\n  +     'charged': 1,\n  ?                ^\n    }\n1 failed, 1 warning in 0.88s\n\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "empty_query_validation",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S19",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_19_empty_search_query_is_rejected - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/19')\n +      where get = <starlette.testclient.TestClient object at 0x000002AEE8A6C690>.get\n1 failed, 1 warning in 0.85s\n\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "cost_status": "not_attempted",
+      "cost_usd": null,
+      "diagnosis": null,
+      "expected_diagnosis": "readiness_check",
+      "false_fix": true,
+      "manual_intervention": false,
+      "regression_tests_passed": false,
+      "repair_seconds": null,
+      "scenario_id": "S20",
+      "scope_guard_passed": false,
+      "skip_reason": "not attempted yet",
+      "status": "SKIPPED",
+      "verification_output": "================= short test summary info ===========================\nFAILED test_scenarios.py::test_20_readiness_reports_unavailable_dependency - AssertionError: assert 200 == 503\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/20')\n +      where get = <starlette.testclient.TestClient object at 0x000002403EF9BD10>.get\n1 failed, 1 warning in 0.87s\n\n",
+      "verification_seconds": 1.266
+    }
+  ],
+  "authentication": {
+    "method": "existing Codex auth.json copied to temporary CODEX_HOME",
+    "status": "available"
+  },
+  "backend": "codex_cli",
+  "baseline": {
+    "all_twenty_failed_as_expected": true,
+    "sandbox_seconds": 78.375,
+    "scenarios": {
+      "S01": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "========== short test summary info ===========================\nFAILED test_scenarios.py::test_01_required_request_field_is_validated - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/01', json={})\n +      where post = <starlette.testclient.TestClient object at 0x000002544434C690>.post\n1 failed, 1 warning in 0.83s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S02": {
+        "duration_seconds": 1.234,
+        "integrity_passed": true,
+        "output": "s://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_02_page_one_starts_at_first_item - assert [3, 4] == [1, 2]\n  \n  At index 0 diff: 3 != 1\n  \n  Full diff:\n    [\n  -     1,\n  ?     ^\n  +     3,\n  ?     ^\n  -     2,\n  ?     ^\n  +     4,\n  ?     ^\n    ]\n1 failed, 1 warning in 0.81s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S03": {
+        "duration_seconds": 1.234,
+        "integrity_passed": true,
+        "output": "ary info ===========================\nFAILED test_scenarios.py::test_03_missing_widget_returns_not_found - AssertionError: assert 500 == 404\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/03/99')\n +      where get = <starlette.testclient.TestClient object at 0x000002AEF170C690>.get\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S04": {
+        "duration_seconds": 1.36,
+        "integrity_passed": true,
+        "output": "summary info ===========================\nFAILED test_scenarios.py::test_04_empty_average_is_a_client_error - AssertionError: assert 500 == 422\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/04')\n +      where get = <starlette.testclient.TestClient object at 0x00000281839BF990>.get\n1 failed, 1 warning in 0.90s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S05": {
+        "duration_seconds": 1.313,
+        "integrity_passed": true,
+        "output": "=================== short test summary info ===========================\nFAILED test_scenarios.py::test_05_event_timestamp_is_timezone_aware - AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x000001D858A5A510>('+00:00')\n +    where <built-in method endswith of str object at 0x000001D858A5A510> = '2030-01-01T12:00:00'.endswith\n1 failed, 1 warning in 0.90s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S06": {
+        "duration_seconds": 1.218,
+        "integrity_passed": true,
+        "output": "allable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_06_money_uses_decimal_precision - AssertionError: assert '0.30000000000000004' == '0.30'\n  \n  - 0.30\n  + 0.30000000000000004\n1 failed, 1 warning in 0.82s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S07": {
+        "duration_seconds": 1.219,
+        "integrity_passed": true,
+        "output": "ead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_07_omitted_patch_field_preserves_existing_value - AssertionError: assert None == 'Ada'\n1 failed, 1 warning in 0.84s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S08": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "ngs.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_08_create_returns_201 - AssertionError: assert 200 == 201\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/08')\n +      where post = <starlette.testclient.TestClient object at 0x0000025B8AEED550>.post\n1 failed, 1 warning in 0.84s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S09": {
+        "duration_seconds": 1.359,
+        "integrity_passed": true,
+        "output": "========= short test summary info ===========================\nFAILED test_scenarios.py::test_09_duplicate_order_is_conflict - AssertionError: assert 201 == 409\n +  where 201 = <Response [201 Created]>.status_code\n +    where <Response [201 Created]> = post('/scenario/09/order-1')\n +      where post = <starlette.testclient.TestClient object at 0x00000240AA96F990>.post\n1 failed, 1 warning in 0.91s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S10": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_10_private_route_requires_api_key - AssertionError: assert 200 == 401\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/10')\n +      where get = <starlette.testclient.TestClient object at 0x000002DEEAC4F990>.get\n1 failed, 1 warning in 0.85s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S11": {
+        "duration_seconds": 1.282,
+        "integrity_passed": true,
+        "output": "thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_11_mass_assignment_cannot_grant_admin - assert True is False\n1 failed, 1 warning in 0.87s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S12": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "ad.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_12_page_size_is_capped - assert 101 <= 100\n +  where 101 = len([0, 1, 2, 3, 4, 5, ...])\n1 failed, 1 warning in 0.83s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S13": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "cs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_13_internal_exception_is_not_returned - assert 'private database password' not in '{\"detail\":\"...e password\"}'\n  \n  'private database password' is contained here:\n    {\"detail\":\"private database password\"}\n1 failed, 1 warning in 0.84s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S14": {
+        "duration_seconds": 1.188,
+        "integrity_passed": true,
+        "output": "====== short test summary info ===========================\nFAILED test_scenarios.py::test_14_path_traversal_is_rejected - AssertionError: assert 200 == 403\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/14?filename=..%2Fsecret.txt')\n +      where get = <starlette.testclient.TestClient object at 0x0000021C06EDF990>.get\n1 failed, 1 warning in 0.81s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S15": {
+        "duration_seconds": 1.234,
+        "integrity_passed": true,
+        "output": "PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_15_delete_returns_no_content - assert 200 == 204\n +  where 200 = <Response [200 OK]>.status_code\n1 failed, 1 warning in 0.84s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S16": {
+        "duration_seconds": 1.187,
+        "integrity_passed": true,
+        "output": "============ short test summary info ===========================\nFAILED test_scenarios.py::test_16_inventory_cannot_be_reserved_below_zero - AssertionError: assert 200 == 409\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/16/10')\n +      where post = <starlette.testclient.TestClient object at 0x000001835974BD10>.post\n1 failed, 1 warning in 0.82s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S17": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": " _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_17_leaderboard_is_sorted_descending - AssertionError: assert 'Ada' == 'Lin'\n  \n  - Lin\n  + Ada\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S18": {
+        "duration_seconds": 1.219,
+        "integrity_passed": true,
+        "output": "========================== short test summary info ===========================\nFAILED test_scenarios.py::test_18_payment_retry_is_idempotent - AssertionError: assert {'charged': 1} == {'charged': 2}\n  \n  Differing items:\n  {'charged': 1} != {'charged': 2}\n  \n  Full diff:\n    {\n  -     'charged': 2,\n  ?                ^\n  +     'charged': 1,\n  ?                ^\n    }\n1 failed, 1 warning in 0.80s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S19": {
+        "duration_seconds": 1.234,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_19_empty_search_query_is_rejected - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/19')\n +      where get = <starlette.testclient.TestClient object at 0x00000212A99EF990>.get\n1 failed, 1 warning in 0.85s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S20": {
+        "duration_seconds": 1.188,
+        "integrity_passed": true,
+        "output": "================= short test summary info ===========================\nFAILED test_scenarios.py::test_20_readiness_reports_unavailable_dependency - AssertionError: assert 200 == 503\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/20')\n +      where get = <starlette.testclient.TestClient object at 0x0000020BD299AD50>.get\n1 failed, 1 warning in 0.81s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      }
+    }
+  },
+  "benchmark": "independent-fastapi-20-scenario-ai-repair",
+  "codex_cli_version": "codex-cli 0.162.0-alpha.17.2",
+  "finished_at": "2026-10-18T20:06:34.685500+00:00",
+  "limitations": [
+    "Codex CLI cost is recorded only if its JSONL protocol reports a dollar amount.",
+    "The model sees only the selected test and broken app.py. Reference repairs are never copied into attempt directories."
+  ],
+  "run_id": "codex-20261018T200353Z",
+  "sandbox": "Windows AppContainer + Job Object or Linux Bubblewrap; fail closed",
+  "started_at": "2026-10-18T20:03:53.441127+00:00",
+  "target": "temporary independent FastAPI repository",
+  "verification": {
+    "sandbox_seconds": 82.735,
+    "scenarios": {
+      "S01": {
+        "duration_seconds": 1.484,
+        "integrity_passed": true,
+        "output": "========== short test summary info ===========================\nFAILED test_scenarios.py::test_01_required_request_field_is_validated - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/01', json={})\n +      where post = <starlette.testclient.TestClient object at 0x000001EBDD60F990>.post\n1 failed, 1 warning in 0.91s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S02": {
+        "duration_seconds": 1.312,
+        "integrity_passed": true,
+        "output": "s://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_02_page_one_starts_at_first_item - assert [3, 4] == [1, 2]\n  \n  At index 0 diff: 3 != 1\n  \n  Full diff:\n    [\n  -     1,\n  ?     ^\n  +     3,\n  ?     ^\n  -     2,\n  ?     ^\n  +     4,\n  ?     ^\n    ]\n1 failed, 1 warning in 0.87s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S03": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "ary info ===========================\nFAILED test_scenarios.py::test_03_missing_widget_returns_not_found - AssertionError: assert 500 == 404\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/03/99')\n +      where get = <starlette.testclient.TestClient object at 0x00000138C072C690>.get\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S04": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "summary info ===========================\nFAILED test_scenarios.py::test_04_empty_average_is_a_client_error - AssertionError: assert 500 == 422\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/04')\n +      where get = <starlette.testclient.TestClient object at 0x000001E9AF37F990>.get\n1 failed, 1 warning in 0.85s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S05": {
+        "duration_seconds": 1.265,
+        "integrity_passed": true,
+        "output": "=================== short test summary info ===========================\nFAILED test_scenarios.py::test_05_event_timestamp_is_timezone_aware - AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x000001E1D7382600>('+00:00')\n +    where <built-in method endswith of str object at 0x000001E1D7382600> = '2030-01-01T12:00:00'.endswith\n1 failed, 1 warning in 0.87s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S06": {
+        "duration_seconds": 1.266,
+        "integrity_passed": true,
+        "output": "allable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_06_money_uses_decimal_precision - AssertionError: assert '0.30000000000000004' == '0.30'\n  \n  - 0.30\n  + 0.30000000000000004\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S07": {
+        "duration_seconds": 1.359,
+        "integrity_passed": true,
+        "output": "ead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_07_omitted_patch_field_preserves_existing_value - AssertionError: assert None == 'Ada'\n1 failed, 1 warning in 0.90s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S08": {
+        "duration_seconds": 1.25,
+        "integrity_passed": true,
+        "output": "ngs.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_08_create_returns_201 - AssertionError: assert 200 == 201\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/08')\n +      where post = <starlette.testclient.TestClient object at 0x0000024C54CEFC90>.post\n1 failed, 1 warning in 0.84s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S09": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "========= short test summary info ===========================\nFAILED test_scenarios.py::test_09_duplicate_order_is_conflict - AssertionError: assert 201 == 409\n +  where 201 = <Response [201 Created]>.status_code\n +    where <Response [201 Created]> = post('/scenario/09/order-1')\n +      where post = <starlette.testclient.TestClient object at 0x000001F479E1F990>.post\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S10": {
+        "duration_seconds": 1.328,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_10_private_route_requires_api_key - AssertionError: assert 200 == 401\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/10')\n +      where get = <starlette.testclient.TestClient object at 0x000001BBBCFBC690>.get\n1 failed, 1 warning in 0.91s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S11": {
+        "duration_seconds": 1.265,
+        "integrity_passed": true,
+        "output": "thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_11_mass_assignment_cannot_grant_admin - assert True is False\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S12": {
+        "duration_seconds": 1.328,
+        "integrity_passed": true,
+        "output": "ad.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_12_page_size_is_capped - assert 101 <= 100\n +  where 101 = len([0, 1, 2, 3, 4, 5, ...])\n1 failed, 1 warning in 0.89s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S13": {
+        "duration_seconds": 1.235,
+        "integrity_passed": true,
+        "output": "cs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_13_internal_exception_is_not_returned - assert 'private database password' not in '{\"detail\":\"...e password\"}'\n  \n  'private database password' is contained here:\n    {\"detail\":\"private database password\"}\n1 failed, 1 warning in 0.83s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S14": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "====== short test summary info ===========================\nFAILED test_scenarios.py::test_14_path_traversal_is_rejected - AssertionError: assert 200 == 403\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/14?filename=..%2Fsecret.txt')\n +      where get = <starlette.testclient.TestClient object at 0x000002832C79C690>.get\n1 failed, 1 warning in 0.87s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S15": {
+        "duration_seconds": 1.328,
+        "integrity_passed": true,
+        "output": "PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_15_delete_returns_no_content - assert 200 == 204\n +  where 200 = <Response [200 OK]>.status_code\n1 failed, 1 warning in 0.92s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S16": {
+        "duration_seconds": 1.391,
+        "integrity_passed": true,
+        "output": "============ short test summary info ===========================\nFAILED test_scenarios.py::test_16_inventory_cannot_be_reserved_below_zero - AssertionError: assert 200 == 409\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/16/10')\n +      where post = <starlette.testclient.TestClient object at 0x0000022BE233BD10>.post\n1 failed, 1 warning in 0.97s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S17": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": " _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_17_leaderboard_is_sorted_descending - AssertionError: assert 'Ada' == 'Lin'\n  \n  - Lin\n  + Ada\n1 failed, 1 warning in 0.88s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S18": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "========================== short test summary info ===========================\nFAILED test_scenarios.py::test_18_payment_retry_is_idempotent - AssertionError: assert {'charged': 1} == {'charged': 2}\n  \n  Differing items:\n  {'charged': 1} != {'charged': 2}\n  \n  Full diff:\n    {\n  -     'charged': 2,\n  ?                ^\n  +     'charged': 1,\n  ?                ^\n    }\n1 failed, 1 warning in 0.88s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S19": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_19_empty_search_query_is_rejected - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/19')\n +      where get = <starlette.testclient.TestClient object at 0x000002AEE8A6C690>.get\n1 failed, 1 warning in 0.85s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S20": {
+        "duration_seconds": 1.266,
+        "integrity_passed": true,
+        "output": "================= short test summary info ===========================\nFAILED test_scenarios.py::test_20_readiness_reports_unavailable_dependency - AssertionError: assert 200 == 503\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/20')\n +      where get = <starlette.testclient.TestClient object at 0x000002403EF9BD10>.get\n1 failed, 1 warning in 0.87s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      }
+    }
+  }
+}

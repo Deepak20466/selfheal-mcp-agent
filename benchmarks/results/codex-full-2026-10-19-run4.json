@@ -1,0 +1,872 @@
+{
+  "ai_attempts_are_reference_free": true,
+  "attempts": [
+    {
+      "ai_generation_seconds": 13.266,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:09:35.027795Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "request_validation",
+      "expected_diagnosis": "request_validation",
+      "explanation": "The endpoint accepts an unrestricted dictionary, so a missing name returns 200 with null. A request model with a required name field makes FastAPI return 422 when it is absent.",
+      "false_fix": false,
+      "input_tokens": 15936,
+      "manual_intervention": false,
+      "output_tokens": 304,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 13.313,
+      "scenario_id": "S01",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -8,6 +8,7 @@\n \n from fastapi import FastAPI, Query\n from fastapi.responses import JSONResponse\n+from pydantic import BaseModel\n \n app = FastAPI(title=\"Selfheal benchmark target\")\n \n@@ -32,9 +33,13 @@ def reset_state() -> None:\n     STOCK[\"sku\"] = 5\n \n \n+class ValidateRequest(BaseModel):\n+    name: str\n+\n+\n @app.post(\"/scenario/01\")\n-def validate_request(payload: dict[str, Any]) -> dict[str, Any]:\n-    return {\"name\": payload.get(\"name\")}\n+def validate_request(payload: ValidateRequest) -> dict[str, Any]:\n+    return {\"name\": payload.name}\n \n \n @app.get(\"/scenario/02\")\n",
+      "verification_seconds": 1.281
+    },
+    {
+      "ai_generation_seconds": 8.25,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:09:47.014367Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "pagination_offset",
+      "expected_diagnosis": "pagination_offset",
+      "explanation": "The offset treats page numbers as zero-based, so page 1 skips the first two items. Subtracting one from the page number makes page 1 return [1, 2].",
+      "false_fix": false,
+      "input_tokens": 15970,
+      "manual_intervention": false,
+      "output_tokens": 185,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 8.297,
+      "scenario_id": "S02",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -40,7 +40,7 @@\n @app.get(\"/scenario/02\")\n def paginate(page: int = 1, limit: int = 2) -> dict[str, list[int]]:\n     items = list(range(1, 7))\n-    start = page * limit\n+    start = (page - 1) * limit\n     return {\"items\": items[start : start + limit]}\n \n \n",
+      "verification_seconds": 1.297
+    },
+    {
+      "ai_generation_seconds": 10.047,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:09:55.294332Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "missing_resource_handling",
+      "expected_diagnosis": "missing_resource_handling",
+      "explanation": "An unknown widget ID raises KeyError and produces HTTP 500. Check for existence and raise HTTPException with status 404 before accessing the widget.",
+      "false_fix": true,
+      "input_tokens": 15932,
+      "manual_intervention": false,
+      "output_tokens": 198,
+      "patch_generated": true,
+      "patch_message": "error: patch failed: app.py:9\nerror: app.py: patch does not apply\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 10.062,
+      "scenario_id": "S03",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -9,1 +9,1 @@\n-from fastapi import FastAPI, Query\n+from fastapi import FastAPI, HTTPException, Query\n@@ -48,3 +48,5 @@\n @app.get(\"/scenario/03/{widget_id}\")\n def get_widget(widget_id: int) -> dict[str, str]:\n+    if widget_id not in WIDGETS:\n+        raise HTTPException(status_code=404, detail=\"Widget not found\")\n     return {\"name\": WIDGETS[widget_id]}\n",
+      "verification_seconds": 1.375
+    },
+    {
+      "ai_generation_seconds": 9.266,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:10:05.341529Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "empty_collection_guard",
+      "expected_diagnosis": "empty_collection_guard",
+      "explanation": "Missing values produce an empty list, causing division by zero and HTTP 500. Reject the empty collection with HTTP 422 before calculating the average.",
+      "false_fix": true,
+      "input_tokens": 15934,
+      "manual_intervention": false,
+      "output_tokens": 197,
+      "patch_generated": true,
+      "patch_message": "error: patch failed: app.py:9\nerror: app.py: patch does not apply\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 9.281,
+      "scenario_id": "S04",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -9,1 +9,1 @@\n-from fastapi import FastAPI, Query\n+from fastapi import FastAPI, HTTPException, Query\n@@ -54,4 +54,6 @@\n def average(values: list[float] | None = Query(default=None)) -> dict[str, float]:\n     numbers = values or []\n+    if not numbers:\n+        raise HTTPException(status_code=422, detail=\"At least one value is required\")\n     return {\"average\": sum(numbers) / len(numbers)}\n \n",
+      "verification_seconds": 1.297
+    },
+    {
+      "ai_generation_seconds": 11.391,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:10:14.642464Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "timezone_awareness",
+      "expected_diagnosis": "timezone_awareness",
+      "explanation": "The event uses a naive datetime, so isoformat() omits the UTC offset. Set its timezone explicitly to UTC.",
+      "false_fix": true,
+      "input_tokens": 15948,
+      "manual_intervention": false,
+      "output_tokens": 177,
+      "patch_generated": true,
+      "patch_message": "error: patch failed: app.py:5\nerror: app.py: patch does not apply\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 11.422,
+      "scenario_id": "S05",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -5,1 +5,1 @@\n-from datetime import datetime\n+from datetime import datetime, timezone\n@@ -59,1 +59,1 @@\n-    return {\"at\": datetime(2030, 1, 1, 12, 0, 0).isoformat()}\n+    return {\"at\": datetime(2030, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat()}\n",
+      "verification_seconds": 1.422
+    },
+    {
+      "ai_generation_seconds": 8.375,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:10:26.056444Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "decimal_money_arithmetic",
+      "expected_diagnosis": "decimal_money_arithmetic",
+      "explanation": "Binary floating-point addition introduces a precision artifact. Add decimal values constructed from strings and format the total to two decimal places.",
+      "false_fix": true,
+      "input_tokens": 15939,
+      "manual_intervention": false,
+      "output_tokens": 214,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:20\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 8.406,
+      "scenario_id": "S06",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -3,6 +3,7 @@\n from __future__ import annotations\n \n from datetime import datetime\n+from decimal import Decimal\n from pathlib import Path\n from typing import Any\n \n@@ -61,7 +62,7 @@\n @app.get(\"/scenario/06\")\n def total() -> dict[str, str]:\n-    return {\"total\": str(0.1 + 0.2)}\n+    return {\"total\": format(Decimal(\"0.1\") + Decimal(\"0.2\"), \".2f\")}\n \n \n @app.patch(\"/scenario/07\")\n",
+      "verification_seconds": 1.391
+    },
+    {
+      "ai_generation_seconds": 7.735,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:10:34.472062Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "partial_update_semantics",
+      "expected_diagnosis": "partial_update_semantics",
+      "explanation": "payload.get(\"name\") returns None when name is omitted, overwriting the existing value. Update name only when the field is present, preserving explicit null behavior.",
+      "false_fix": true,
+      "input_tokens": 15930,
+      "manual_intervention": false,
+      "output_tokens": 170,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:13\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 7.75,
+      "scenario_id": "S07",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -66,7 +66,8 @@\n @app.patch(\"/scenario/07\")\n def patch_profile(payload: dict[str, Any]) -> dict[str, str | None]:\n-    PROFILE[\"name\"] = payload.get(\"name\")\n+    if \"name\" in payload:\n+        PROFILE[\"name\"] = payload[\"name\"]\n     return PROFILE\n \n \n",
+      "verification_seconds": 1.203
+    },
+    {
+      "ai_generation_seconds": 8.047,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:10:42.234337Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "http_status_contract",
+      "expected_diagnosis": "http_status_contract",
+      "explanation": "The create endpoint defaults to HTTP 200. Set its route status code to 201 to satisfy the creation response contract.",
+      "false_fix": false,
+      "input_tokens": 15930,
+      "manual_intervention": false,
+      "output_tokens": 162,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 8.094,
+      "scenario_id": "S08",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -71,7 +71,7 @@ def patch_profile(payload: dict[str, Any]) -> dict[str, str | None]:\n     return PROFILE\n \n \n[REDACTED_EMAIL](\"/scenario/08\")\n[REDACTED_EMAIL](\"/scenario/08\", status_code=201)\n def create_widget() -> dict[str, str]:\n     return {\"id\": \"new-widget\"}\n \n",
+      "verification_seconds": 1.0
+    },
+    {
+      "ai_generation_seconds": 7.875,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:10:50.331493Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "duplicate_request_handling",
+      "expected_diagnosis": "duplicate_request_handling",
+      "explanation": "The endpoint overwrites existing orders and always returns 201. Check for an existing order ID before mutation and return 409 for duplicates.",
+      "false_fix": true,
+      "input_tokens": 15943,
+      "manual_intervention": false,
+      "output_tokens": 180,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:12\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 7.906,
+      "scenario_id": "S09",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -77,6 +77,8 @@\n @app.post(\"/scenario/09/{order_id}\")\n def create_order(order_id: str) -> JSONResponse:\n+    if order_id in ORDERS:\n+        return JSONResponse({\"detail\": \"Order already exists\"}, status_code=409)\n     ORDERS[order_id] = {\"id\": order_id}\n     return JSONResponse(ORDERS[order_id], status_code=201)\n \n",
+      "verification_seconds": 1.281
+    },
+    {
+      "ai_generation_seconds": 9.781,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:10:58.250773Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "missing_authorization_check",
+      "expected_diagnosis": "missing_authorization_check",
+      "explanation": "The private route returns its secret without checking for an API key. Read X-API-Key from the request header and return 401 when it is absent or empty.",
+      "false_fix": true,
+      "input_tokens": 15931,
+      "manual_intervention": false,
+      "output_tokens": 246,
+      "patch_generated": true,
+      "patch_message": "error: patch failed: app.py:9\nerror: app.py: patch does not apply\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 9.812,
+      "scenario_id": "S10",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -9,1 +9,1 @@\n-from fastapi import FastAPI, Query\n+from fastapi import FastAPI, Header, HTTPException, Query\n@@ -87,3 +87,5 @@\n @app.get(\"/scenario/10\")\n-def private_data(x_api_key: str | None = None) -> dict[str, str]:\n+def private_data(x_api_key: str | None = Header(default=None)) -> dict[str, str]:\n+    if not x_api_key:\n+        raise HTTPException(status_code=401, detail=\"API key required\")\n     return {\"secret\": \"private\"}\n",
+      "verification_seconds": 1.734
+    },
+    {
+      "ai_generation_seconds": 7.969,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:11:08.058420Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "mass_assignment",
+      "expected_diagnosis": "mass_assignment",
+      "explanation": "Updating USER with the entire request allows clients to grant themselves admin privileges. Allow only the editable name field.",
+      "false_fix": true,
+      "input_tokens": 15938,
+      "manual_intervention": false,
+      "output_tokens": 166,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:13\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 8.0,
+      "scenario_id": "S11",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -89,7 +89,8 @@ def private_data(x_api_key: str | None = None) -> dict[str, str]:\n @app.patch(\"/scenario/11\")\n def patch_user(payload: dict[str, Any]) -> dict[str, Any]:\n-    USER.update(payload)\n+    if \"name\" in payload:\n+        USER[\"name\"] = payload[\"name\"]\n     return USER\n \n \n",
+      "verification_seconds": 1.297
+    },
+    {
+      "ai_generation_seconds": 9.063,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:11:16.064499Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "unbounded_pagination",
+      "expected_diagnosis": "unbounded_pagination",
+      "explanation": "The endpoint uses the requested limit without a cap. Clamp it to 100 before generating items so oversized requests return at most 100 items.",
+      "false_fix": false,
+      "input_tokens": 15945,
+      "manual_intervention": false,
+      "output_tokens": 165,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 9.125,
+      "scenario_id": "S12",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -95,7 +95,7 @@\n \n @app.get(\"/scenario/12\")\n def bounded_page(limit: int = 10) -> dict[str, list[int]]:\n-    return {\"items\": list(range(limit))}\n+    return {\"items\": list(range(min(limit, 100)))}\n \n \n @app.get(\"/scenario/13\")\n",
+      "verification_seconds": 1.203
+    },
+    {
+      "ai_generation_seconds": 10.359,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:11:25.207695Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "exception_detail_leak",
+      "expected_diagnosis": "exception_detail_leak",
+      "explanation": "The error response exposes the internal exception message. Return a generic detail while preserving the 500 status.",
+      "false_fix": true,
+      "input_tokens": 15915,
+      "manual_intervention": false,
+      "output_tokens": 189,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:14\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 10.391,
+      "scenario_id": "S13",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -99,8 +99,8 @@ def safe_error() -> JSONResponse:\n     try:\n         raise RuntimeError(\"private database password\")\n-    except Exception as exc:  # noqa: BLE001 - intentionally faulty fixture\n-        return JSONResponse({\"detail\": str(exc)}, status_code=500)\n+    except Exception:  # noqa: BLE001 - intentionally faulty fixture\n+        return JSONResponse({\"detail\": \"Internal server error\"}, status_code=500)\n \n \n @app.get(\"/scenario/14\")\n",
+      "verification_seconds": 1.235
+    },
+    {
+      "ai_generation_seconds": 13.781,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:11:35.596516Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "path_traversal",
+      "expected_diagnosis": "path_traversal",
+      "explanation": "The endpoint resolves user input without checking that the resulting path stays within ROOT. Reject resolved paths outside ROOT with HTTP 403.",
+      "false_fix": true,
+      "input_tokens": 15953,
+      "manual_intervention": false,
+      "output_tokens": 332,
+      "patch_generated": true,
+      "patch_message": "error: patch failed: app.py:9\nerror: app.py: patch does not apply\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 13.828,
+      "scenario_id": "S14",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -9,1 +9,1 @@\n-from fastapi import FastAPI, Query\n+from fastapi import FastAPI, HTTPException, Query\n@@ -128,2 +128,5 @@\n def resolve_file(filename: str) -> dict[str, str]:\n-    return {\"path\": str((ROOT / filename).resolve())}\n+    path = (ROOT / filename).resolve()\n+    if not path.is_relative_to(ROOT):\n+        raise HTTPException(status_code=403, detail=\"Forbidden\")\n+    return {\"path\": str(path)}\n",
+      "verification_seconds": 1.093
+    },
+    {
+      "ai_generation_seconds": 12.453,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:11:49.485405Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "delete_status_contract",
+      "expected_diagnosis": "delete_status_contract",
+      "explanation": "The delete endpoint returns HTTP 200 with a JSON body. Return an empty Response with status 204 to satisfy the no-content contract.",
+      "false_fix": false,
+      "input_tokens": 15934,
+      "manual_intervention": false,
+      "output_tokens": 288,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 12.5,
+      "scenario_id": "S15",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -7,7 +7,7 @@ from pathlib import Path\n from typing import Any\n \n from fastapi import FastAPI, Query\n-from fastapi.responses import JSONResponse\n+from fastapi.responses import JSONResponse, Response\n \n app = FastAPI(title=\"Selfheal benchmark target\")\n \n@@ -119,9 +119,9 @@ def resolve_file(filename: str) -> dict[str, str]:\n     return {\"path\": str((ROOT / filename).resolve())}\n \n \n[REDACTED_EMAIL](\"/scenario/15/{widget_id}\")\n-def delete_widget(widget_id: int) -> dict[str, bool]:\n-    return {\"deleted\": True}\n[REDACTED_EMAIL](\"/scenario/15/{widget_id}\", status_code=204)\n+def delete_widget(widget_id: int) -> Response:\n+    return Response(status_code=204)\n \n \n @app.post(\"/scenario/16/{quantity}\")\n",
+      "verification_seconds": 1.0
+    },
+    {
+      "ai_generation_seconds": 11.171,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:12:02.029221Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "inventory_invariant",
+      "expected_diagnosis": "inventory_invariant",
+      "explanation": "Reservations exceeding available stock currently make inventory negative. Reject them with HTTP 409 before changing stock.",
+      "false_fix": false,
+      "input_tokens": 15941,
+      "manual_intervention": false,
+      "output_tokens": 248,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 11.234,
+      "scenario_id": "S16",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -6,7 +6,7 @@ from datetime import datetime\n from pathlib import Path\n from typing import Any\n \n-from fastapi import FastAPI, Query\n+from fastapi import FastAPI, HTTPException, Query\n from fastapi.responses import JSONResponse\n \n app = FastAPI(title=\"Selfheal benchmark target\")\n@@ -126,6 +126,8 @@ def delete_widget(widget_id: int) -> dict[str, bool]:\n \n @app.post(\"/scenario/16/{quantity}\")\n def reserve_inventory(quantity: int) -> dict[str, int]:\n+    if quantity > STOCK[\"sku\"]:\n+        raise HTTPException(status_code=409, detail=\"Insufficient stock\")\n     STOCK[\"sku\"] -= quantity\n     return {\"remaining\": STOCK[\"sku\"]}\n \n",
+      "verification_seconds": 1.047
+    },
+    {
+      "ai_generation_seconds": 10.0,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:12:13.267872Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "result_ordering",
+      "expected_diagnosis": "result_ordering",
+      "explanation": "The endpoint returns insertion order, placing Ada before higher-scoring Lin. Sort by score descending when returning the leaderboard.",
+      "false_fix": true,
+      "input_tokens": 15931,
+      "manual_intervention": false,
+      "output_tokens": 155,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:12\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 10.031,
+      "scenario_id": "S17",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -132,7 +132,7 @@\n @app.get(\"/scenario/17\")\n def leaderboard() -> list[dict[str, int | str]]:\n-    return LEADERBOARD\n+    return sorted(LEADERBOARD, key=lambda entry: entry[\"score\"], reverse=True)\n \n \n @app.post(\"/scenario/18/{key}\")\n",
+      "verification_seconds": 1.172
+    },
+    {
+      "ai_generation_seconds": 12.578,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:12:23.285222Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "idempotency",
+      "expected_diagnosis": "idempotency",
+      "explanation": "Each retry appends another charge. Return the original charge result when the key already exists, so retries preserve both state and response.",
+      "false_fix": false,
+      "input_tokens": 15961,
+      "manual_intervention": false,
+      "output_tokens": 293,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 12.625,
+      "scenario_id": "S18",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -128,4 +128,7 @@\n @app.post(\"/scenario/18/{key}\")\n def charge_payment(key: str) -> dict[str, int]:\n+    for index, charge in enumerate(CHARGES, start=1):\n+        if charge[\"key\"] == key:\n+            return {\"charged\": index}\n     CHARGES.append({\"key\": key})\n     return {\"charged\": len(CHARGES)}\n",
+      "verification_seconds": 0.953
+    },
+    {
+      "ai_generation_seconds": 11.156,
+      "cached_input_tokens": 0,
+      "codex_stderr_tail": "2026-10-18T22:12:35.930084Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "empty_query_validation",
+      "expected_diagnosis": "empty_query_validation",
+      "explanation": "The empty-string default allows a missing query to return the entire catalog with HTTP 200. Require q and enforce a minimum length of one so missing or empty queries return HTTP 422.",
+      "false_fix": false,
+      "input_tokens": 15933,
+      "manual_intervention": false,
+      "output_tokens": 329,
+      "patch_generated": true,
+      "patch_message": "applied",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": true,
+      "repair_seconds": 11.25,
+      "scenario_id": "S19",
+      "scope_guard_passed": true,
+      "skip_reason": null,
+      "status": "PASS",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -136,3 +136,3 @@\n @app.get(\"/scenario/19\")\n-def search_catalog(q: str = \"\") -> list[str]:\n+def search_catalog(q: str = Query(..., min_length=1)) -> list[str]:\n     return [item for item in CATALOG if q.lower() in item.lower()]\n",
+      "verification_seconds": 0.969
+    },
+    {
+      "ai_generation_seconds": 9.656,
+      "cached_input_tokens": 12544,
+      "codex_stderr_tail": "2026-10-18T22:12:47.170740Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n",
+      "cost_status": "not_reported_by_codex_cli",
+      "cost_usd": null,
+      "diagnosis": "readiness_check",
+      "expected_diagnosis": "readiness_check",
+      "explanation": "The readiness endpoint ignores DEPENDENCY_READY and always returns HTTP 200. Return HTTP 503 while the dependency is unavailable, preserving HTTP 200 when ready.",
+      "false_fix": true,
+      "input_tokens": 15932,
+      "manual_intervention": false,
+      "output_tokens": 178,
+      "patch_generated": true,
+      "patch_message": "error: corrupt patch at <stdin>:12\n",
+      "patch_paths": [
+        "app.py"
+      ],
+      "regression_tests_passed": false,
+      "repair_seconds": 9.687,
+      "scenario_id": "S20",
+      "scope_guard_passed": false,
+      "skip_reason": null,
+      "status": "FAIL",
+      "turn_count": 1,
+      "unified_diff": "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -144,3 +144,6 @@\n @app.get(\"/scenario/20\")\n-def readiness() -> dict[str, str]:\n+def readiness() -> JSONResponse:\n+    if not DEPENDENCY_READY:\n+        return JSONResponse({\"status\": \"unavailable\"}, status_code=503)\n-    return {\"status\": \"ready\"}\n+    return JSONResponse({\"status\": \"ready\"})\n",
+      "verification_seconds": 1.063
+    }
+  ],
+  "authentication": {
+    "method": "existing Codex auth.json copied to temporary CODEX_HOME",
+    "status": "available"
+  },
+  "backend": "codex_cli",
+  "baseline": {
+    "all_twenty_failed_as_expected": true,
+    "sandbox_seconds": 26.016,
+    "scenarios": {
+      "S01": {
+        "duration_seconds": 0.969,
+        "integrity_passed": true,
+        "output": "========== short test summary info ===========================\nFAILED test_scenarios.py::test_01_required_request_field_is_validated - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/01', json={})\n +      where post = <starlette.testclient.TestClient object at 0x000001DF6691C310>.post\n1 failed, 1 warning in 0.60s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S02": {
+        "duration_seconds": 1.0,
+        "integrity_passed": true,
+        "output": "s://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_02_page_one_starts_at_first_item - assert [3, 4] == [1, 2]\n  \n  At index 0 diff: 3 != 1\n  \n  Full diff:\n    [\n  -     1,\n  ?     ^\n  +     3,\n  ?     ^\n  -     2,\n  ?     ^\n  +     4,\n  ?     ^\n    ]\n1 failed, 1 warning in 0.55s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S03": {
+        "duration_seconds": 0.89,
+        "integrity_passed": true,
+        "output": "ary info ===========================\nFAILED test_scenarios.py::test_03_missing_widget_returns_not_found - AssertionError: assert 500 == 404\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/03/99')\n +      where get = <starlette.testclient.TestClient object at 0x000001912DC1A510>.get\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S04": {
+        "duration_seconds": 0.891,
+        "integrity_passed": true,
+        "output": "summary info ===========================\nFAILED test_scenarios.py::test_04_empty_average_is_a_client_error - AssertionError: assert 500 == 422\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/04')\n +      where get = <starlette.testclient.TestClient object at 0x000001F7F81F7BD0>.get\n1 failed, 1 warning in 0.52s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S05": {
+        "duration_seconds": 0.922,
+        "integrity_passed": true,
+        "output": "=================== short test summary info ===========================\nFAILED test_scenarios.py::test_05_event_timestamp_is_timezone_aware - AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x0000024E1AD62380>('+00:00')\n +    where <built-in method endswith of str object at 0x0000024E1AD62380> = '2030-01-01T12:00:00'.endswith\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S06": {
+        "duration_seconds": 0.891,
+        "integrity_passed": true,
+        "output": "allable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_06_money_uses_decimal_precision - AssertionError: assert '0.30000000000000004' == '0.30'\n  \n  - 0.30\n  + 0.30000000000000004\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S07": {
+        "duration_seconds": 0.906,
+        "integrity_passed": true,
+        "output": "ead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_07_omitted_patch_field_preserves_existing_value - AssertionError: assert None == 'Ada'\n1 failed, 1 warning in 0.52s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S08": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "ngs.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_08_create_returns_201 - AssertionError: assert 200 == 201\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/08')\n +      where post = <starlette.testclient.TestClient object at 0x0000026EEA682A90>.post\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S09": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "========= short test summary info ===========================\nFAILED test_scenarios.py::test_09_duplicate_order_is_conflict - AssertionError: assert 201 == 409\n +  where 201 = <Response [201 Created]>.status_code\n +    where <Response [201 Created]> = post('/scenario/09/order-1')\n +      where post = <starlette.testclient.TestClient object at 0x000002695679A510>.post\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S10": {
+        "duration_seconds": 0.891,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_10_private_route_requires_api_key - AssertionError: assert 200 == 401\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/10')\n +      where get = <starlette.testclient.TestClient object at 0x000001E3A6E1A510>.get\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S11": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_11_mass_assignment_cannot_grant_admin - assert True is False\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S12": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "ad.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_12_page_size_is_capped - assert 101 <= 100\n +  where 101 = len([0, 1, 2, 3, 4, 5, ...])\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S13": {
+        "duration_seconds": 1.0,
+        "integrity_passed": true,
+        "output": "cs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_13_internal_exception_is_not_returned - assert 'private database password' not in '{\"detail\":\"...e password\"}'\n  \n  'private database password' is contained here:\n    {\"detail\":\"private database password\"}\n1 failed, 1 warning in 0.63s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S14": {
+        "duration_seconds": 0.922,
+        "integrity_passed": true,
+        "output": "====== short test summary info ===========================\nFAILED test_scenarios.py::test_14_path_traversal_is_rejected - AssertionError: assert 200 == 403\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/14?filename=..%2Fsecret.txt')\n +      where get = <starlette.testclient.TestClient object at 0x00000218D3A7A510>.get\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S15": {
+        "duration_seconds": 0.843,
+        "integrity_passed": true,
+        "output": "PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_15_delete_returns_no_content - assert 200 == 204\n +  where 200 = <Response [200 OK]>.status_code\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S16": {
+        "duration_seconds": 0.859,
+        "integrity_passed": true,
+        "output": "============ short test summary info ===========================\nFAILED test_scenarios.py::test_16_inventory_cannot_be_reserved_below_zero - AssertionError: assert 200 == 409\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = post('/scenario/16/10')\n +      where post = <starlette.testclient.TestClient object at 0x0000024153C5BD10>.post\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S17": {
+        "duration_seconds": 0.922,
+        "integrity_passed": true,
+        "output": " _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_17_leaderboard_is_sorted_descending - AssertionError: assert 'Ada' == 'Lin'\n  \n  - Lin\n  + Ada\n1 failed, 1 warning in 0.55s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S18": {
+        "duration_seconds": 0.922,
+        "integrity_passed": true,
+        "output": "========================== short test summary info ===========================\nFAILED test_scenarios.py::test_18_payment_retry_is_idempotent - AssertionError: assert {'charged': 1} == {'charged': 2}\n  \n  Differing items:\n  {'charged': 1} != {'charged': 2}\n  \n  Full diff:\n    {\n  -     'charged': 2,\n  ?                ^\n  +     'charged': 1,\n  ?                ^\n    }\n1 failed, 1 warning in 0.53s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S19": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_19_empty_search_query_is_rejected - AssertionError: assert 200 == 422\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/19')\n +      where get = <starlette.testclient.TestClient object at 0x000001FE7C9FDCD0>.get\n1 failed, 1 warning in 0.52s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S20": {
+        "duration_seconds": 0.875,
+        "integrity_passed": true,
+        "output": "================= short test summary info ===========================\nFAILED test_scenarios.py::test_20_readiness_reports_unavailable_dependency - AssertionError: assert 200 == 503\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/20')\n +      where get = <starlette.testclient.TestClient object at 0x0000017652B8D750>.get\n1 failed, 1 warning in 0.51s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      }
+    }
+  },
+  "benchmark": "independent-fastapi-20-scenario-ai-repair",
+  "codex_cli_version": "codex-cli 0.162.0-alpha.17.2",
+  "finished_at": "2026-10-18T22:13:30.004742+00:00",
+  "limitations": [
+    "Codex CLI cost is recorded only if its JSONL protocol reports a dollar amount.",
+    "The model sees only the selected test and broken app.py. Reference repairs are never copied into attempt directories."
+  ],
+  "run_id": "codex-20261018T220907Z",
+  "sandbox": "Windows AppContainer + Job Object or Linux Bubblewrap; fail closed",
+  "started_at": "2026-10-18T22:09:07.377225+00:00",
+  "target": "temporary independent FastAPI repository",
+  "verification": {
+    "sandbox_seconds": 33.282,
+    "scenarios": {
+      "S01": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.77s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S02": {
+        "duration_seconds": 1.297,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.77s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S03": {
+        "duration_seconds": 1.375,
+        "integrity_passed": true,
+        "output": "ary info ===========================\nFAILED test_scenarios.py::test_03_missing_widget_returns_not_found - AssertionError: assert 500 == 404\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/03/99')\n +      where get = <starlette.testclient.TestClient object at 0x0000027EBCA3A510>.get\n1 failed, 1 warning in 0.75s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S04": {
+        "duration_seconds": 1.297,
+        "integrity_passed": true,
+        "output": "summary info ===========================\nFAILED test_scenarios.py::test_04_empty_average_is_a_client_error - AssertionError: assert 500 == 422\n +  where 500 = <Response [500 Internal Server Error]>.status_code\n +    where <Response [500 Internal Server Error]> = get('/scenario/04')\n +      where get = <starlette.testclient.TestClient object at 0x000002A638C1DCD0>.get\n1 failed, 1 warning in 0.72s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S05": {
+        "duration_seconds": 1.422,
+        "integrity_passed": true,
+        "output": "=================== short test summary info ===========================\nFAILED test_scenarios.py::test_05_event_timestamp_is_timezone_aware - AssertionError: assert False\n +  where False = <built-in method endswith of str object at 0x000002A1FC3EEC90>('+00:00')\n +    where <built-in method endswith of str object at 0x000002A1FC3EEC90> = '2030-01-01T12:00:00'.endswith\n1 failed, 1 warning in 0.90s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S06": {
+        "duration_seconds": 1.391,
+        "integrity_passed": true,
+        "output": "allable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_06_money_uses_decimal_precision - AssertionError: assert '0.30000000000000004' == '0.30'\n  \n  - 0.30\n  + 0.30000000000000004\n1 failed, 1 warning in 0.86s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S07": {
+        "duration_seconds": 1.203,
+        "integrity_passed": true,
+        "output": "ead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_07_omitted_patch_field_preserves_existing_value - AssertionError: assert None == 'Ada'\n1 failed, 1 warning in 0.66s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S08": {
+        "duration_seconds": 1.0,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.54s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S09": {
+        "duration_seconds": 1.281,
+        "integrity_passed": true,
+        "output": "========= short test summary info ===========================\nFAILED test_scenarios.py::test_09_duplicate_order_is_conflict - AssertionError: assert 201 == 409\n +  where 201 = <Response [201 Created]>.status_code\n +    where <Response [201 Created]> = post('/scenario/09/order-1')\n +      where post = <starlette.testclient.TestClient object at 0x00000222E767C310>.post\n1 failed, 1 warning in 0.73s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S10": {
+        "duration_seconds": 1.734,
+        "integrity_passed": true,
+        "output": "=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_10_private_route_requires_api_key - AssertionError: assert 200 == 401\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/10')\n +      where get = <starlette.testclient.TestClient object at 0x000001DAAA70A510>.get\n1 failed, 1 warning in 0.94s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S11": {
+        "duration_seconds": 1.297,
+        "integrity_passed": true,
+        "output": "thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_11_mass_assignment_cannot_grant_admin - assert True is False\n1 failed, 1 warning in 0.77s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S12": {
+        "duration_seconds": 1.203,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.65s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S13": {
+        "duration_seconds": 1.235,
+        "integrity_passed": true,
+        "output": "cs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_13_internal_exception_is_not_returned - assert 'private database password' not in '{\"detail\":\"...e password\"}'\n  \n  'private database password' is contained here:\n    {\"detail\":\"private database password\"}\n1 failed, 1 warning in 0.70s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S14": {
+        "duration_seconds": 1.093,
+        "integrity_passed": true,
+        "output": "====== short test summary info ===========================\nFAILED test_scenarios.py::test_14_path_traversal_is_rejected - AssertionError: assert 200 == 403\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/14?filename=..%2Fsecret.txt')\n +      where get = <starlette.testclient.TestClient object at 0x00000251FFE9A510>.get\n1 failed, 1 warning in 0.58s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S15": {
+        "duration_seconds": 1.0,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.53s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S16": {
+        "duration_seconds": 1.047,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.60s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S17": {
+        "duration_seconds": 1.172,
+        "integrity_passed": true,
+        "output": " _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED test_scenarios.py::test_17_leaderboard_is_sorted_descending - AssertionError: assert 'Ada' == 'Lin'\n  \n  - Lin\n  + Ada\n1 failed, 1 warning in 0.65s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      },
+      "S18": {
+        "duration_seconds": 0.953,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.54s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S19": {
+        "duration_seconds": 0.969,
+        "integrity_passed": true,
+        "output": "\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\site-packages\\starlette\\testclient.py:40: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.\n    _PortalFactoryType = typing.Callable[[], typing.ContextManager[anyio.abc.BlockingPortal]]\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.52s\n\n",
+        "return_code": 0,
+        "status": "PASS"
+      },
+      "S20": {
+        "duration_seconds": 1.063,
+        "integrity_passed": true,
+        "output": "================= short test summary info ===========================\nFAILED test_scenarios.py::test_20_readiness_reports_unavailable_dependency - AssertionError: assert 200 == 503\n +  where 200 = <Response [200 OK]>.status_code\n +    where <Response [200 OK]> = get('/scenario/20')\n +      where get = <starlette.testclient.TestClient object at 0x00000223DF3C1F90>.get\n1 failed, 1 warning in 0.60s\n\n",
+        "return_code": 1,
+        "status": "FAIL"
+      }
+    }
+  }
+}
