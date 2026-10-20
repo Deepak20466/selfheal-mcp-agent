@@ -22,6 +22,8 @@ GROQ_API_ROOT = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "openai/gpt-oss-120b"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_QUOTA_CONFIRMATION_AGE_SECONDS = 15 * 60
+GEMINI_REQUEST_TIMEOUT_SECONDS = 120
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 45
 
 REPAIR_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -84,7 +86,14 @@ def _request_json(
             raise ProviderError(f"{provider} endpoint attempted to redirect the request")
 
     try:
-        with urllib.request.build_opener(RejectRedirect).open(request, timeout=45) as response:
+        timeout_seconds = (
+            GEMINI_REQUEST_TIMEOUT_SECONDS
+            if provider == "Gemini"
+            else DEFAULT_REQUEST_TIMEOUT_SECONDS
+        )
+        with urllib.request.build_opener(RejectRedirect).open(
+            request, timeout=timeout_seconds
+        ) as response:
             content = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         if exc.code == 429:

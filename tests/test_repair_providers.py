@@ -235,6 +235,38 @@ def test_gemini_404_is_model_unavailability_not_a_paid_retry(
         )
 
 
+def test_gemini_request_timeout_is_longer_and_other_provider_stays_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timeouts: list[int] = []
+
+    class Response:
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+        def read(self, _limit: int) -> bytes:
+            return b"{}"
+
+    class CapturingOpener:
+        def open(self, *_args: Any, timeout: int) -> Response:
+            timeouts.append(timeout)
+            return Response()
+
+    monkeypatch.setattr(
+        repair_providers.urllib.request,
+        "build_opener",
+        lambda *_args: CapturingOpener(),
+    )
+
+    repair_providers._request_json("https://example.invalid", headers={}, provider="Gemini")
+    repair_providers._request_json("https://example.invalid", headers={}, provider="Groq")
+
+    assert timeouts == [120, 45]
+
+
 def test_gemini_requires_free_project_and_positive_model_quota_before_http() -> None:
     calls = 0
 
