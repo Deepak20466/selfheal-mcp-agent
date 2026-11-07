@@ -10,18 +10,24 @@ per-user cache, outside this repository. Baseline target tests were repeated thr
 same tests were repeated against the historical fix; only stable failures followed by stable passes
 were retained.
 
-The local environment has no reachable PostgreSQL listener. The full suite was not verified locally;
-the pull request CI job uses a PostgreSQL 16 service and will provide the database-backed result.
-Provider billing was not attested and no provider API was called. The three local runtime-demo
-regression tests describe the expected repaired behavior and fail against the intentionally seeded
-bugs; no runtime-demo PR was created. Ruff lint and formatting passed, and mypy reported no issues
-in 89 source files. The focused offline unit suite passed **84 tests**, with **1 skipped** and one
-third-party deprecation warning. Two additional Windows AppContainer tests passed using a temporary
-venv. Gitleaks found no leaks in tracked or nonignored untracked files. The three expected runtime
-demo failures confirm the seeded defects. `pip-audit --progress-spinner off` in a disposable copy
+The local environment has no reachable PostgreSQL listener, so the full suite could not be verified
+locally. Hosted PostgreSQL 16 CI passed on this branch: **834 passed, 7 skipped, 3 warnings** in
+128.22 seconds ([CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42356948363)).
+Calico-backed Kubernetes CI also passed, including chart install, MCP policy/authentication,
+credential separation, seeded Sentinel capture, pod recovery, and liveness restart ([k8s run](
+https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42356948360)). Both dependency audits,
+Node example tests, Ruff lint/format, strict mypy, and independent FastAPI benchmark fixture
+validation passed in CI. Provider billing was not attested and no provider API was called. The three
+local runtime-demo regression tests describe the expected repaired behavior and fail against the
+intentionally seeded bugs; no runtime-demo PR was created. Ruff lint and formatting passed, and mypy
+reported no issues in 89 source files. The focused offline unit suite passed **84 tests**, with **1
+skipped** and one third-party deprecation warning. Two additional Windows AppContainer tests passed
+using a temporary venv. Gitleaks found no leaks in tracked or nonignored untracked files. The three
+expected runtime demo failures confirm the seeded defects. `pip-audit --progress-spinner off` in a disposable copy
 installed from `.[dev]` found no known vulnerabilities; it skipped the unpublished local project
-distribution. Full `pytest -q` stops in `tests/conftest.py` before test collection because the local
-PostgreSQL connection is refused (`WinError 1225`); PostgreSQL-backed verification is pending PR CI.
+distribution. Full local `pytest -q` stops in `tests/conftest.py` before test collection because the
+local PostgreSQL connection is refused (`WinError 1225`); hosted CI provides the PostgreSQL-backed
+result above. PR #44 remains open and unmerged.
 
 ## Historical acceptance status as of 2026-10-20
 
