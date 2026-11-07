@@ -24,6 +24,7 @@ worktrees/
 releases/
 local_deploy_root/
 connected_apps/
+benchmarks/.selfheal-real-bugs-data/
 
 .vscode/*
 !.vscode/extensions.json

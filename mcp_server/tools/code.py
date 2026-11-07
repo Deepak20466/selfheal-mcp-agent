@@ -49,11 +49,13 @@ _NOISE_DIR_PREFIXES = (
     "worktrees/",
     "node_modules/",
     "htmlcov/",
+    "benchmarks/real_bugs/results/",
 )
 
 
 def _is_noise_path(relative_posix: str) -> bool:
-    return (
+    parts = relative_posix.replace("\\", "/").split("/")
+    return any(part.lower() in {".git", ".hg", ".svn"} for part in parts) or (
         any(
             relative_posix == prefix.rstrip("/") or relative_posix.startswith(prefix)
             for prefix in _NOISE_DIR_PREFIXES
@@ -69,6 +71,8 @@ async def read_file(
     """Read a file (optionally a 1-indexed inclusive line range), capped at 200KB."""
     try:
         resolved = check_readable(path)
+        if _is_noise_path(to_repo_relative(resolved)):
+            raise SandboxViolation(f"Reading {path!r} is not allowed (benchmark result data)")
     except SandboxViolation as exc:
         raise ToolError(str(exc)) from exc
 
@@ -234,6 +238,12 @@ async def run_tests(
         app_dir = cwd / app.local_repo_path
         return await git_utils.run_test_command(app.test_command, cwd=app_dir)
 
+    python_executable = (
+        git_utils.configured_python_executable(app.test_command)
+        if app is not None and app.language == "python"
+        else None
+    )
+
     if test_path is None:
         if app is not None and app.test_command:
             # The pre-PR gate: the app's own configured suite, not every test
@@ -246,7 +256,7 @@ async def run_tests(
         return await git_utils.run_pytest(
             None, cwd=cwd, timeout=git_utils.FULL_SUITE_TIMEOUT_SECONDS
         )
-    return await git_utils.run_pytest(test_path, cwd=cwd)
+    return await git_utils.run_pytest(test_path, cwd=cwd, python_executable=python_executable)
 
 
 @audited_tool(mcp, "propose_patch")

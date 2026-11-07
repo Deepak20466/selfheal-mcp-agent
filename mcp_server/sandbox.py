@@ -93,8 +93,10 @@ def check_readable(relative_path: str) -> Path:
     rel = to_repo_relative(resolved)
     if is_secret_path(rel):
         raise SandboxViolation(f"Reading {rel!r} is not allowed (secrets file)")
-    if rel == ".git" or rel.startswith(".git/"):
-        raise SandboxViolation(f"Reading {rel!r} is not allowed (git internals)")
+    if any(part.lower() in {".git", ".hg", ".svn"} for part in PurePosixPath(rel).parts):
+        raise SandboxViolation(f"Reading {rel!r} is not allowed (version-control internals)")
+    if rel.startswith("benchmarks/real_bugs/results/"):
+        raise SandboxViolation(f"Reading {rel!r} is not allowed (benchmark result data)")
     return resolved
 
 

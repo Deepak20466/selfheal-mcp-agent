@@ -1,0 +1,29 @@
+repositories:
+  - name: h11
+    url: https://github.com/python-hyper/h11.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]
+  - name: pluggy
+    url: https://github.com/pytest-dev/pluggy.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]
+  - name: outcome
+    url: https://github.com/python-trio/outcome.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]
+  - name: itsdangerous
+    url: https://github.com/pallets/itsdangerous.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]
+  - name: attrs
+    url: https://github.com/python-attrs/attrs.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2, hypothesis==6.142.4]
+  - name: hpack
+    url: https://github.com/python-hyper/hpack.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]
+  - name: idna
+    url: https://github.com/kjd/idna.git
+    test_command: python -m pytest -q
+    test_dependencies: [pytest==8.4.2]

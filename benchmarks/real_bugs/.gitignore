@@ -1,0 +1,8 @@
+cache/
+cases/
+prepared/
+venvs/
+runs/
+results/*.json
+results/*.md
+__pycache__/

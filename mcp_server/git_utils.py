@@ -8,12 +8,72 @@ un-sandboxed path.
 from __future__ import annotations
 
 import asyncio
+import os
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
 
 from core.git_env import git_subprocess_env, scrub_git_message
 from mcp_server.execution_sandbox import run_untrusted_command
+
+_PYTEST_BOOTSTRAP = """from __future__ import annotations
+
+import ast
+import importlib
+import sys
+from pathlib import Path
+
+repository = Path.cwd()
+source_roots = [repository / "src", repository]
+sys.path[:0] = [str(path) for path in source_roots if path.is_dir()]
+arguments = sys.argv[1:]
+test_files = []
+for argument in arguments:
+    if argument.startswith("-"):
+        continue
+    candidate = repository / argument
+    if candidate.is_file() and candidate.suffix == ".py":
+        test_files.append(candidate)
+    elif candidate.is_dir():
+        test_files.extend(candidate.rglob("test_*.py"))
+        test_files.extend(candidate.rglob("*_test.py"))
+if not test_files:
+    for directory in (repository / "tests", repository / "test"):
+        if directory.is_dir():
+            test_files.extend(directory.rglob("test_*.py"))
+            test_files.extend(directory.rglob("*_test.py"))
+
+module_roots = set()
+for test_file in test_files:
+    try:
+        tree = ast.parse(test_file.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeError):
+        continue
+    for node in ast.walk(tree):
+        imported = []
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.append(node.module.split(".", 1)[0])
+        for name in imported:
+            exists_locally = any(
+                (root / name).exists() or (root / f"{name}.py").is_file()
+                for root in source_roots
+            )
+            if exists_locally:
+                module_roots.add(name)
+if (repository / "tests" / "__init__.py").is_file():
+    module_roots.add("tests")
+for module in sorted(module_roots):
+    imported = importlib.import_module(module)
+    if module in {"test", "tests"} and (repository / module / "__init__.py").is_file():
+        imported.__path__ = [str(repository / module)]
+
+import pytest
+
+raise SystemExit(pytest.main(arguments))
+"""
 
 GIT_TIMEOUT_SECONDS = 30.0
 TEST_TIMEOUT_SECONDS = 120.0
@@ -149,14 +209,54 @@ async def diff_stat(*, cwd: Path) -> str:
 
 
 async def run_pytest(
-    test_path: str | None, *, cwd: Path, timeout: float = TEST_TIMEOUT_SECONDS
+    test_path: str | None,
+    *,
+    cwd: Path,
+    timeout: float = TEST_TIMEOUT_SECONDS,
+    python_executable: Path | None = None,
 ) -> dict[str, Any]:
     """Run pytest in `cwd` (a worktree) with a timeout. Returns a JSON-able summary."""
-    args = [sys.executable, "-m", "pytest", "-q"]
+    executable = python_executable or Path(sys.executable)
+    args = [str(executable), "-c", _PYTEST_BOOTSTRAP, "-q"]
     if test_path:
         args.append(test_path)
 
-    return await run_untrusted_command(args, cwd=cwd, timeout=timeout)
+    runtime_prefix = _python_runtime_prefix(executable)
+    return await run_untrusted_command(
+        args,
+        cwd=cwd,
+        timeout=timeout,
+        read_only_paths=[runtime_prefix] if runtime_prefix else [],
+    )
+
+
+def configured_python_executable(command: str) -> Path | None:
+    """Return the interpreter from an app's configured ``python -m pytest``.
+
+    This parses server-side app configuration, never a provider tool call.
+    Bare ``pytest`` commands continue to use the service's interpreter.
+    """
+    try:
+        tokens = shlex.split(command, posix=os.name != "nt")
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    executable = Path(tokens[0].strip('"'))
+    if executable.name.lower() not in {"python", "python.exe", "python3", "python3.exe"}:
+        return None
+    if not executable.is_absolute() or not executable.is_file():
+        return None
+    if tokens[1:3] != ["-m", "pytest"]:
+        return None
+    return executable.resolve()
+
+
+def _python_runtime_prefix(executable: Path) -> Path | None:
+    resolved = executable.resolve()
+    if resolved.parent.name.lower() in {"bin", "scripts"}:
+        return resolved.parent.parent
+    return None
 
 
 def pytest_command(command: str) -> str:
@@ -178,4 +278,23 @@ async def run_test_command(
     timeout/output-capping contract as `run_pytest`, so callers (the healer
     agent) treat both the same way.
     """
-    return await run_untrusted_command(command, cwd=cwd, timeout=timeout)
+    runtime = configured_python_executable(command)
+    runtime_prefix = _python_runtime_prefix(runtime) if runtime else None
+    if runtime is not None:
+        try:
+            tokens = shlex.split(command, posix=os.name != "nt")
+        except ValueError:
+            tokens = []
+        if tokens[1:3] == ["-m", "pytest"]:
+            return await run_untrusted_command(
+                [str(runtime), "-c", _PYTEST_BOOTSTRAP, *tokens[3:]],
+                cwd=cwd,
+                timeout=timeout,
+                read_only_paths=[runtime_prefix] if runtime_prefix else [],
+            )
+    return await run_untrusted_command(
+        command,
+        cwd=cwd,
+        timeout=timeout,
+        read_only_paths=[runtime_prefix] if runtime_prefix else [],
+    )
