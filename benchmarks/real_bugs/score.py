@@ -19,6 +19,7 @@ FAILURE_CATEGORIES = (
     "rejected_by_policy",
     "tests_still_failing",
     "timeout",
+    "rate_limited",
     "provider_error",
     "token_cap",
     "cost_cap",

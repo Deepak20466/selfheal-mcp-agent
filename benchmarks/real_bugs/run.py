@@ -34,9 +34,19 @@ from benchmarks.real_bugs.common import (
     safe_case_path,
     validate_case_metadata,
 )
+from healer.backend_chain import BackendCooldownError
 
 ARMS = ("with_validation", "without_validation")
 SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
+RATE_LIMIT_BACKOFF_BASE_SECONDS = 30
+MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS = 300
+GEMINI_FREE_QUOTA_FLAGS = {
+    "gemini-3.8-flash": "GEMINI_38_FLASH_FREE_QUOTA",
+    "gemini-3.5-flash-lite": "GEMINI_35_FLASH_LITE_FREE_QUOTA",
+    "gemini-2.5-pro": "GEMINI_25_PRO_FREE_QUOTA",
+    "gemini-2.5-flash": "GEMINI_25_FLASH_FREE_QUOTA",
+    "gemini-2.5-flash-lite": "GEMINI_25_FLASH_LITE_FREE_QUOTA",
+}
 
 
 class BenchmarkStop(RuntimeError):
@@ -46,6 +56,14 @@ class BenchmarkStop(RuntimeError):
         self.category = category
         self.retryable = retryable
         super().__init__(message)
+
+
+class RateLimitBackoffActive(RuntimeError):
+    """A saved 429 record still requires a cooldown before a resumed call."""
+
+    def __init__(self, seconds_remaining: float) -> None:
+        self.seconds_remaining = seconds_remaining
+        super().__init__("provider cooldown remains active")
 
 
 @dataclass
@@ -216,6 +234,32 @@ def _provider(provider_name: str) -> tuple[Any, str, bool]:
         raise RuntimeError("set REAL_BUG_BILLING_DISABLED=true only when paid billing is disabled")
     from core.config import settings
 
+    if provider_name == "gemini_api":
+        model = settings.gemini_api_model
+        if os.environ.get("GEMINI_FREE_TIER_CONFIRMED") != "true":
+            raise RuntimeError("Gemini requires GEMINI_FREE_TIER_CONFIRMED=true")
+        checked_at = os.environ.get("GEMINI_QUOTA_CHECKED_UTC", "")
+        try:
+            quota_checked = datetime.strptime(checked_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        except ValueError as exc:
+            raise RuntimeError(
+                "GEMINI_QUOTA_CHECKED_UTC must be a current UTC timestamp ending in Z"
+            ) from exc
+        quota_age = (datetime.now(UTC) - quota_checked).total_seconds()
+        if quota_age < 0 or quota_age > 15 * 60:
+            raise RuntimeError(
+                "Gemini quota confirmation must be current and no more than 15 minutes old"
+            )
+        model_flag = GEMINI_FREE_QUOTA_FLAGS.get(model)
+        if model_flag is None:
+            raise RuntimeError(
+                "GEMINI_API_MODEL must be one of the documented free-tier Gemini model IDs"
+            )
+        if os.environ.get(model_flag) != "true":
+            raise RuntimeError(f"Gemini model quota must be confirmed with {model_flag}=true")
+        from healer.api_adapters import GeminiApiClient
+
+        return GeminiApiClient(), model, True
     if provider_name == "groq_api":
         if (
             os.environ.get("GROQ_FREE_PLAN_CONFIRMED") != "true"
@@ -234,7 +278,7 @@ def _provider(provider_name: str) -> tuple[Any, str, bool]:
         from healer.api_adapters import OpenRouterClient
 
         return OpenRouterClient(), model, True
-    raise RuntimeError("REAL_BUG_PROVIDER supports only groq_api or openrouter_api")
+    raise RuntimeError("REAL_BUG_PROVIDER supports only gemini_api, groq_api, or openrouter_api")
 
 
 def _quote_executable(path: Path) -> str:
@@ -427,6 +471,8 @@ async def _run_arm_inner(
     started = time.monotonic()
     category: str | None = None
     stop_message: str | None = None
+    retry_after_seconds: int | None = None
+    rate_limited = False
     target_result: dict[str, Any] | None = None
     full_result: dict[str, Any] | None = None
     patch_bytes = 0
@@ -491,6 +537,11 @@ async def _run_arm_inner(
     except BenchmarkStop as exc:
         category = exc.category
         stop_message = str(exc)
+    except BackendCooldownError as exc:
+        rate_limited = exc.status_code == 429
+        category = "rate_limited" if rate_limited else "provider_error"
+        retry_after_seconds = exc.retry_after_seconds
+        stop_message = scrub_text(f"{type(exc).__name__}: {exc}")[:2000]
     except Exception as exc:
         category = (
             "provider_error"
@@ -528,7 +579,7 @@ async def _run_arm_inner(
     if category in {"no_patch", "invalid_patch", "rejected_by_policy", "tests_still_failing"}:
         retryable = False
     else:
-        retryable = category in {"provider_error", "timeout"}
+        retryable = category in {"provider_error", "timeout", "rate_limited"}
 
     patch_changed_lines = _changed_line_count(trace.last_patch if trace else None)
     duration = time.monotonic() - started
@@ -558,6 +609,8 @@ async def _run_arm_inner(
         "cost_cap_usd": str(cost_limit),
         "trace": events,
         "retryable": retryable,
+        "rate_limited": rate_limited,
+        "retry_after_seconds": retry_after_seconds,
         "recorded_at": datetime.now(UTC).isoformat(),
     }
     return result
@@ -609,6 +662,32 @@ def _latest_records(path: Path) -> dict[tuple[str, str], dict[str, Any]]:
         except (json.JSONDecodeError, KeyError, TypeError):
             continue
     return rows
+
+
+def _rate_limit_backoff_remaining(record: dict[str, Any]) -> float:
+    """Return remaining cooldown, honoring Retry-After and capped exponential backoff."""
+    attempt = record.get("rate_limit_attempt", 1)
+    attempt_number = attempt if isinstance(attempt, int) and attempt > 0 else 1
+    fallback = min(
+        MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS,
+        RATE_LIMIT_BACKOFF_BASE_SECONDS * 2 ** min(attempt_number - 1, 4),
+    )
+    retry_after = record.get("retry_after_seconds")
+    required = (
+        max(float(retry_after), float(fallback))
+        if isinstance(retry_after, int)
+        else float(fallback)
+    )
+    recorded_at = record.get("recorded_at")
+    if isinstance(recorded_at, str):
+        try:
+            timestamp = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+            if timestamp.tzinfo is not None:
+                elapsed = (datetime.now(UTC) - timestamp.astimezone(UTC)).total_seconds()
+                return max(0.0, required - elapsed)
+        except ValueError:
+            pass
+    return required
 
 
 def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
@@ -685,6 +764,12 @@ async def _run_cases(
             prior = previous.get((metadata["case_id"], arm))
             if prior and not prior.get("retryable"):
                 continue
+            if prior and prior.get("rate_limited"):
+                delay = _rate_limit_backoff_remaining(prior)
+                if delay > MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS:
+                    raise RateLimitBackoffActive(delay)
+                if delay > 0:
+                    await asyncio.sleep(delay)
             if limit is not None and len(written) >= limit:
                 return written
             row = await _run_arm(
@@ -702,8 +787,15 @@ async def _run_cases(
             row["run_id"] = run_file.stem
             row["case_parent_sha"] = metadata["parent_sha"]
             row["repository"] = metadata["repository"]
+            if row.get("rate_limited"):
+                previous_attempt = prior.get("rate_limit_attempt", 0) if prior else 0
+                row["rate_limit_attempt"] = (
+                    previous_attempt + 1 if isinstance(previous_attempt, int) else 1
+                )
             _append_jsonl(run_file, row)
             written.append(row)
+            if row.get("rate_limited"):
+                return written
     return written
 
 
@@ -754,16 +846,29 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("token cap and timeout must be positive; cost cap cannot be negative")
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_file = args.run_file or RESULT_ROOT / "runs" / f"{stamp}.jsonl"
-    rows = run_benchmark(
-        provider_name=args.provider,
-        run_file=run_file,
-        token_limit=args.token_cap,
-        cost_limit=args.cost_cap_usd,
-        timeout=args.timeout,
-        resume=args.resume,
-        limit=args.limit,
-    )
+    try:
+        rows = run_benchmark(
+            provider_name=args.provider,
+            run_file=run_file,
+            token_limit=args.token_cap,
+            cost_limit=args.cost_cap_usd,
+            timeout=args.timeout,
+            resume=args.resume,
+            limit=args.limit,
+        )
+    except RateLimitBackoffActive as exc:
+        remaining = int(exc.seconds_remaining + 0.999)
+        print(
+            "Provider cooldown remains active; no provider call was made. "
+            f"Retry after at least {remaining} seconds with --resume."
+        )
+        return 75
     print(f"Appended {len(rows)} attempt records to {run_file}")
+    if any(row.get("rate_limited") for row in rows):
+        print(
+            "Provider returned HTTP 429; stopped after recording this case. Resume with --resume."
+        )
+        return 75
     return 0
 
 

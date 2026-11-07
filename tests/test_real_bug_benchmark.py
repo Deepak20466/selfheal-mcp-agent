@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -436,6 +437,89 @@ def test_runner_uses_only_current_manifest_cases(
     cases = run_module._prepared_cases(prepared_root)
 
     assert [metadata["case_id"] for _path, metadata, _record in cases] == [kept_id]
+
+
+def test_rate_limit_backoff_honors_retry_after() -> None:
+    record = {
+        "rate_limit_attempt": 1,
+        "retry_after_seconds": 120,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+
+    remaining = run_module._rate_limit_backoff_remaining(record)
+
+    assert 119 <= remaining <= 120
+
+
+def test_gemini_provider_requires_recent_model_quota_attestation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.config import settings
+    from healer import api_adapters
+
+    marker = object()
+    monkeypatch.setattr(api_adapters, "GeminiApiClient", lambda: marker)
+    monkeypatch.setattr(settings, "gemini_api_model", "gemini-3.8-flash")
+    monkeypatch.setenv("REAL_BUG_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("REAL_BUG_BILLING_DISABLED", "true")
+    monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "true")
+    monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+    client, model, attested_free = run_module._provider("gemini_api")
+
+    assert client is marker
+    assert model == "gemini-3.8-flash"
+    assert attested_free is True
+
+    monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", "2000-01-01T00:00:00Z")
+    with pytest.raises(RuntimeError, match="no more than 15 minutes old"):
+        run_module._provider("gemini_api")
+
+
+def test_runner_stops_after_recording_rate_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    async def rate_limited(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs["arm"])
+        return {
+            "case_id": "fixture-case",
+            "arm": kwargs["arm"],
+            "failure_category": "rate_limited",
+            "rate_limited": True,
+            "retry_after_seconds": 60,
+            "retryable": True,
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+
+    monkeypatch.setattr(run_module, "_run_arm", rate_limited)
+    run_file = tmp_path / "partial.jsonl"
+    metadata = {
+        "case_id": "fixture-case",
+        "parent_sha": "a" * 40,
+        "repository": "fixture",
+    }
+
+    rows = asyncio.run(
+        run_module._run_cases(
+            cases=[(tmp_path, metadata, {})],
+            provider_name="groq_api",
+            run_file=run_file,
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout_seconds=10,
+            resume=False,
+            provider_client=object(),
+            model="fixture-model",
+            attested_free=True,
+        )
+    )
+
+    assert calls == ["with_validation"]
+    assert len(rows) == 1
+    assert json.loads(run_file.read_text(encoding="utf-8"))["failure_category"] == "rate_limited"
 
 
 def test_model_tool_wrapper_rejects_git_history_tools() -> None:

@@ -72,6 +72,23 @@ cases twice for variance; they write raw JSONL plus a dated JSON report and Mark
 resume each run file on re-execution.
 
 ```powershell
+$env:REAL_BUG_PROVIDER = "gemini_api"
+$env:GEMINI_API_MODEL = "gemini-3.8-flash"
+$env:REAL_BUG_FREE_TIER_CONFIRMED = "true"
+$env:REAL_BUG_BILLING_DISABLED = "true"
+$env:GEMINI_FREE_TIER_CONFIRMED = "true"
+$env:GEMINI_QUOTA_CHECKED_UTC = "<current UTC timestamp ending in Z>"
+$env:GEMINI_38_FLASH_FREE_QUOTA = "true"
+```
+
+The Gemini quota timestamp must be checked against AI Studio immediately before the run; the
+benchmark rejects missing, malformed, future, or older-than-15-minute attestations. Set the model's
+quota flag only after confirming that exact model has positive free quota. `GEMINI_API_KEY` must be
+available to the benchmark process; never put its value in the run file or documentation.
+
+For Groq, use:
+
+```powershell
 $env:REAL_BUG_DATABASE_URL = "postgresql+asyncpg://selfheal:<password>@localhost:5432/selfheal_test"
 $env:REAL_BUG_PROVIDER = "groq_api"
 $env:REAL_BUG_FREE_TIER_CONFIRMED = "true"
@@ -88,7 +105,9 @@ For OpenRouter, choose `REAL_BUG_PROVIDER=openrouter_api`, set `ANTHROPIC_MODEL`
 cost above the configured cap stops that case. If cost is not reported, a positive cost cap cannot
 be enforced and the case stops; zero-cost operation requires the explicit free-tier attestations.
 Each case also has a hard timeout and token cap. `--resume` skips terminal results and retries only
-provider errors/timeouts from the same JSONL file.
+provider errors, timeouts, and rate limits from the same JSONL file. A 429 is recorded and stops the
+current run; resuming honors `Retry-After` or bounded exponential backoff before another provider
+call.
 
 Score one or more JSONL files with:
 
@@ -116,9 +135,9 @@ reported costs only; unreported cost remains unknown. Time is wall-clock time th
 verification attempt. Token counts come from provider usage fields.
 
 The taxonomy distinguishes `no_patch`, `invalid_patch`, `rejected_by_policy`,
-`tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`, `cost_unknown`, and
-`repair_error`. A case that fixes target tests but breaks the full suite is counted as resolved and
-as a false-positive proxy, preserving both facts.
+`tests_still_failing`, `timeout`, `rate_limited`, `provider_error`, `token_cap`, `cost_cap`,
+`cost_unknown`, and `repair_error`. A case that fixes target tests but breaks the full suite is
+counted as resolved and as a false-positive proxy, preserving both facts.
 
 ## Threats to validity
 
