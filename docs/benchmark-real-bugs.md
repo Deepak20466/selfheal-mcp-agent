@@ -6,9 +6,11 @@ This benchmark mines historical source-and-test fixes from the pinned repositori
 [`benchmarks/real_bugs/repos.yaml`](../benchmarks/real_bugs/repos.yaml). Mining and preparation
 produce eligible cases; they are not model repair attempts. Only JSONL records produced by
 `benchmarks.real_bugs.run` count as provider results. `benchmarks/real_bugs/results/` contains
-committed score reports, while its raw local dataset and provider run files are ignored.
+generated score reports when runs are scored; no provider run or score report is committed for this
+benchmark. Raw local datasets, provider run files, and generated score reports are ignored.
 
-**Provider status: not yet measured.** No real provider attempts are recorded in this checkout.
+**Status: harness included; results not yet measured.** No real provider attempts are recorded in
+this checkout.
 The execution environment has no `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY`, no
 `REAL_BUG_DATABASE_URL`, and no PostgreSQL listener on port 5432. No provider calls or runtime-demo
 repairs were made. Do not infer repair results from mined or prepared cases.

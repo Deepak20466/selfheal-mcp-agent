@@ -5,8 +5,9 @@
 This report records the local audit of the current branch before review or merge. No real provider
 repair attempt or runtime-demo repair was run. The environment check found no `GEMINI_API_KEY`,
 `OPENROUTER_API_KEY`, `GROQ_API_KEY`, or `REAL_BUG_DATABASE_URL`; no PostgreSQL listener was
-reachable on port 5432. Therefore the real-bug results and all three Sentinel-to-PR demo outcomes
-are pending. No API was called and no staged outcome was recorded.
+reachable on port 5432. The current real-bug benchmark results therefore remain unmeasured. The
+three demo PR outcomes are documented below and in the recovered evidence ledger. No API was called
+and no new staged outcome was recorded.
 
 The initial source audit found no existing regression test that assembled model-facing context and
 asserted the fixing hash, message, human diff, and later Git history were absent. The runner already
