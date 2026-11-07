@@ -171,7 +171,11 @@ async def test_concurrent_replay_of_a_failed_run_creates_one_job() -> None:
 
     async with async_session_factory() as session:
         runs = (
-            (await session.execute(select(PipelineRun).where(PipelineRun.run_id == run_id)))
+            (
+                await session.execute(
+                    select(PipelineRun).where(PipelineRun.run_id.in_([run_id, run_id + 1]))
+                )
+            )
             .scalars()
             .all()
         )
@@ -184,7 +188,7 @@ async def test_concurrent_replay_of_a_failed_run_creates_one_job() -> None:
             .scalars()
             .all()
         )
-    assert len(runs) == 2
+    assert {run.run_id for run in runs} == {run_id, run_id + 1}
     assert len(jobs) == 1
 
 
