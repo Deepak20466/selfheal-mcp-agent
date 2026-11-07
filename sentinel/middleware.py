@@ -22,9 +22,15 @@ from sentinel.schemas import RequestMetricEvent
 
 
 class SentinelMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: object, sentinel_client: SentinelClient | None = None) -> None:
+    def __init__(
+        self,
+        app: object,
+        sentinel_client: SentinelClient | None = None,
+        in_app_markers: tuple[str, ...] | None = None,
+    ) -> None:
         super().__init__(app)  # type: ignore[arg-type]
         self._client = sentinel_client or SentinelClient()
+        self._in_app_markers = in_app_markers
         self._background_tasks: set[asyncio.Task[None]] = set()
 
     def _fire_and_forget(self, event: RequestMetricEvent) -> None:
@@ -48,7 +54,11 @@ class SentinelMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         except Exception as exc:  # this IS the app's catch-all error boundary
             duration_ms = (time.monotonic() - start) * 1000
-            captured = build_captured_error(exc, request_context=request_context)
+            captured = build_captured_error(
+                exc,
+                request_context=request_context,
+                in_app_markers=self._in_app_markers,
+            )
             await self._client.report_error(captured)
             self._fire_and_forget(
                 RequestMetricEvent(
