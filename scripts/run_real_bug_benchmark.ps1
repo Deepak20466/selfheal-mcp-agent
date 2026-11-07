@@ -17,11 +17,29 @@ if ($LASTEXITCODE -ne 0) { throw "Historical bug preparation failed with exit co
 $Full = Join-Path $Runs "$Date-full.jsonl"
 $RepeatA = Join-Path $Runs "$Date-repeat-a.jsonl"
 $RepeatB = Join-Path $Runs "$Date-repeat-b.jsonl"
-& $Python -m benchmarks.real_bugs.run --run-file $Full --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
-if ($LASTEXITCODE -ne 0) { throw "Full benchmark run failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.run --run-file $RepeatA --token-cap 40000 --cost-cap-usd 0 --timeout 240 --limit 20 --resume
-if ($LASTEXITCODE -ne 0) { throw "First repeat run failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.run --run-file $RepeatB --token-cap 40000 --cost-cap-usd 0 --timeout 240 --limit 20 --resume
-if ($LASTEXITCODE -ne 0) { throw "Second repeat run failed with exit code $LASTEXITCODE." }
+
+function Invoke-BenchmarkRun {
+    param([string]$RunFile, [int]$Limit = 0)
+
+    $RunArgs = @("-m", "benchmarks.real_bugs.run", "--run-file", $RunFile,
+        "--token-cap", "40000", "--cost-cap-usd", "0", "--timeout", "240", "--resume")
+    if ($Limit -gt 0) { $RunArgs += @("--limit", "$Limit") }
+    & $Python @RunArgs
+    $RunStatus = $LASTEXITCODE
+    if ($RunStatus -eq 75) {
+        $Inputs = @($Full, $RepeatA, $RepeatB) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+        if ($Inputs.Count -gt 0) {
+            & $Python -m benchmarks.real_bugs.score @Inputs --output-dir $Results
+            if ($LASTEXITCODE -ne 0) { throw "Partial benchmark scoring failed with exit code $LASTEXITCODE." }
+        }
+        Write-Warning "Benchmark stopped on provider cooldown. Raw records and partial aggregates were saved."
+        exit 75
+    }
+    if ($RunStatus -ne 0) { throw "Benchmark run failed with exit code $RunStatus." }
+}
+
+Invoke-BenchmarkRun -RunFile $Full
+Invoke-BenchmarkRun -RunFile $RepeatA -Limit 20
+Invoke-BenchmarkRun -RunFile $RepeatB -Limit 20
 & $Python -m benchmarks.real_bugs.score $Full $RepeatA $RepeatB --output-dir $Results
 if ($LASTEXITCODE -ne 0) { throw "Scoring failed with exit code $LASTEXITCODE." }

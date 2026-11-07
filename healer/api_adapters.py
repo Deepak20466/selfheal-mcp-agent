@@ -115,6 +115,7 @@ def _raise_for_status_classified(response: httpx.Response, *, backend: str) -> N
         raise BackendCooldownError(
             f"{backend} returned {response.status_code}: {response.text[:500]}",
             retry_after_seconds=_retry_after_seconds(response),
+            status_code=response.status_code,
         )
     if response.status_code >= 400:
         raise RuntimeError(f"{backend} returned {response.status_code}: {response.text[:500]}")
