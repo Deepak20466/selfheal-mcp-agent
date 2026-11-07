@@ -14,10 +14,12 @@ loop and Phase 6's chat server in the same `healer/` pod.
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 from typing import Any, cast
 
 import httpx
@@ -25,7 +27,7 @@ import socketio
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,8 @@ from core.models import (
     ChatMessage,
     ChatSession,
     Finding,
+    FindingCategory,
+    FindingSeverity,
     FindingStatus,
     FixAttempt,
     HealJob,
@@ -48,6 +52,7 @@ from core.repo_connect import (
     CONNECTED_APPS_ROOT,
     RepoConnectError,
     _resolve_sub_path,
+    app_fingerprint,
     connect_repo,
     detect_stack,
     select_subproject,
@@ -481,6 +486,65 @@ class ConnectAppRequest(BaseModel):
     path: str | None = None
 
 
+class ManualFindingRequest(BaseModel):
+    repo: str = Field(min_length=3, max_length=255)
+    file_path: str = Field(min_length=1, max_length=1024)
+    description: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("repo")
+    @classmethod
+    def validate_repo(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", value):
+            raise ValueError("repo must use the exact owner/repo form")
+        if any(part in {".", ".."} for part in value.split("/")):
+            raise ValueError("repo must use the exact owner/repo form")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("description must not be blank")
+        return stripped
+
+
+def _validate_manual_file_path(app_row: MonitoredApp, raw_path: str) -> str:
+    """Validate a repository-relative report path without widening patch scope."""
+    from mcp_server.sandbox import SandboxViolation, check_writable, is_secret_path
+
+    file_path = raw_path.replace("\\", "/")
+    path = PurePosixPath(file_path)
+    if (
+        not file_path
+        or "\x00" in file_path
+        or path.is_absolute()
+        or re.match(r"^[A-Za-z]:", file_path)
+        or any(part in {".", ".."} for part in file_path.split("/"))
+        or file_path.endswith("/")
+    ):
+        raise HTTPException(
+            status_code=400, detail="file must be a safe repository-relative file path"
+        )
+    if is_secret_path(file_path) or any(
+        part.lower() in {".git", ".hg", ".svn"} for part in path.parts
+    ):
+        raise HTTPException(status_code=400, detail="file path points to a protected path")
+
+    # In-repository apps use workspace-relative allowlist prefixes. For an
+    # external connected app the path is relative to its clone; its registered
+    # repository remains the scope, and propose_patch enforces the existing
+    # database-backed write policy on every eventual diff.
+    if app_row.repo_url is None:
+        try:
+            check_writable(file_path, allowed_prefixes=app_row.allowed_write_paths)
+        except SandboxViolation as exc:
+            raise HTTPException(
+                status_code=400, detail="file is outside this app's allowed path"
+            ) from exc
+    return file_path
+
+
 @app.post("/api/apps")
 async def connect_app(
     body: ConnectAppRequest,
@@ -507,6 +571,52 @@ async def connect_app(
     app_id = app_row.id
     asyncio.create_task(_run_scan_and_notify(app_id))
     return _app_summary(app_row, open_findings=0) | {"status": "scanning"}
+
+
+@app.post("/api/findings/manual", status_code=status.HTTP_201_CREATED)
+async def report_manual_finding(
+    body: ManualFindingRequest,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a human-reported bug against an already-authorized app."""
+    allowed_repositories = set(settings.github_allowed_repositories_list)
+    if body.repo.casefold() not in allowed_repositories:
+        raise HTTPException(status_code=403, detail="Repository is not in the configured allowlist")
+
+    apps = (await db.execute(select(MonitoredApp))).scalars().all()
+    matches = [row for row in apps if row.github_repo.casefold() == body.repo.casefold()]
+    if len(matches) != 1:
+        raise HTTPException(status_code=404, detail="Repository is not a uniquely registered app")
+    app_row = matches[0]
+    file_path = _validate_manual_file_path(app_row, body.file_path)
+
+    from sentinel.scrubber import scrub_text
+
+    description = scrub_text(body.description)
+    fingerprint = app_fingerprint(app_row.id, "manual-review", file_path, None, description)
+    existing = (
+        await db.execute(
+            select(Finding).where(Finding.app_id == app_row.id, Finding.fingerprint == fingerprint)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return _finding_summary(existing)
+
+    finding = Finding(
+        app_id=app_row.id,
+        fingerprint=fingerprint,
+        category=FindingCategory.MANUAL,
+        severity=FindingSeverity.MEDIUM,
+        tool="manual-review",
+        file_path=file_path,
+        line_number=None,
+        message=description,
+    )
+    db.add(finding)
+    await db.flush()
+    await db.commit()
+    return _finding_summary(finding)
 
 
 @app.get("/api/apps")
@@ -719,9 +829,12 @@ async def fix_finding(
         )
     auto_merge_override = body.auto_merge if body is not None else None
     suggest = body.suggest if body is not None else False
-    job = await request_fix_for_finding(
-        db, finding, app_row, auto_merge_override=auto_merge_override, suggest=suggest
-    )
+    try:
+        job = await request_fix_for_finding(
+            db, finding, app_row, auto_merge_override=auto_merge_override, suggest=suggest
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     await db.commit()
     await notifier.notify(
         "fix_requested", f"Fix requested for finding #{finding_id} (heal_job #{job.id})"

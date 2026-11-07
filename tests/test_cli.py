@@ -321,6 +321,39 @@ def test_fix_suggest_flag_sends_suggest_true(respx_mock: Any) -> None:
     assert sent_body == {"suggest": True}
 
 
+def test_report_bug_posts_a_manual_finding(respx_mock: Any) -> None:
+    _log_in()
+    route = respx_mock.post(f"{BASE_URL}/api/findings/manual").mock(
+        return_value=httpx.Response(
+            201,
+            json={"id": 42, "category": "manual", "file_path": "src/app.py"},
+        )
+    )
+    result = runner.invoke(
+        app,
+        [
+            "report-bug",
+            "--repo",
+            "acme/app",
+            "--file",
+            "src/app.py",
+            "--description",
+            "Manual review found a boundary error.",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Manual finding #42" in result.output
+    assert "UNVERIFIED" in result.output
+    import json as jsonlib
+
+    assert jsonlib.loads(route.calls.last.request.content) == {
+        "repo": "acme/app",
+        "file_path": "src/app.py",
+        "description": "Manual review found a boundary error.",
+    }
+
+
 def test_audit_prints_verdict_table(respx_mock: Any) -> None:
     _log_in()
     respx_mock.get(f"{BASE_URL}/api/audit").mock(

@@ -333,11 +333,39 @@ async def _resolve_app_id(client: HealerClient, name_or_id: str) -> int:
         return int(name_or_id)
     result: list[dict[str, Any]] = await client.get("/api/apps")
     for row in result:
-        if row.get("name") == name_or_id:
+        if row.get("name") == name_or_id or str(row.get("github_repo", "")).casefold() == (
+            name_or_id.casefold()
+        ):
             app_id = row.get("id")
             assert isinstance(app_id, int)
             return app_id
-    raise CliError(f"No connected app named '{name_or_id}'. Run `selfheal apps` to list them.")
+    raise CliError(
+        f"No connected app named or registered for '{name_or_id}'. "
+        "Run `selfheal apps` to list them."
+    )
+
+
+@app.command("report-bug")
+def report_bug(
+    repo: Annotated[str, typer.Option("--repo", help="Allowlisted owner/repo to report against.")],
+    file_path: Annotated[str, typer.Option("--file", help="Repository-relative source file.")],
+    description: Annotated[str, typer.Option("--description", help="Human-reviewed bug details.")],
+) -> None:
+    """Create a manual finding that can only be handled with `fix --suggest`."""
+
+    async def _report() -> dict[str, Any]:
+        async with HealerClient.from_saved_session() as client:
+            return await client.post(
+                "/api/findings/manual",
+                json={"repo": repo, "file_path": file_path, "description": description},
+            )
+
+    finding = _run(_report())
+    console.print(
+        f"Manual finding #{finding.get('id')} recorded for {repo}. "
+        f"Review it with `selfheal fix {repo} {finding.get('id')} --suggest`. "
+        "The resulting PR is UNVERIFIED and requires human review."
+    )
 
 
 @app.command()
@@ -520,6 +548,8 @@ def fix(
             if not findings:
                 console.print("No matching open findings.")
                 return []
+            if not suggest and any(f.get("category") == "manual" for f in findings):
+                raise CliError("Manual findings require `selfheal fix ... --suggest`.")
             if not yes:
                 names = ", ".join(str(f.get("id")) for f in findings)
                 suffix = ""

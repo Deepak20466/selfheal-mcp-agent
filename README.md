@@ -23,6 +23,14 @@ python -m cli.main --help
 For native PostgreSQL setup, local services, and credentials needed to run repairs, follow
 [Local installation and operations](docs/operations.md). Keep local environment files out of Git.
 
+## Manually reported bugs
+
+For logic bugs or untested repositories that no scanner category detects, record a human finding
+with `selfheal report-bug --repo owner/repo --file src/app.py --description "Off-by-one on page 1"`,
+then use `selfheal fix owner/repo <finding-id> --suggest`; this path always opens an UNVERIFIED,
+human-review-only suggestion and cannot claim the normal verified route. See
+[manual bug reporting](docs/manual-bug-reports.md).
+
 ## Real-world dogfooding
 
 Engineer-directed testing against `multi-agent-workspace` exposed two bugs in Selfheal itself:

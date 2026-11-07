@@ -97,6 +97,7 @@ class FindingCategory(enum.StrEnum):
     LINT = "lint"
     TYPE_CHECK = "type_check"
     DEPENDENCY = "dependency"
+    MANUAL = "manual"
 
 
 class FindingSeverity(enum.StrEnum):
@@ -171,13 +172,12 @@ class MonitoredApp(TimestampMixin, Base):
 
 
 class Finding(TimestampMixin, Base):
-    """One scan finding for a connected app: a failing test, a lint/type
-    error, or a dependency vulnerability (core/scanner.py).
+    """One finding for a connected app: a scanner result or manual bug report.
 
     Deduplicated by `fingerprint` (app_id + tool + file_path + line_number +
     message, hashed) the same way `errors`/`contract_violations` dedupe by
-    fingerprint -- a re-scan updates `last_seen_at`/`occurrence_count` on the
-    existing row instead of inserting a duplicate.
+    fingerprint -- repeated reports/scans update their existing finding
+    rather than inserting a duplicate.
     """
 
     __tablename__ = "findings"
