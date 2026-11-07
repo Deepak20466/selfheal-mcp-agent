@@ -354,6 +354,30 @@ def test_report_bug_posts_a_manual_finding(respx_mock: Any) -> None:
     }
 
 
+@pytest.mark.parametrize("payload", [{"id": "42"}, {"id": True}, {"category": "manual"}, []])
+def test_report_bug_rejects_invalid_finding_response(respx_mock: Any, payload: Any) -> None:
+    _log_in()
+    respx_mock.post(f"{BASE_URL}/api/findings/manual").mock(
+        return_value=httpx.Response(201, json=payload)
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "report-bug",
+            "--repo",
+            "acme/app",
+            "--file",
+            "src/app.py",
+            "--description",
+            "Manual review found a boundary error.",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "invalid manual-finding response" in result.output
+
+
 def test_audit_prints_verdict_table(respx_mock: Any) -> None:
     _log_in()
     respx_mock.get(f"{BASE_URL}/api/audit").mock(

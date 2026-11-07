@@ -353,19 +353,30 @@ def report_bug(
 ) -> None:
     """Create a manual finding that can only be handled with `fix --suggest`."""
 
-    async def _report() -> dict[str, Any]:
+    async def _report() -> int:
         async with HealerClient.from_saved_session() as client:
-            return await client.post(
+            response = await client.post(
                 "/api/findings/manual",
                 json={"repo": repo, "file_path": file_path, "description": description},
             )
+            return _manual_finding_id(response)
 
-    finding = _run(_report())
+    finding_id = _run(_report())
     console.print(
-        f"Manual finding #{finding.get('id')} recorded for {repo}. "
-        f"Review it with `selfheal fix {repo} {finding.get('id')} --suggest`. "
+        f"Manual finding #{finding_id} recorded for {repo}. "
+        f"Review it with `selfheal fix {repo} {finding_id} --suggest`. "
         "The resulting PR is UNVERIFIED and requires human review."
     )
+
+
+def _manual_finding_id(response: object) -> int:
+    """Validate the minimum response shape the report-bug command consumes."""
+    if not isinstance(response, dict):
+        raise CliError("The healer returned an invalid manual-finding response.")
+    finding_id = response.get("id")
+    if isinstance(finding_id, bool) or not isinstance(finding_id, int):
+        raise CliError("The healer returned an invalid manual-finding response.")
+    return finding_id
 
 
 @app.command()
