@@ -134,7 +134,9 @@ class HealJobListener:
     def __init__(self, dsn: str | None = None) -> None:
         self._dsn = dsn or _asyncpg_dsn(settings.database_url)
         self._connection: asyncpg.Connection | None = None
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        # Notifications are wakeups, not the source of truth (PostgreSQL is).
+        # A single pending wakeup is enough; dequeue_heal_job drains the DB.
+        self._queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
 
     async def connect(self) -> None:
         self._connection = await asyncpg.connect(self._dsn)
@@ -143,7 +145,8 @@ class HealJobListener:
     def _on_notify(
         self, connection: asyncpg.Connection, pid: int, channel: str, payload: str
     ) -> None:
-        self._queue.put_nowait(payload)
+        if not self._queue.full():
+            self._queue.put_nowait(payload)
 
     async def wait(self) -> str:
         """Block until a notification payload arrives.

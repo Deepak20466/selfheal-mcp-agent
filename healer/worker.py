@@ -49,6 +49,7 @@ same status `is_budget_paused` already uses, extended here to also mean
 from __future__ import annotations
 
 import asyncio
+import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -397,13 +398,22 @@ async def run_worker() -> None:
     configure_logging(settings.log_level)
     logger.info("worker.ai_chain", chain=settings.ai_chain_list)
     mcp_url = settings.mcp_client_url or f"http://127.0.0.1:{settings.mcp_port}/mcp"
+    shutdown_requested = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, shutdown_requested.set)
+        except (NotImplementedError, RuntimeError):
+            # Windows' event loop does not support add_signal_handler. Normal
+            # task cancellation still unwinds both async context managers.
+            logger.debug("worker.signal_handler_unavailable", signal=sig.name)
 
     async with (
         connect_http_reconnecting(mcp_url, auth_token=settings.mcp_auth_token) as mcp,
         HealJobListener() as listener,
     ):
         logger.info("worker.started", mcp_url=mcp_url)
-        while True:
+        while not shutdown_requested.is_set():
             # backend=None -> resolved per job from settings.ai_chain_list
             # (a single-item chain, the default, behaves exactly as before).
             # Defense in depth: `_process_next_job` itself already catches
@@ -425,9 +435,28 @@ async def run_worker() -> None:
                 continue
             try:
                 async with asyncio.timeout(_NOTIFY_FALLBACK_SECONDS):
-                    await listener.wait()
+                    await _wait_for_notification_or_shutdown(listener, shutdown_requested)
             except TimeoutError:
                 continue
+        logger.info("worker.shutdown_gracefully")
+
+
+async def _wait_for_notification_or_shutdown(
+    listener: HealJobListener, shutdown_requested: asyncio.Event
+) -> None:
+    """Wake on either a PostgreSQL notification or a graceful-stop signal."""
+    notification = asyncio.create_task(listener.wait())
+    shutdown = asyncio.create_task(shutdown_requested.wait())
+    tasks = (notification, shutdown)
+    try:
+        done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        if notification in done:
+            await notification
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def main() -> None:

@@ -17,6 +17,7 @@ out to still be limited, not a correctness problem.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -45,8 +46,19 @@ _cooldowns: dict[str, datetime] = {}
 
 
 def mark_cooldown(name: str, *, retry_after_seconds: int | None = None) -> None:
-    seconds = retry_after_seconds or settings.backend_cooldown_default_seconds
-    until = datetime.now(UTC) + timedelta(seconds=seconds)
+    seconds = (
+        settings.backend_cooldown_default_seconds
+        if retry_after_seconds is None
+        else max(0, retry_after_seconds)
+    )
+    # Positive-only jitter preserves the provider's Retry-After lower bound
+    # while spreading simultaneous workers across a bounded recovery window.
+    jitter = (
+        random.SystemRandom().uniform(0.0, min(30.0, max(1.0, seconds * 0.1)))
+        if seconds > 0
+        else 0.0
+    )
+    until = datetime.now(UTC) + timedelta(seconds=seconds + jitter)
     _cooldowns[name] = until
     logger.warning("backend_chain.cooldown", backend=name, until=until.isoformat())
 

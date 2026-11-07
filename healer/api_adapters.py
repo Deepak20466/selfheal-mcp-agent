@@ -22,11 +22,17 @@ plain `RuntimeError` for anything else (a normal failure, per the task's
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
+import structlog
 
 from core.config import settings
 from healer.backend_chain import BackendCooldownError
@@ -35,6 +41,10 @@ from sentinel.scrubber import scrub_text
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+_PROVIDER_RETRYABLE_STATUSES = frozenset({502, 503, 504})
+_PROVIDER_MAX_ATTEMPTS = 3
+_PROVIDER_MAX_RETRY_AFTER_SECONDS = 10.0
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -52,6 +62,18 @@ class _Usage:
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    cost_usd: Decimal | None = None
+
+
+def _usage_cost(usage: Any) -> Decimal | None:
+    raw = usage.get("cost") if isinstance(usage, dict) else None
+    if raw is None:
+        return None
+    try:
+        value = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+    return value if value.is_finite() and value >= 0 else None
 
 
 @dataclass
@@ -77,9 +99,15 @@ def _retry_after_seconds(response: httpx.Response) -> int | None:
     if raw is None:
         return None
     try:
-        return int(float(raw))
-    except ValueError:
-        return None
+        return max(0, int(float(raw)))
+    except (OverflowError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(raw)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=UTC)
+            return max(0, int((retry_at - datetime.now(UTC)).total_seconds()))
+        except (OverflowError, TypeError, ValueError):
+            return None
 
 
 def _raise_for_status_classified(response: httpx.Response, *, backend: str) -> None:
@@ -90,6 +118,44 @@ def _raise_for_status_classified(response: httpx.Response, *, backend: str) -> N
         )
     if response.status_code >= 400:
         raise RuntimeError(f"{backend} returned {response.status_code}: {response.text[:500]}")
+
+
+async def _provider_post(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    backend: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+) -> httpx.Response:
+    """Retry explicit upstream gateway failures with bounded jitter.
+
+    Rate limits and transport errors are not replayed: a transport failure may
+    happen after an inference was accepted, and 429 responses use cooldown and
+    backend fallback instead of repeating a potentially billable request.
+    """
+    for attempt in range(_PROVIDER_MAX_ATTEMPTS):
+        response = await client.post(url, headers=headers, json=payload)
+        if response.status_code not in _PROVIDER_RETRYABLE_STATUSES:
+            return response
+        if attempt + 1 >= _PROVIDER_MAX_ATTEMPTS:
+            return response
+
+        retry_after = _retry_after_seconds(response)
+        if retry_after is not None and retry_after > _PROVIDER_MAX_RETRY_AFTER_SECONDS:
+            return response
+        ceiling = min(2.0, 0.25 * (2**attempt))
+        jitter = random.SystemRandom().uniform(0.0, ceiling)
+        delay = max(0, retry_after or 0) + jitter
+        logger.warning(
+            "provider.request.retry",
+            backend=backend,
+            attempt=attempt + 1,
+            status_code=response.status_code,
+            delay_seconds=round(delay, 3),
+        )
+        await asyncio.sleep(delay)
+    raise AssertionError("provider retry loop did not return a response")
 
 
 class _GroqMessages:
@@ -194,10 +260,12 @@ class _GroqMessages:
             payload["tool_choice"] = "auto"
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
+            response = await _provider_post(
+                client,
                 f"{GROQ_API_BASE}/chat/completions",
+                backend="groq_api",
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                json=payload,
+                payload=payload,
             )
         _raise_for_status_classified(response, backend="groq_api")
         body = response.json()
@@ -221,6 +289,7 @@ class _GroqMessages:
             usage=_Usage(
                 input_tokens=usage.get("prompt_tokens", 0),
                 output_tokens=usage.get("completion_tokens", 0),
+                cost_usd=_usage_cost(usage),
             ),
         )
 
@@ -279,10 +348,12 @@ class _OpenRouterMessages(_GroqMessages):
             payload["tool_choice"] = "auto"
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
+            response = await _provider_post(
+                client,
                 f"{OPENROUTER_API_BASE}/chat/completions",
+                backend="openrouter_api",
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                json=payload,
+                payload=payload,
             )
         _raise_for_status_classified(response, backend="openrouter_api")
         body = response.json()
@@ -306,6 +377,7 @@ class _OpenRouterMessages(_GroqMessages):
             usage=_Usage(
                 input_tokens=usage.get("prompt_tokens", 0),
                 output_tokens=usage.get("completion_tokens", 0),
+                cost_usd=_usage_cost(usage),
             ),
         )
 
@@ -415,10 +487,12 @@ class _GeminiMessages:
             payload["tools"] = self._to_gemini_tools(tools)
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
+            response = await _provider_post(
+                client,
                 f"{GEMINI_API_BASE}/models/{settings.gemini_api_model}:generateContent",
+                backend="gemini_api",
                 headers={"x-goog-api-key": self._api_key},
-                json=payload,
+                payload=payload,
             )
         _raise_for_status_classified(response, backend="gemini_api")
         body = response.json()

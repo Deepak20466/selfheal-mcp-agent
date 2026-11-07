@@ -95,7 +95,8 @@ def test_prompt_limits_model_to_one_minimal_implementation_file() -> None:
         PATCH.replace(b"src/app.py", b".github/workflows/ci.yml"),
         PATCH.replace(b"src/app.py", b"src/app.js"),
         PATCH.replace(
-            b"+return 2", b"+OPENROUTER_API_KEY='sk-or-v1-123456789012345678901234567890'"
+            b"+return 2",
+            b"+OPENROUTER_API_KEY='sk-or-v1-" + b"x" * 32 + b"'",
         )
         .replace(b"@@ -1 +1 @@", b"@@ -1 +1 @@")
         .replace(b"-return 1", b"-return 1"),

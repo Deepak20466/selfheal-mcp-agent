@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings
@@ -41,6 +41,11 @@ _IN_FLIGHT_STATUSES = (
     HealJobStatus.PR_OPENED,
     HealJobStatus.CI_FIXING,
 )
+
+
+async def _lock_idempotency_key(session: AsyncSession, key: str) -> None:
+    lock_id = func.hashtextextended(key, 0)
+    await session.execute(select(func.pg_advisory_xact_lock(lock_id)))
 
 
 async def _has_in_flight_job(session: AsyncSession, fingerprint: str) -> bool:
@@ -250,6 +255,13 @@ async def record_pipeline_event(session: AsyncSession, payload: CIWebhookPayload
     the breaker below refuses it too, since it counts attempts for the whole
     PR lifetime, not just the current job row.
     """
+    # Serialize duplicate deliveries on run ID and concurrent failures on the
+    # same PR on its stable fingerprint until this transaction commits.
+    await _lock_idempotency_key(session, f"ci-run:{payload.run_id}")
+    if payload.status == "completed" and payload.conclusion == "failure":
+        await _lock_idempotency_key(
+            session, f"ci-failure:{payload.branch}:{payload.pr_number or 'none'}"
+        )
     stmt = select(PipelineRun).where(PipelineRun.run_id == payload.run_id)
     run = (await session.execute(stmt)).scalar_one_or_none()
     is_new_failed_completion = (

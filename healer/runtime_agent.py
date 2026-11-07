@@ -336,6 +336,9 @@ async def _run_one_attempt(
     worktree_name: str,
     messages: list[dict[str, Any]],
     tool_schemas: list[dict[str, Any]],
+    system_prompt: str = SYSTEM_PROMPT,
+    max_total_tokens: int | None = None,
+    model_name: str | None = None,
 ) -> AttemptResult:
     """One iteration: converse with Claude, executing tool calls, until it stops."""
     total_input = total_output = total_cached = 0
@@ -346,12 +349,18 @@ async def _run_one_attempt(
     final_text = ""
 
     for _ in range(MAX_TOOL_CALLS_PER_ATTEMPT):
+        token_count = total_input + total_output
+        if max_total_tokens is not None and token_count >= max_total_tokens:
+            break
+        max_response_tokens = CLAUDE_MAX_TOKENS
+        if max_total_tokens is not None:
+            max_response_tokens = min(max_response_tokens, max_total_tokens - token_count)
         response = await anthropic_client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=CLAUDE_MAX_TOKENS,
+            model=model_name or settings.anthropic_model,
+            max_tokens=max_response_tokens,
             thinking={"type": "disabled"},
             system=[
-                {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+                {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
             ],
             tools=tool_schemas,
             messages=messages,

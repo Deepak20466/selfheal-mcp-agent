@@ -59,6 +59,49 @@ async def test_groq_text_only_response(respx_mock: Any) -> None:
     assert response.usage.output_tokens == 5
 
 
+async def test_groq_retries_gateway_failure_with_jittered_backoff(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(api_adapters.asyncio, "sleep", record_sleep)
+
+    class DeterministicRandom:
+        def uniform(self, _low: float, high: float) -> float:
+            return high
+
+    monkeypatch.setattr(api_adapters.random, "SystemRandom", DeterministicRandom)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(503, text="gateway unavailable"),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "recovered"}}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 1},
+                },
+            ),
+        ]
+    )
+
+    response = await GroqClient(api_key="gsk_fake").messages.create(
+        model=None,
+        max_tokens=10,
+        system=[],
+        tools=[],
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert route.call_count == 2
+    assert delays == [0.25]
+    assert response.content[0].text == "recovered"
+
+
 async def test_groq_tool_call_response_and_round_trip(respx_mock: Any) -> None:
     route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
