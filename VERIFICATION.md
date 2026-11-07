@@ -1,8 +1,31 @@
 # Verification report
 
-## Current acceptance status — 2026-10-20
+## Current branch verification — `feat/real-bug-benchmark` (2026-11-07)
 
-**FULL VERIFIED GO for the explicitly scoped, on-demand AI repair-to-PR demonstration across three synthetic, independent public repositories (3/3).** This statement is grounded in completed GitHub Actions runs and repair pull requests, not an independent production certification. It supersedes the **current-state claims** in the dated historical audit below.
+This is branch-local evidence before review or merge. No real provider repair attempt or runtime-demo
+PR has been run. Mining found 115 candidate commits across seven repositories; 41 passed isolated
+preparation and 74 were discarded by the baseline/human-fix criteria. Kept cases: attrs 15, h11 6,
+idna 11, itsdangerous 3, and pluggy 6. The kept source snapshots and raw diffs are in the ignored
+per-user cache, outside this repository. Baseline target tests were repeated three times, then the
+same tests were repeated against the historical fix; only stable failures followed by stable passes
+were retained.
+
+The local environment has no reachable PostgreSQL listener. The full suite was not verified locally;
+the pull request CI job uses a PostgreSQL 16 service and will provide the database-backed result.
+Provider billing was not attested and no provider API was called. The three local runtime-demo
+regression tests describe the expected repaired behavior and fail against the intentionally seeded
+bugs; no runtime-demo PR was created. Ruff lint and formatting passed, and mypy reported no issues
+in 89 source files. The focused offline unit suite passed **84 tests**, with **1 skipped** and one
+third-party deprecation warning. Two additional Windows AppContainer tests passed using a temporary
+venv. Gitleaks found no leaks in tracked or nonignored untracked files. The three expected runtime
+demo failures confirm the seeded defects. `pip-audit --progress-spinner off` in a disposable copy
+installed from `.[dev]` found no known vulnerabilities; it skipped the unpublished local project
+distribution. Full `pytest -q` stops in `tests/conftest.py` before test collection because the local
+PostgreSQL connection is refused (`WinError 1225`); PostgreSQL-backed verification is pending PR CI.
+
+## Historical acceptance status as of 2026-10-20
+
+**Historical result:** the explicitly scoped, on-demand AI repair-to-PR demonstration passed across three synthetic, independent public repositories (3/3). This statement is grounded in the recorded GitHub Actions runs and repair pull requests, not an independent production certification. It does not describe the current branch's real-bug benchmark status.
 
 | Trial | Result | Evidence |
 |---|---|---|

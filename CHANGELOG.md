@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — 2026-11-07
+
+### Added
+- **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
+  preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL
+  records, and result scoring. Offline fixture tests cover mining, preparation, and scoring. No
+  provider repair result is claimed until an actual run is recorded.
+- **Runtime error demo** (`examples/runtime_demo/`): three seeded FastAPI failures, app-scoped
+  permissions, regression expectations, and native Bash/PowerShell scripts that wait for the
+  recorded healer job outcome.
+- **Healer observability**: request correlation IDs, `/readyz`, Prometheus `/metrics`, and a
+  bounded PostgreSQL notification wakeup queue.
+- **Bounded API retries**: provider adapters retry explicit 502/503/504 responses with jitter;
+  GitHub GETs retry transient HTTP and transport errors. Rate limits cool down and fall back,
+  mutations are not replayed blindly, PR creation reconciles duplicate head/base requests, and
+  PostgreSQL advisory locks deduplicate concurrent CI webhook deliveries by run and PR keys.
+
+### Security and verification notes
+- Historical source fixes are now kept out of prepared model workspaces; preparation snapshots the
+  parent plus test-only diff before applying the scoring-only fix.
+- The no-policy benchmark arm still uses the OS sandbox for mined test execution. It only skips
+  Selfheal's patch-size and anti-cheating policy checks.
+- Network mining, free-tier provider runs, and a runtime-demo PR are reported only when executed.
+  See `VERIFICATION.md` for counts and remaining limits.
+
 All notable changes to this project are summarized here. This is a
 factual summary, not marketing copy — `CLAUDE.md`'s phase log is the
 source of truth for how each item was built and verified; see it for
