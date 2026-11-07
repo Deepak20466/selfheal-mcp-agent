@@ -63,12 +63,12 @@ async def _make_connected_app() -> tuple[MonitoredApp, Path]:
     return app, clone_root
 
 
-async def _make_job_for_app(app: MonitoredApp) -> int:
+async def _make_job_for_app(app: MonitoredApp, *, manual: bool = False) -> int:
     async with session_scope() as session:
         error = Error(
             fingerprint=f"test-{uuid.uuid4().hex}",
-            exception_type="ValueError",
-            message="ValueError for test",
+            exception_type="manual:manual" if manual else "ValueError",
+            message="Human-reported logic bug" if manual else "ValueError for test",
             traceback="Traceback (most recent call last):\n  ...",
             file_path="app.py",
             line_number=1,
@@ -167,7 +167,7 @@ async def test_run_heal_job_suggest_opens_a_labeled_pr_with_no_verification(
 
         monkeypatch.setattr(agent_free, "run_claude_cli", fake_run_claude_cli)
 
-        job_id = await _make_job_for_app(app)
+        job_id = await _make_job_for_app(app, manual=True)
         async with (
             connect_in_memory(mcp) as mcp_client,
             GitHubClient(repo="acme/suggest") as github,
@@ -183,6 +183,13 @@ async def test_run_heal_job_suggest_opens_a_labeled_pr_with_no_verification(
 
         labels_request = respx_mock.calls[-1].request
         assert b"unverified-suggestion" in labels_request.content
+        pull_request = next(
+            call
+            for call in respx_mock.calls
+            if call.request.method == "POST" and call.request.url.path.endswith("/pulls")
+        )
+        assert b"UNVERIFIED suggestion: review carefully" in pull_request.request.content
+        assert b"human will review it" in pull_request.request.content
     finally:
         shutil.rmtree(bare_remote, ignore_errors=True)
         await _cleanup(app.id, clone_root)

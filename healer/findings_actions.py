@@ -14,7 +14,16 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models import AuditLog, Error, Finding, FindingStatus, HealJob, HealJobType, MonitoredApp
+from core.models import (
+    AuditLog,
+    Error,
+    Finding,
+    FindingCategory,
+    FindingStatus,
+    HealJob,
+    HealJobType,
+    MonitoredApp,
+)
 from core.queue import enqueue_heal_job
 
 _HIGH_SEVERITY = ("high", "critical")
@@ -51,6 +60,9 @@ async def request_fix_for_finding(
     instead of the normal AI_CHAIN dispatch, which opens the PR labeled
     "UNVERIFIED suggestion: review carefully" and requires human review.
     """
+    if finding.category == FindingCategory.MANUAL and not suggest:
+        raise ValueError("Manual findings can only be processed with --suggest")
+
     error = Error(
         fingerprint=finding.fingerprint,
         exception_type=f"{finding.tool}:{finding.category.value}",
@@ -91,6 +103,8 @@ async def maybe_auto_fix_high_severity(
         return []
     jobs = []
     for finding in findings:
+        if finding.category == FindingCategory.MANUAL:
+            continue
         if finding.severity.value not in _HIGH_SEVERITY:
             continue
         if finding.status != FindingStatus.OPEN:
