@@ -13,6 +13,8 @@ creating a duplicate.
 
 from __future__ import annotations
 
+import os
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +35,17 @@ def load_app_configs(path: Path = DEFAULT_CONFIG_PATH) -> list[dict[str, Any]]:
     apps = raw.get("apps", []) if raw else []
     if not isinstance(apps, list):
         raise ValueError(f"{path}: 'apps' must be a list")
-    return apps
+    resolved: list[dict[str, Any]] = []
+    for app in apps:
+        if not isinstance(app, dict):
+            raise ValueError(f"{path}: each app entry must be a mapping")
+        config = dict(app)
+        if config.get("ingest_token") == "${SENTINEL_INGEST_TOKEN}":
+            config["ingest_token"] = os.environ.get(
+                "SENTINEL_INGEST_TOKEN"
+            ) or secrets.token_urlsafe(32)
+        resolved.append(config)
+    return resolved
 
 
 async def sync_monitored_apps(

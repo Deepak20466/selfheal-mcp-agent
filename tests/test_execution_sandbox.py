@@ -103,6 +103,16 @@ def test_snapshot_does_not_copy_file_or_directory_symlinks(tmp_path: Path) -> No
     assert not (snapshot / "directory-link").exists()
 
 
+def test_python_test_environment_prefers_checkout_source_layout(tmp_path: Path) -> None:
+    from mcp_server.execution_sandbox import _safe_child_environment
+
+    workspace = tmp_path / "workspace"
+    (workspace / "src").mkdir(parents=True)
+    env = _safe_child_environment(workspace, "python -m pytest -q")
+
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(workspace / "src"), str(workspace)]
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows AppContainer and Job Objects")
 async def test_windows_appcontainer_enforces_boundaries_and_kills_child_processes(
@@ -213,6 +223,42 @@ async def test_windows_appcontainer_can_launch_the_active_venv_python(tmp_path: 
     assert result.get("sandbox") == "windows-appcontainer-job", result
     assert result["passed"] is True, result
     assert "venv runtime is readable" in result["output"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows AppContainer")
+async def test_windows_appcontainer_imports_test_helpers_from_the_checkout(tmp_path: Path) -> None:
+    source = tmp_path / "repo"
+    tests = source / "tests"
+    tests.mkdir(parents=True)
+    package = source / "src" / "attr"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("SOURCE = 'checkout'\n", encoding="utf-8")
+    (tests / "__init__.py").write_text("", encoding="utf-8")
+    (tests / "strategies.py").write_text("VALUE = 'checkout'\n", encoding="utf-8")
+    (tests / "test_imports.py").write_text(
+        "import attr\nfrom .strategies import VALUE\n\n"
+        "\ndef test_local_helper_import():\n"
+        "    assert VALUE == 'checkout'\n"
+        "    assert attr.SOURCE == 'checkout'\n",
+        encoding="utf-8",
+    )
+
+    result = await run_untrusted_command(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "tests/test_imports.py",
+        ],
+        cwd=source,
+        timeout=10,
+    )
+
+    assert result.get("sandbox") == "windows-appcontainer-job", result
+    assert result["passed"] is True, result
+    assert "1 passed" in result["output"]
 
 
 @pytest.mark.asyncio

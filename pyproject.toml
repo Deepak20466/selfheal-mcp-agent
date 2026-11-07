@@ -184,6 +184,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["network: opt-in tests that access public repositories or external services"]
 # core.db.engine is a module-level singleton whose asyncpg connection pool is
 # bound to whichever event loop first created it. Function-scoped loops (the
 # pytest-asyncio default) tear down and recreate a loop per test, so pooled

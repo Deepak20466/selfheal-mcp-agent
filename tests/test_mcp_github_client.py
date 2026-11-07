@@ -233,6 +233,71 @@ async def test_non_2xx_response_raises_with_status_and_body(
             await client.get_workflow_run(1)
 
 
+async def test_get_retries_transient_failure_with_jittered_backoff(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    import mcp_server.github_client as github_client_module
+
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(github_client_module.asyncio, "sleep", record_sleep)
+
+    class DeterministicRandom:
+        def uniform(self, _low: float, high: float) -> float:
+            return high
+
+    monkeypatch.setattr(github_client_module.random, "SystemRandom", DeterministicRandom)
+    route = respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/actions/runs/1").mock(
+        side_effect=[
+            httpx.Response(503, text="temporarily unavailable"),
+            httpx.Response(200, json={"id": 1}),
+        ]
+    )
+
+    async with GitHubClient() as client:
+        result = await client.get_workflow_run(1)
+
+    assert result["id"] == 1
+    assert route.call_count == 2
+    assert delays == [0.25]
+
+
+async def test_get_honors_retry_after_and_stops_after_bounded_attempts(
+    monkeypatch: pytest.MonkeyPatch, respx_mock
+) -> None:
+    import mcp_server.github_client as github_client_module
+
+    monkeypatch.setattr(core_settings, "github_token", "test-token")
+    monkeypatch.setattr(core_settings, "github_repo", "acme/repo")
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(github_client_module.asyncio, "sleep", record_sleep)
+
+    class DeterministicRandom:
+        def uniform(self, _low: float, high: float) -> float:
+            return high
+
+    monkeypatch.setattr(github_client_module.random, "SystemRandom", DeterministicRandom)
+    route = respx_mock.get(f"{GITHUB_API_BASE}/repos/acme/repo/actions/runs/1").mock(
+        return_value=httpx.Response(429, headers={"retry-after": "2"}, text="rate limited")
+    )
+
+    async with GitHubClient() as client:
+        with pytest.raises(GitHubClientError, match="429"):
+            await client.get_workflow_run(1)
+
+    assert route.call_count == 3
+    assert delays == [2.2, 2.2]
+
+
 @pytest.mark.parametrize(
     ("status_code", "body"),
     [

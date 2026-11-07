@@ -1,8 +1,102 @@
 # Verification report
 
-## Current acceptance status — 2026-10-20
+## Current branch verification — `feat/real-bug-benchmark` (2026-11-07)
 
-**FULL VERIFIED GO for the explicitly scoped, on-demand AI repair-to-PR demonstration across three synthetic, independent public repositories (3/3).** This statement is grounded in completed GitHub Actions runs and repair pull requests, not an independent production certification. It supersedes the **current-state claims** in the dated historical audit below.
+This report records the local audit of the current branch before review or merge. No real provider
+repair attempt or runtime-demo repair was run. The environment check found no `GEMINI_API_KEY`,
+`OPENROUTER_API_KEY`, `GROQ_API_KEY`, or `REAL_BUG_DATABASE_URL`; no PostgreSQL listener was
+reachable on port 5432. The current real-bug benchmark results therefore remain unmeasured. The
+three demo PR outcomes are documented below and in the recovered evidence ledger. No API was called
+and no new staged outcome was recorded.
+
+The initial source audit found no existing regression test that assembled model-facing context and
+asserted the fixing hash, message, human diff, and later Git history were absent. The runner already
+created a fresh Git snapshot from prepared parent files, but its copy step did not explicitly ignore
+`.git` or scoring-only files. The copy now excludes both, and a regression test checks the constructed
+Selfheal prompt context and resulting repository history against sentinel values for all four
+withheld sources.
+
+Assertion review against `origin/main` found no weakened or removed assertions. No existing test
+assertion was changed: `tests/test_openrouter_repair.py` changes only the construction of the
+synthetic credential-like patch fixture, while its surrounding `pytest.raises(PatchRejected)` check
+is unchanged. Before, the fixture encoded the key name and fake value in one byte literal; after, it
+builds the same rejection input from byte fragments. New benchmark and concurrency tests add
+assertions for withheld context, repeat scoring, both pipeline events, and one shared repair job.
+
+The default Gitleaks history scan reports the old synthetic fixture in the base commit
+`c50cf2a89111dabb1253d0c1b85f100237c79213`; the current fixture has been split into byte fragments.
+A directory scan also reports four false positives in ignored Python bytecode caches because tests
+contain placeholder Git remote credentials. These are generated `.pyc` files, not tracked source.
+Rerun the scan against the staged source diff and distinguish those pre-existing/base-history and
+bytecode findings from any new source findings.
+
+The benchmark launchers are `scripts/run_real_bug_benchmark.sh` and
+`scripts/run_real_bug_benchmark.ps1`. They require the operator to configure a verified free-tier
+provider and an already-running disposable local PostgreSQL database, then execute both validation
+arms, repeat the first ten cases twice, and score the raw records. The wrappers have not been run
+because the key and database prerequisites are absent. Runtime demo scripts remain native-process
+reproduction paths; no live inference, verification repair, or PR creation was attempted.
+
+On this recovery branch, `ruff check .`, `ruff format --check .` (263 files), and scoped
+`mypy core sentinel mcp_server healer cli` (94 source files) pass. The offline test module
+`python -m pytest -q --noconftest tests/test_real_bug_benchmark.py` passed **19 tests with 1
+skipped**; `python -m cli.main --help` also ran without a database or provider credentials.
+`mypy .` reports existing errors in tests and deployment utility code outside the strict
+application package set. `pip-audit` was run in the ambient Python environment and found
+vulnerabilities in installed packages; this environment is not a clean install of this project,
+so it is not a project lockfile audit. A prior normal-conftest full-suite and focused-test attempt
+stopped in the session hook before collection because localhost:5432 refused the PostgreSQL
+connection. This recovery did not run the full database-backed local suite. PR #44 remains open
+and unmerged. Historical verification material below applies only to its explicitly dated commits
+and is not current-branch evidence.
+
+During the 2026-11-07 evidence recovery, no provider call or benchmark run was performed. On
+documentation commit `68318eac5e87408efc3032ec1b4437e7707ce8ff`, [full CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42365406139)
+reported **836 passed, 7 skipped, 3 warnings in 93.53 seconds**, and [Calico/kind CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42365406075)
+passed. The CI log also records 20 broken fixture baselines rejected and 20 reference repairs
+accepted. Those are fixture validation checks, not real-bug provider outcomes.
+
+## Historical and real-world test results
+
+This table combines the recovered dated runs and directly relevant PR outcomes. Synthetic seeded
+demonstrations and fixture benchmarks are labeled as such; they are not counted as real-world bug
+repairs. The full evidence notes, confidence statements, and source inventory are in
+[`docs/history/RECOVERED_EVIDENCE.md`](docs/history/RECOVERED_EVIDENCE.md).
+
+| Date | Repository | Scope | Producer | Outcome | Evidence |
+|---|---|---|---|---|---|
+| Undated, before 2026-09-26 | `octocat/Hello-World` (public fixture) | Live connect, clone, scan, and queued finding; separate real local fixture exercised scanner isolation | Manual integration test | Found scanner tool-path/venv setup bugs; added an unmocked venv regression test. No repair success claimed. | [`CLAUDE.md` lines 1560–1660](CLAUDE.md#L1560), [`test_run_scan_isolates_a_real_python_app_in_its_own_venv`](tests/test_scanner.py) |
+| 2026-09-25–26 | `selfheal-mcp-agent` seeded app | Contract-violation repair PR #10 | AI-generated | **Passed** and merged; in-repository seeded demonstration, not an external repo result. | [PR #10](https://github.com/Deepak20466/selfheal-mcp-agent/pull/10), [passing CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/36163751994) |
+| 2026-09-25 | `selfheal-mcp-agent` seeded app | ConnectTimeout PR #11, AttributeError PR #12, and KeyError PR #13 | AI-generated | **All failed CI and were closed without merge.** | [PR #11](https://github.com/Deepak20466/selfheal-mcp-agent/pull/11), [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/36181013267), [PR #12](https://github.com/Deepak20466/selfheal-mcp-agent/pull/12), [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/36181554037), [PR #13](https://github.com/Deepak20466/selfheal-mcp-agent/pull/13), [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/36182084974) |
+| 2026-09-26 | `selfheal-mcp-agent` seeded app | Human-created CI failure PR #14; Selfheal repair PR #15 | Manual trigger; AI-generated repair | **Repair PR #15 passed CI and merged.** Earlier checks were blocked by tests that pinned the intentional 500 response; those tests were made fix-tolerant before the passing rerun. | [trigger #14](https://github.com/Deepak20466/selfheal-mcp-agent/pull/14), [repair #15](https://github.com/Deepak20466/selfheal-mcp-agent/pull/15), [passing CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/36244721375), [`CLAUDE.md` lines 2040–2110](CLAUDE.md#L2040) |
+| 2026-09-26 | `selfheal-mcp-agent` seeded app | Early live two-case benchmark attempt (`zero`, `key`) | AI-generated attempts | **0/2 complete repairs in this attempt:** one candidate was rejected by a test pinned to the seeded bug; the other passed tests but push timed out. A later retry was blocked by the fingerprint breaker; other cases were not run that day. | [`CLAUDE.md` lines 2080–2110](CLAUDE.md#L2080), [`docs/benchmark_latest.json`](docs/benchmark_latest.json) |
+| 2026-09-29 | `multi-agent-workspace` | Real dependency scan; 16 CVEs across five packages were exposed after correcting stderr/JSON parsing | Engineer-directed, AI-assisted Selfheal code change | Scanner bug fixed in [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503); two scanner regression tests added. | [`tests/test_scanner.py`](tests/test_scanner.py), [`CLAUDE.md` lines 3437–3458](CLAUDE.md#L3437) |
+| 2026-09-29 | `multi-agent-workspace` | Claude Code attempt to repair the PyPDF2 3.0.1 denial-of-service issue (job 373, 31 turns; retry job 374) | AI-generated attempts; worker fix was engineer-directed and AI-assisted | **Did not converge on a PyPDF2 diff.** Job 373 used about $2.92 of recorded Claude subscription usage and encountered a GitHub 403 that stopped the worker. The dispatch bug was fixed and tested in [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6); job 374 failed cleanly and the worker continued. | [`tests/test_healer_worker.py`](tests/test_healer_worker.py), [`CLAUDE.md` lines 3459–3500](CLAUDE.md#L3459) |
+| 2026-09-29 | `multi-agent-workspace` | Manual `cryptography>=49.0.0` floor change for three advisories | Manual/mechanical, not AI-generated code | PR #1 is **merged** in current GitHub state, but its required CI **failed** at database setup with `ModuleNotFoundError: No module named 'psycopg'`. It is not a passing-CI repair. | [PR #1](https://github.com/Deepak20466/multi-agent-workspace/pull/1), [failed Actions run](https://github.com/Deepak20466/multi-agent-workspace/actions/runs/36621073172), [failed job log](https://github.com/Deepak20466/multi-agent-workspace/actions/runs/36621073172/job/109586318314) |
+| 2026-09-29 | `ShopCart`, `PortfolioReact`, and a repo with a `backend`/`frontend`/`mobile` layout | Live connect attempts; root manifests were missing | Engineer-directed, AI-assisted implementation | Connect failed before repair. The failures prompted monorepo detection and scoped subproject paths; no external bug repair is claimed. | [`4bf929c`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/4bf929cf52677246ce5fb6bb4def97c37aba786c), [`CLAUDE.md` lines 3037–3110](CLAUDE.md#L3037) |
+| 2026-09-29 | `ShopCart` | Onboarding prepare diff followed by a live push 403 | AI-prepared change; engineer-directed, Claude-assisted Selfheal fix | The failure exposed log redaction and stuck-job bugs, fixed in [`fbe3bdf`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/fbe3bdf) with regression tests. No secret value is included here. | [`test_run_git_failure_scrubs_a_credentialed_remote_url_from_the_error`](tests/test_healer_worktree.py), [`tests/test_core_logging.py`](tests/test_core_logging.py), [`CLAUDE.md` lines 3149–3205](CLAUDE.md#L3149) |
+| 2026-09-29 | `ShopCart` | Manual review of previous-page pagination guard and page slicing | Manual | **Unfixed.** The previous-page condition can request page zero or do nothing on the last page; no test suite or CI was available to verify a repair. | [`CLAUDE.md` lines 3505–3527](CLAUDE.md#L3505), [ShopCart onboarding PR #1](https://github.com/Deepak20466/ShopCart/pull/1) |
+| 2026-09-29 | `ShopCart` | Onboarding starter tests and CI setup, not a pagination repair | AI-prepared onboarding; owner submitted PR | PR #1 remains **open**, with no Actions checks. Its description says the starter tests passed locally and that pagination component tests were cut. | [PR #1](https://github.com/Deepak20466/ShopCart/pull/1), [Actions listing](https://github.com/Deepak20466/ShopCart/actions) |
+| 2026-09-29 | Selfheal provider integrations | Tiny Groq and OpenRouter Free HTTP/tool-calling probes; Gemini probe | Manual provider integration probes | Groq and OpenRouter returned `pong`; OpenRouter returned a real tool-call response. Gemini authentication probes failed. These were not repair runs. | [`VERIFICATION-historical-2026-09-29.md` lines 67–91](VERIFICATION-historical-2026-09-29.md#L67) |
+| 2026-10-19 | One synthetic FastAPI fixture repository | Codex CLI run across 20 seeded scenarios | AI-generated | Recorded **20/20 diagnoses and 20/20 final repairs** in this one synthetic repository; S20 used one retry; cost is unknown. | [Raw artifact](benchmarks/results/codex-full-2026-10-19-run5.json), [benchmark report](docs/benchmark.md) |
+| 2026-10-20 | `selfheal-e2e-demo-01` | Controlled Gemini arithmetic repair | AI-generated | Repair test and PR CI passed; PR #16 was merged on 2026-11-07. Earlier comment-only PR #11 was closed and excluded. | [PR #16](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16), [CI](https://github.com/Deepak20466/selfheal-e2e-demo-01/actions/runs/39377964370), [closed PR #11](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/11) |
+| 2026-10-20 | `selfheal-e2e-demo-02` | Controlled Gemini calculator repair | AI-generated | Repair CI passed; PR #13 remains open. | [PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13), [CI](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
+| 2026-10-20 | `selfheal-e2e-demo-03` | Controlled Gemini calculator repair and four sandbox tests | AI-generated | Repair CI passed; PR #10 remains open. | [PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10), [CI](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
+| 2026-11-07 | `selfheal-mcp-agent` | Hosted full CI, including pytest, offline sandbox probes, fixture validation, Ruff, formatting, strict mypy, backup/restore, and Node tests | Automated CI | **836 passed, 7 skipped, 3 warnings** in pytest; fixture validation rejected 20 broken baselines and accepted 20 reference repairs. | [CI run 42361153765](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42361153765) |
+| 2026-11-07 | `selfheal-mcp-agent` | Calico/kind Kubernetes deployment and recovery checks | Automated CI | **Passed.** | [Kubernetes CI run 42361153887](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42361153887) |
+
+### Regression tests for the two Selfheal bugs
+
+- Commit [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) adds `test_run_with_merge_stderr_false_keeps_stdout_json_parseable` and `test_run_with_merge_stderr_true_folds_stderr_into_output` in [`tests/test_scanner.py`](tests/test_scanner.py).
+- Commit [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6) adds `test_remote_verify_dispatch_exception_marks_job_failed_and_does_not_propagate` in [`tests/test_healer_worker.py`](tests/test_healer_worker.py).
+
+### Repositories with no recovered Selfheal run
+
+No Selfheal run or related PR was found in the reviewed local session log, GitHub PR listings, or Actions listings for [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas/pulls), [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter/pulls), or [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system/pulls). This is a scoped “no record found” result; it does not establish that undocumented local work never occurred. The VIMJ Actions runs inspected were scheduled database activity checks, unrelated to Selfheal.
+
+## Historical acceptance status as of 2026-10-20
+
+**Historical result:** the explicitly scoped, on-demand AI repair-to-PR demonstration passed across three synthetic, independent public repositories (3/3). This statement is grounded in the recorded GitHub Actions runs and repair pull requests, not an independent production certification. It does not describe the current branch's real-bug benchmark status.
 
 | Trial | Result | Evidence |
 |---|---|---|
@@ -10,9 +104,9 @@
 | demo-02 | **PASS** — Gemini 3.8 Flash repair and passing PR CI | [Repair PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13); [passing CI](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
 | demo-03 | **PASS** — Gemini 3.5 Flash-Lite corrected `*` to `+`, four sandbox tests, passing PR CI | [repair workflow](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704); [Repair PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10); [passing CI](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
 
-**System controls verified for this scope:** failed-CI intake, actual model inference, strict patch checks, secret-free isolated testing, GitHub PR artifact verification, passing PR CI, and a human-review-only merge policy. [Root CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39375584341) and [Calico/kind Kubernetes security CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39375584345) passed after root PR #42 merged. Demo-01's prior comment-only PR #11 was closed as invalid and is not counted; PR #16 contains the actual repair and remains open for human review. The native Codex/Claude/Gemini **CLI** execution gate still fails closed; the validated workflow uses a separate API inference job.
+**System controls verified for this scope:** failed-CI intake, actual model inference, strict patch checks, secret-free isolated testing, GitHub PR artifact verification, passing PR CI, and a human-review-only merge policy. [Root CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39375584341) and [Calico/kind Kubernetes security CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/39375584345) passed after root PR #42 merged. Demo-01's prior comment-only PR #11 was closed as invalid and is not counted. PR #16 contains the actual repair; GitHub now shows it merged on 2026-11-07. Demo-02 PR #13 and demo-03 PR #10 remain open. The native Codex/Claude/Gemini **CLI** execution gate still fails closed; the validated workflow uses a separate API inference job.
 
-**Boundaries:** Three successful synthetic examples do not measure general patch accuracy, resilience to prolonged 429/503 errors, sustained 24/7 operation, production traffic, or real-world commercial deployment security. Production database recovery and unrestricted provider egress have not been verified. Provider model pricing and quotas can change. Before Demo-01, the owner confirmed the Gemini Project 2 Free tier, no paid billing/credits, and positive Flash-Lite quota; the workflow used Gemini only with no paid fallback. The provider API cannot independently attest account billing, and the full billing ledger was not audited. The three valid demo repair PRs remain open, not merged. The updated end-to-end recording is available in [MP4](docs/demo-e2e-repairs.mp4); the earlier 0:50 terminal video remains a separate CLI overview.
+**Boundaries:** Three successful synthetic examples do not measure general patch accuracy, resilience to prolonged 429/503 errors, sustained operation, real traffic, or commercial deployment security. Database recovery and unrestricted provider egress have not been verified. Provider model pricing and quotas can change. Before Demo-01, the owner confirmed the Gemini Project 2 Free tier, no paid billing/credits, and positive Flash-Lite quota; the workflow used Gemini only with no paid fallback. The provider API cannot independently attest account billing, and the full billing ledger was not audited. At the time of the 2026-10-20 snapshot all three valid repair PRs were open; current GitHub state is one merged (#16) and two open (#13 and #10). The updated end-to-end recording is available in [MP4](docs/demo-e2e-repairs.mp4); the earlier 0:50 terminal video remains a separate CLI overview.
 
 ## Historical audit retained for traceability (status as of 2026-10-19)
 
@@ -366,8 +460,8 @@ monitoring, backup/restore, or rollback was performed.
 ## Readiness
 
 This project has materially stronger security and regression evidence,
-but it is **not production-ready for unattended repair of arbitrary
-repositories**. The fixed-set benchmark covers 20 seeded failures in one
+but the available evidence does not support unattended repair of arbitrary
+repositories. The fixed-set benchmark covers 20 seeded failures in one
 synthetic repository, not three independent repositories. Provider CLI
 filesystem and process isolation remain unverified; host-side Git control
 operations are not OS-sandboxed; and live hostile-repository repair, provider

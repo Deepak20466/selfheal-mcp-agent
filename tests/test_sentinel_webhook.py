@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 
 import httpx
 import pytest
@@ -10,8 +12,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import settings as core_settings
+from core.db import async_session_factory
 from core.hmac_utils import sign_payload
 from core.models import HealJob, HealJobStatus, HealJobType, PipelineRun
+from sentinel import storage
+from sentinel.schemas import CIWebhookPayload
 
 WEBHOOK_SECRET = "test-webhook-secret"
 
@@ -143,6 +148,48 @@ async def test_duplicate_failed_completion_does_not_restart_existing_repair(
 
     await db_session.refresh(job)
     assert job.status == HealJobStatus.RUNNING
+
+
+async def test_concurrent_replay_of_a_failed_run_creates_one_job() -> None:
+    run_id = uuid.uuid4().int % (2**62) + 1
+    branch = f"autofix/idempotency-{run_id}"
+    pr_number = run_id % 2_000_000_000 + 1
+    payload = CIWebhookPayload.model_validate_json(
+        _payload(run_id=run_id, branch=branch, pr_number=pr_number)
+    )
+    later_run = CIWebhookPayload.model_validate_json(
+        _payload(run_id=run_id + 1, branch=branch, pr_number=pr_number)
+    )
+
+    async def record_delivery(event: CIWebhookPayload) -> None:
+        async with async_session_factory() as session:
+            await storage.record_pipeline_event(session, event)
+
+    await asyncio.gather(
+        record_delivery(payload), record_delivery(payload), record_delivery(later_run)
+    )
+
+    async with async_session_factory() as session:
+        runs = (
+            (
+                await session.execute(
+                    select(PipelineRun).where(PipelineRun.run_id.in_([run_id, run_id + 1]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        jobs = (
+            (
+                await session.execute(
+                    select(HealJob).where(HealJob.fingerprint == f"ci:{branch}:{payload.pr_number}")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert {run.run_id for run in runs} == {run_id, run_id + 1}
+    assert len(jobs) == 1
 
 
 async def test_unsigned_webhook_is_rejected(sentinel_http_client: httpx.AsyncClient) -> None:

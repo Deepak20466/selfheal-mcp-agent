@@ -26,6 +26,33 @@ the result. GitHub push and pull-request operations are separate steps. This
 audit used mocks and local repositories for those steps; it did not write to
 GitHub.
 
+Provider adapters retry only explicit upstream gateway responses (502, 503,
+and 504), up to three attempts with jitter and a bounded `Retry-After` delay.
+Rate limits use the backend cooldown/fallback chain; transport failures are
+not replayed because the provider may have accepted the inference request.
+GitHub GET requests retry a bounded set of transient HTTP and transport
+failures with jitter. GitHub mutations are not blindly replayed. Pull-request
+creation is idempotent by exact repository, head branch, and base branch: it
+returns an existing open match and reconciles a concurrent-create 422 by
+checking that same tuple again.
+
+CI webhook processing also takes PostgreSQL transaction locks keyed by the
+GitHub workflow run ID and failed PR fingerprint. Duplicate deliveries,
+including concurrent redeliveries, reuse the stored run; separate concurrent
+failures on the same PR reuse one in-flight repair job.
+
+The PostgreSQL notification listener keeps at most one pending wakeup. It
+coalesces bursts because the durable job table remains the source of truth.
+On SIGINT or SIGTERM the worker stops claiming new jobs, lets the current job
+finish, then closes the listener and MCP client through their async context
+managers. The 30-second database fallback also bounds the idle shutdown wait.
+
+The repository also includes [`examples/runtime_demo`](../examples/runtime_demo), a small app
+that sends runtime errors to Sentinel through the same middleware used by the target app. It is
+registered with its own server-side write scope and test command. The native runner starts it on
+loopback and waits for a real heal-job outcome; an opened PR depends on working provider credentials,
+the repository's GitHub permissions, and passing isolated tests.
+
 ## Trust boundaries
 
 Repository files, test output, issue text, workflow logs, and model-produced

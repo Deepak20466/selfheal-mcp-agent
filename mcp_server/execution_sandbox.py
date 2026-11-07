@@ -203,6 +203,11 @@ def _safe_child_environment(workspace: Path, command: str) -> dict[str, str]:
             "PIP_NO_INDEX": "1",
             "npm_config_offline": "true",
         }
+        if "python" in command.lower() or "pytest" in command.lower():
+            python_paths = [workspace / "src", workspace]
+            child_env["PYTHONPATH"] = os.pathsep.join(
+                str(path) for path in python_paths if path.is_dir()
+            )
         if runtime_names.intersection({"node", "npm", "npx"}):
             # Node's default realpath resolution lstat's the drive root while
             # loading a script. AppContainer correctly denies that root. The
@@ -223,7 +228,7 @@ def _safe_child_environment(workspace: Path, command: str) -> dict[str, str]:
         Path(sys.executable).parent,
     ]
     path_dirs.extend(_runtime_dirs_for_command(command))
-    return {
+    child_env = {
         "HOME": str(home),
         "TMPDIR": str(temp),
         "PATH": os.pathsep.join(dict.fromkeys(str(item) for item in path_dirs if item.is_dir())),
@@ -235,6 +240,12 @@ def _safe_child_environment(workspace: Path, command: str) -> dict[str, str]:
         "PIP_NO_INDEX": "1",
         "npm_config_offline": "true",
     }
+    if "python" in command.lower() or "pytest" in command.lower():
+        python_paths = [workspace / "src", workspace]
+        child_env["PYTHONPATH"] = os.pathsep.join(
+            str(path) for path in python_paths if path.is_dir()
+        )
+    return child_env
 
 
 def _runtime_dirs_for_command(command: str) -> list[Path]:

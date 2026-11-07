@@ -6,9 +6,12 @@ the real API.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import random
 import re
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -22,6 +25,9 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _APP_PERMISSION_NAMES = frozenset({"actions", "checks", "contents", "issues", "pull_requests"})
 _GIT_PUSH_PERMISSIONS = {"contents": "write"}
 logger = structlog.get_logger(__name__)
+_RETRYABLE_GET_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_MAX_GET_ATTEMPTS = 3
+_MAX_RETRY_AFTER_SECONDS = 30.0
 
 
 class GitHubClientError(Exception):
@@ -235,7 +241,43 @@ class GitHubClient:
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        response = await self._client.request(method, path, headers=headers, **kwargs)
+        attempts = _MAX_GET_ATTEMPTS if method.upper() == "GET" else 1
+        response: httpx.Response | None = None
+        for attempt in range(attempts):
+            try:
+                response = await self._client.request(method, path, headers=headers, **kwargs)
+            except httpx.TransportError:
+                if attempt + 1 >= attempts:
+                    raise
+                delay = self._backoff_delay(attempt)
+                logger.warning(
+                    "github.request.retry",
+                    method=method.upper(),
+                    endpoint=path.split("?", 1)[0],
+                    attempt=attempt + 1,
+                    delay_seconds=round(delay, 3),
+                    reason="transport_error",
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            if response.status_code not in _RETRYABLE_GET_STATUSES or attempt + 1 >= attempts:
+                break
+            retry_delay = self._retry_delay(response, attempt)
+            if retry_delay is None:
+                break
+            logger.warning(
+                "github.request.retry",
+                method=method.upper(),
+                endpoint=path.split("?", 1)[0],
+                attempt=attempt + 1,
+                delay_seconds=round(retry_delay, 3),
+                status_code=response.status_code,
+                github_request_id=response.headers.get("x-github-request-id"),
+            )
+            await asyncio.sleep(retry_delay)
+
+        assert response is not None
         if method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and path.startswith("/repos/"):
             event = {
                 "method": method.upper(),
@@ -254,6 +296,33 @@ class GitHubClient:
                 status_code=response.status_code,
             )
         return response
+
+    @staticmethod
+    def _backoff_delay(attempt: int) -> float:
+        ceiling = min(2.0, 0.25 * (2**attempt))
+        return random.SystemRandom().uniform(0.0, ceiling)
+
+    @classmethod
+    def _retry_delay(cls, response: httpx.Response, attempt: int) -> float | None:
+        """Return a bounded jittered delay for a safe GET retry, if allowed."""
+        raw = response.headers.get("retry-after")
+        if raw is not None:
+            try:
+                retry_after = max(0.0, float(raw))
+            except ValueError:
+                try:
+                    retry_at = parsedate_to_datetime(raw)
+                    if retry_at.tzinfo is None:
+                        retry_at = retry_at.replace(tzinfo=UTC)
+                    retry_after = max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+                except (TypeError, ValueError, OverflowError):
+                    retry_after = -1.0
+            if retry_after >= 0:
+                if retry_after > _MAX_RETRY_AFTER_SECONDS:
+                    return None
+                jitter = random.SystemRandom().uniform(0.0, min(1.0, max(0.05, retry_after * 0.1)))
+                return retry_after + jitter
+        return cls._backoff_delay(attempt)
 
     @staticmethod
     def _permissions_for_request(method: str, path: str) -> dict[str, str]:

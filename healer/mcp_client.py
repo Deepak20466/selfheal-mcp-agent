@@ -127,6 +127,11 @@ class ReconnectingMCPToolClient(MCPToolClient):
         except TimeoutError:
             pass  # noqa: S110
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether a live MCP session is available for worker operations."""
+        return self._ready.is_set() and self._inner is not None
+
     async def aclose(self) -> None:
         if self._task is not None:
             self._task.cancel()

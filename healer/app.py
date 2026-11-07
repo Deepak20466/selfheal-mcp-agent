@@ -14,24 +14,35 @@ loop and Phase 6's chat server in the same `healer/` pod.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import socketio
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
-from sqlalchemy import case, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core import repo_audit
 from core.config import settings
 from core.db import dispose_engine, get_db, session_scope
 from core.logging import configure_logging
-from core.models import ChatMessage, ChatSession, Finding, FindingStatus, HealJob, MonitoredApp
+from core.models import (
+    ChatMessage,
+    ChatSession,
+    Finding,
+    FindingStatus,
+    FixAttempt,
+    HealJob,
+    HealJobStatus,
+    MonitoredApp,
+)
 from core.ratelimit import check_and_consume
 from core.repo_connect import (
     CONNECTED_APPS_ROOT,
@@ -71,7 +82,7 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=[])
 # Populated at lifespan startup with a connected MCPToolClient shared by the
 # chat handler and dashboard REST endpoints (one long-lived streamable-HTTP
 # connection to mcp-pod, same pattern as healer/worker.py's own client).
-_mcp_client: MCPToolClient | None = None
+_mcp_client: ReconnectingMCPToolClient | None = None
 
 
 def get_mcp_client() -> MCPToolClient:
@@ -128,9 +139,103 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="healer-pod", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def request_correlation(request: Request, call_next: Any) -> Response:
+    """Attach a validated request ID to logs and the response."""
+    from structlog.contextvars import bind_contextvars, reset_contextvars
+
+    supplied = request.headers.get("X-Request-ID", "")
+    try:
+        request_id = str(uuid.UUID(supplied))
+    except (ValueError, AttributeError):
+        request_id = str(uuid.uuid4())
+    context_tokens = bind_contextvars(request_id=request_id)
+    try:
+        response = cast(Response, await call_next(request))
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_contextvars(**context_tokens)
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz(response: Response) -> dict[str, Any]:
+    """Report readiness only when PostgreSQL and the MCP connection are live."""
+    database_ready = False
+    try:
+        async with session_scope() as session:
+            await session.execute(select(1))
+        database_ready = True
+    except Exception:
+        logger.warning("healer.readiness.database_unavailable")
+    mcp_ready = bool(_mcp_client and _mcp_client.is_ready)
+    ready = database_ready and mcp_ready
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "ok" if ready else "not_ready",
+        "dependencies": {
+            "database": "ok" if database_ready else "unavailable",
+            "mcp": "ok" if mcp_ready else "unavailable",
+        },
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics() -> PlainTextResponse:
+    """Expose aggregate repair counters, mean latency, and recorded cost."""
+    async with session_scope() as session:
+        counts = (
+            await session.execute(
+                select(HealJob.status, func.count(HealJob.id)).group_by(HealJob.status)
+            )
+        ).all()
+        total_cost = await session.scalar(select(func.coalesce(func.sum(FixAttempt.cost_usd), 0)))
+        average_latency = await session.scalar(
+            select(func.avg(func.extract("epoch", HealJob.finished_at - HealJob.started_at))).where(
+                HealJob.finished_at.is_not(None), HealJob.started_at.is_not(None)
+            )
+        )
+    counts_by_status = {row[0]: int(row[1]) for row in counts}
+    attempted = sum(counts_by_status.values())
+    succeeded = sum(
+        counts_by_status.get(item, 0)
+        for item in (
+            HealJobStatus.PR_OPENED,
+            HealJobStatus.MERGED,
+            HealJobStatus.DEPLOYED,
+            HealJobStatus.VERIFIED,
+        )
+    )
+    failed = sum(
+        counts_by_status.get(item, 0) for item in (HealJobStatus.FAILED, HealJobStatus.ROLLED_BACK)
+    )
+    body = "\n".join(
+        (
+            "# HELP selfheal_repairs_attempted_total Heal jobs recorded.",
+            "# TYPE selfheal_repairs_attempted_total counter",
+            f"selfheal_repairs_attempted_total {attempted}",
+            "# HELP selfheal_repairs_succeeded_total Heal jobs with a successful outcome.",
+            "# TYPE selfheal_repairs_succeeded_total counter",
+            f"selfheal_repairs_succeeded_total {succeeded}",
+            "# HELP selfheal_repairs_failed_total Heal jobs with a failed outcome.",
+            "# TYPE selfheal_repairs_failed_total counter",
+            f"selfheal_repairs_failed_total {failed}",
+            "# HELP selfheal_repair_duration_seconds_avg Average recorded repair duration.",
+            "# TYPE selfheal_repair_duration_seconds_avg gauge",
+            f"selfheal_repair_duration_seconds_avg {float(average_latency or 0):.6f}",
+            "# HELP selfheal_repair_cost_usd_total Recorded provider cost in USD.",
+            "# TYPE selfheal_repair_cost_usd_total counter",
+            f"selfheal_repair_cost_usd_total {float(total_cost or 0):.6f}",
+            "",
+        )
+    )
+    return PlainTextResponse(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 # --- Auth --------------------------------------------------------------------

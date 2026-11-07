@@ -25,6 +25,17 @@
 #     ingest_token: sent as `Authorization: Bearer <token>` to /ingest/*
 
 apps:
+  - name: runtime_demo
+    language: python
+    local_repo_path: examples/runtime_demo
+    github_repo: Deepak20466/selfheal-mcp-agent
+    allowed_write_paths:
+      - examples/runtime_demo/
+    test_command: pytest -q examples/runtime_demo/demo_tests.py
+    lint_command: ruff check examples/runtime_demo
+    health_url: http://127.0.0.1:8110/healthz
+    ingest_token: ${SENTINEL_INGEST_TOKEN}
+
   - name: target_app
     language: python
     local_repo_path: apps/target_app

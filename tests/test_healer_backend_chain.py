@@ -4,6 +4,8 @@ Pure/in-memory logic, no DB, no network.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from core.config import settings as core_settings
@@ -39,6 +41,23 @@ def test_mark_cooldown_and_is_cooling_down() -> None:
     backend_chain.mark_cooldown("groq_api", retry_after_seconds=3600)
     assert backend_chain.is_cooling_down("groq_api") is True
     assert backend_chain.cooldown_until("groq_api") is not None
+
+
+def test_provider_cooldown_adds_positive_jitter_without_shortening_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DeterministicRandom:
+        def uniform(self, _low: float, high: float) -> float:
+            return high
+
+    monkeypatch.setattr(backend_chain.random, "SystemRandom", DeterministicRandom)
+    before = datetime.now(UTC)
+
+    backend_chain.mark_cooldown("groq_api", retry_after_seconds=10)
+
+    until = backend_chain.cooldown_until("groq_api")
+    assert until is not None
+    assert (until - before).total_seconds() >= 11
 
 
 def test_cooldown_expires_and_clears_itself() -> None:
