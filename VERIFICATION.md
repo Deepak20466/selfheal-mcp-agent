@@ -49,10 +49,9 @@ connection. This recovery did not run the full database-backed local suite. PR #
 and unmerged. Historical verification material below applies only to its explicitly dated commits
 and is not current-branch evidence.
 
-During the 2026-11-07 evidence recovery, no provider call or benchmark run was performed. The
-latest completed hosted checks available before the documentation update were on head
-`95a5e12382bf7e6763efea130e9e572ae8476ad4`: [CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42361153765)
-reported **836 passed, 7 skipped, 3 warnings**, and [Calico/kind CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42361153887)
+During the 2026-11-07 evidence recovery, no provider call or benchmark run was performed. On
+documentation commit `68318eac5e87408efc3032ec1b4437e7707ce8ff`, [full CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42365406139)
+reported **836 passed, 7 skipped, 3 warnings in 93.53 seconds**, and [Calico/kind CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42365406075)
 passed. The CI log also records 20 broken fixture baselines rejected and 20 reference repairs
 accepted. Those are fixture validation checks, not real-bug provider outcomes.
 
