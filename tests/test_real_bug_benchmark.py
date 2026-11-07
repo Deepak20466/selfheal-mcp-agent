@@ -362,6 +362,37 @@ def test_score_reports_measured_rates_and_unknown_costs(tmp_path: Path) -> None:
     assert "does not mean zero" in markdown_path.read_text(encoding="utf-8")
 
 
+def test_score_compares_resolve_rates_for_paired_repeat_runs(tmp_path: Path) -> None:
+    attempts = tmp_path / "repeats.jsonl"
+    rows = [
+        {
+            "run_id": f"2026-01-01-repeat-{repeat}",
+            "case_id": case_id,
+            "arm": arm,
+            "provider": "fixture",
+            "model": "offline",
+            "target_tests_pass": passed,
+        }
+        for repeat, outcomes in (
+            ("a", {"one": True, "two": False}),
+            ("b", {"one": True, "two": True}),
+        )
+        for arm in ("with_validation", "without_validation")
+        for case_id, passed in outcomes.items()
+    ]
+    attempts.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    _json_path, markdown_path, report = score_module.score(
+        [attempts], results_root=tmp_path / "results"
+    )
+
+    comparison = report["repeat_comparisons"][0]
+    for arm in ("with_validation", "without_validation"):
+        assert comparison["arms"][arm]["paired_cases"] == 2
+        assert comparison["arms"][arm]["absolute_rate_difference"] == 0.5
+    assert "absolute rate difference 50.0%" in markdown_path.read_text(encoding="utf-8")
+
+
 def test_benchmark_artifacts_are_outside_mcp_reads() -> None:
     assert DATA_ROOT != PROJECT_ROOT
     assert PROJECT_ROOT not in DATA_ROOT.parents
@@ -415,6 +446,73 @@ def test_model_tool_wrapper_rejects_git_history_tools() -> None:
     trace = TracingMCPClient(FakeClient(), validated=True, error_id=42)
     with pytest.raises(ValueError, match="not authorized"):
         asyncio.run(trace.call_tool("get_recent_commits", {}))
+
+
+def test_model_context_excludes_human_fix_and_post_parent_history(tmp_path: Path) -> None:
+    from healer.prompts import build_initial_messages
+
+    fix_sha = "fixing-commit-sha-never-model-facing"
+    fix_message = "Fix private historical regression"
+    human_diff = "return 999  # reference solution"
+    later_history = "later-commit-secret-message"
+    source = tmp_path / "prepared-parent"
+    (source / ".git").mkdir(parents=True)
+    (source / "scoring_only").mkdir()
+    (source / ".git" / "history.txt").write_text(
+        f"{fix_sha}\n{fix_message}\n{later_history}\n", encoding="utf-8"
+    )
+    (source / "scoring_only" / "human_fix.diff").write_text(human_diff, encoding="utf-8")
+    (source / "app.py").write_text("def value():\n    return 1\n", encoding="utf-8")
+    snapshot = tmp_path / "connected" / "repo"
+
+    run_module._git_init_snapshot(source, snapshot)
+    messages = build_initial_messages(
+        source_kind="error",
+        source={
+            "id": 7,
+            "exception_type": "AssertionError",
+            "message": "The selected regression assertion failed.",
+            "traceback": "assert value() == 2",
+            "file_path": "app.py",
+            "line_number": 2,
+        },
+        attempt_number=1,
+        max_attempts=1,
+        heal_job_id=9,
+        worktree="realbug-fixture-with_validation",
+        previous_attempts_summary=None,
+    )
+    model_context = json.dumps(
+        {
+            "messages": messages,
+            "system": run_module._benchmark_prompt(),
+            "files": [
+                path.relative_to(snapshot).as_posix()
+                for path in snapshot.rglob("*")
+                if path.is_file() and ".git" not in path.parts
+            ],
+        },
+        sort_keys=True,
+    )
+
+    # The Selfheal workspace gets its own baseline commit. The source checkout's
+    # .git directory and its fixing/later history must never be copied in.
+    assert not (snapshot / "scoring_only").exists()
+    for withheld in (fix_sha, fix_message, human_diff, later_history):
+        assert withheld not in model_context
+
+    history = subprocess.run(
+        ["git", "log", "--all", "--format=%H %s"],
+        cwd=snapshot,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert len(history.splitlines()) == 1
+    assert "Benchmark parent snapshot" in history
+    assert fix_sha not in history
+    assert fix_message not in history
+    assert later_history not in history
 
 
 @pytest.mark.network

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("profile", "pagination", "quantity")]
+    [ValidateSet("profile", "pagination", "quantity", "all")]
     [string]$Bug = "profile",
     [int]$TimeoutSeconds = 600
 )
@@ -28,10 +28,14 @@ try {
         -ArgumentList @("-m", "uvicorn", "examples.runtime_demo.main:app", "--host", "127.0.0.1", "--port", "8110") `
         -WorkingDirectory $RootDir -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog
-    & $Python examples\runtime_demo\trigger.py $Bug
-    if ($LASTEXITCODE -ne 0) { throw "Runtime trigger failed." }
-    & $Python scripts\wait_runtime_demo_job.py --since $StartedAt --timeout $TimeoutSeconds
-    if ($LASTEXITCODE -ne 0) { throw "No successful PR job was reported; see the healer logs." }
+    $Bugs = if ($Bug -eq "all") { @("profile", "pagination", "quantity") } else { @($Bug) }
+    foreach ($SelectedBug in $Bugs) {
+        $StartedAt = & $Python -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())"
+        & $Python examples\runtime_demo\trigger.py $SelectedBug
+        if ($LASTEXITCODE -ne 0) { throw "Runtime trigger failed for $SelectedBug." }
+        & $Python scripts\wait_runtime_demo_job.py --since $StartedAt --timeout $TimeoutSeconds
+        if ($LASTEXITCODE -ne 0) { throw "No successful PR job was reported for $SelectedBug; see the healer logs." }
+    }
     Write-Host "Demo app stopped. Selfheal service processes remain under 'selfheal down' control."
 }
 finally {

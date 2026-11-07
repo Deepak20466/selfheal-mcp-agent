@@ -13,16 +13,17 @@ synthetic demo results are reported separately under [Smoke tests](#smoke-tests)
 
 | Run | Provider / model | Validation arm | Cases | Resolve rate | Resolve + full suite | False-positive proxy | Median time | Median reported cost |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| No completed provider run in this workspace | n/a | n/a | 0 | n/a | n/a | n/a | n/a | n/a |
+| Not yet measured | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
-The real-bug cases must first be mined and prepared locally; preparation is not a repair result.
-Reproduction instructions and the benchmark's current data status are in
-[docs/benchmark-real-bugs.md](docs/benchmark-real-bugs.md).
+No provider attempt has been run for this branch. The current environment has no supported
+free-tier provider key, `REAL_BUG_DATABASE_URL`, or local PostgreSQL listener, so the table has no
+measured values. Run the resumable benchmark only after configuring those prerequisites; preparation
+counts are not repair results. See [docs/benchmark-real-bugs.md](docs/benchmark-real-bugs.md).
 
 ## Where it fails
 
-The historical-bug benchmark has not completed an AI provider run here, so it has no measured
-repair rate or failure distribution yet. The scorer records failures as `no_patch`, `invalid_patch`,
+No real-bug provider run has completed, so resolve rate and failure distribution remain unmeasured.
+The scorer records failures as `no_patch`, `invalid_patch`,
 `rejected_by_policy`, `tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`,
 `cost_unknown`, or `repair_error`; missing costs remain unknown. The no-policy ablation bypasses
 Selfheal's patch policy while retaining the OS sandbox for untrusted repository tests.

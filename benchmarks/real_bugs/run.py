@@ -245,7 +245,14 @@ def _quote_executable(path: Path) -> str:
 
 def _git_init_snapshot(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, symlinks=False)
+    shutil.copytree(
+        source,
+        destination,
+        symlinks=False,
+        ignore=shutil.ignore_patterns(".git", "scoring_only", "metadata.json", "*.diff"),
+    )
+    if (destination / ".git").exists():
+        raise RuntimeError("benchmark model snapshot must not contain Git history")
     run(["git", "init", "--quiet"], cwd=destination)
     git("config", "user.name", "Selfheal benchmark", cwd=destination)
     git("config", "user.email", "benchmark@invalid", cwd=destination)

@@ -8,9 +8,10 @@ produce eligible cases; they are not model repair attempts. Only JSONL records p
 `benchmarks.real_bugs.run` count as provider results. `benchmarks/real_bugs/results/` contains
 committed score reports, while its raw local dataset and provider run files are ignored.
 
-The initial target is at least 40 prepared cases. A smaller count must be reported as measured; the
-benchmark never duplicates or hand-selects cases to meet the target. See the README's results table
-and this repository's verification report for the current count.
+**Provider status: not yet measured.** No real provider attempts are recorded in this checkout.
+The execution environment has no `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY`, no
+`REAL_BUG_DATABASE_URL`, and no PostgreSQL listener on port 5432. No provider calls or runtime-demo
+repairs were made. Do not infer repair results from mined or prepared cases.
 
 ## Case selection
 
@@ -64,7 +65,9 @@ python -m benchmarks.real_bugs.prepare
 For a provider run, use a supported free-tier API backend, verify the provider account has no paid
 billing path, and make the required operator attestations. The API cannot independently verify
 account billing settings. Never set an attestation without checking the account immediately before
-the run.
+the run. The one-command scripts run both validation arms over the full set and repeat the first ten
+cases twice for variance; they write raw JSONL plus a dated JSON report and Markdown table. They
+resume each run file on re-execution.
 
 ```powershell
 $env:REAL_BUG_DATABASE_URL = "postgresql+asyncpg://selfheal:<password>@localhost:5432/selfheal_test"
@@ -90,6 +93,12 @@ Score one or more JSONL files with:
 ```powershell
 python -m benchmarks.real_bugs.score benchmarks/real_bugs/results/runs/<run>.jsonl
 ```
+
+Once the free-tier account and dedicated local PostgreSQL database are configured, the complete
+orchestration can be started with `scripts/run_real_bug_benchmark.sh` or
+`scripts/run_real_bug_benchmark.ps1`. The local path uses native processes and does not require
+Docker. The PostgreSQL service must already be running and `REAL_BUG_DATABASE_URL` must point to a
+disposable database ending in `_test`.
 
 This writes a dated JSON report and Markdown table in `benchmarks/real_bugs/results/`. Keep raw
 provider outputs local; the committed score report contains aggregate results and input paths only.

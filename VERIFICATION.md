@@ -2,32 +2,48 @@
 
 ## Current branch verification — `feat/real-bug-benchmark` (2026-11-07)
 
-This is branch-local evidence before review or merge. No real provider repair attempt or runtime-demo
-PR has been run. Mining found 115 candidate commits across seven repositories; 41 passed isolated
-preparation and 74 were discarded by the baseline/human-fix criteria. Kept cases: attrs 15, h11 6,
-idna 11, itsdangerous 3, and pluggy 6. The kept source snapshots and raw diffs are in the ignored
-per-user cache, outside this repository. Baseline target tests were repeated three times, then the
-same tests were repeated against the historical fix; only stable failures followed by stable passes
-were retained.
+This report records the local audit of the current branch before review or merge. No real provider
+repair attempt or runtime-demo repair was run. The environment check found no `GEMINI_API_KEY`,
+`OPENROUTER_API_KEY`, `GROQ_API_KEY`, or `REAL_BUG_DATABASE_URL`; no PostgreSQL listener was
+reachable on port 5432. Therefore the real-bug results and all three Sentinel-to-PR demo outcomes
+are pending. No API was called and no staged outcome was recorded.
 
-The local environment has no reachable PostgreSQL listener, so the full suite could not be verified
-locally. Hosted PostgreSQL 16 CI passed on this branch: **834 passed, 7 skipped, 3 warnings** in
-128.22 seconds ([CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42356948363)).
-Calico-backed Kubernetes CI also passed, including chart install, MCP policy/authentication,
-credential separation, seeded Sentinel capture, pod recovery, and liveness restart ([k8s run](
-https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42356948360)). Both dependency audits,
-Node example tests, Ruff lint/format, strict mypy, and independent FastAPI benchmark fixture
-validation passed in CI. Provider billing was not attested and no provider API was called. The three
-local runtime-demo regression tests describe the expected repaired behavior and fail against the
-intentionally seeded bugs; no runtime-demo PR was created. Ruff lint and formatting passed, and mypy
-reported no issues in 89 source files. The focused offline unit suite passed **84 tests**, with **1
-skipped** and one third-party deprecation warning. Two additional Windows AppContainer tests passed
-using a temporary venv. Gitleaks found no leaks in tracked or nonignored untracked files. The three
-expected runtime demo failures confirm the seeded defects. `pip-audit --progress-spinner off` in a disposable copy
-installed from `.[dev]` found no known vulnerabilities; it skipped the unpublished local project
-distribution. Full local `pytest -q` stops in `tests/conftest.py` before test collection because the
-local PostgreSQL connection is refused (`WinError 1225`); hosted CI provides the PostgreSQL-backed
-result above. PR #44 remains open and unmerged.
+The initial source audit found no existing regression test that assembled model-facing context and
+asserted the fixing hash, message, human diff, and later Git history were absent. The runner already
+created a fresh Git snapshot from prepared parent files, but its copy step did not explicitly ignore
+`.git` or scoring-only files. The copy now excludes both, and a regression test checks the constructed
+Selfheal prompt context and resulting repository history against sentinel values for all four
+withheld sources.
+
+Assertion review against `origin/main` found no weakened or removed assertions. No existing test
+assertion was changed: `tests/test_openrouter_repair.py` changes only the construction of the
+synthetic credential-like patch fixture, while its surrounding `pytest.raises(PatchRejected)` check
+is unchanged. Before, the fixture encoded the key name and fake value in one byte literal; after, it
+builds the same rejection input from byte fragments. New benchmark and concurrency tests add
+assertions for withheld context, repeat scoring, both pipeline events, and one shared repair job.
+
+The default Gitleaks history scan reports the old synthetic fixture in the base commit
+`c50cf2a89111dabb1253d0c1b85f100237c79213`; the current fixture has been split into byte fragments.
+A directory scan also reports four false positives in ignored Python bytecode caches because tests
+contain placeholder Git remote credentials. These are generated `.pyc` files, not tracked source.
+Rerun the scan against the staged source diff and distinguish those pre-existing/base-history and
+bytecode findings from any new source findings.
+
+The benchmark launchers are `scripts/run_real_bug_benchmark.sh` and
+`scripts/run_real_bug_benchmark.ps1`. They require the operator to configure a verified free-tier
+provider and an already-running disposable local PostgreSQL database, then execute both validation
+arms, repeat the first ten cases twice, and score the raw records. The wrappers have not been run
+because the key and database prerequisites are absent. Runtime demo scripts remain native-process
+reproduction paths; no live inference, verification repair, or PR creation was attempted.
+
+`ruff check .` and `mypy core sentinel mcp_server healer` pass locally; Ruff formatting was applied
+to the changed scorer and is rechecked separately. `mypy .` reports existing errors in tests and
+deployment utility code outside the strict application package set. `pip-audit` was run in the
+ambient Python environment and found vulnerabilities in installed packages; this environment is
+not a clean install of this project, so it is not a project lockfile audit. Full pytest and the
+focused benchmark tests both stop in the session hook before collection because localhost:5432
+refuses the PostgreSQL connection. PR #44 remains open and unmerged. Historical verification
+material below applies only to its explicitly dated commits and is not current-branch evidence.
 
 ## Historical acceptance status as of 2026-10-20
 

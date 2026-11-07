@@ -11,8 +11,8 @@ if [[ ! -x "$PYTHON" || ! -x "$SELFHEAL" ]]; then
 fi
 
 BUG="${1:-profile}"
-if [[ ! "$BUG" =~ ^(profile|pagination|quantity)$ ]]; then
-  echo "Usage: scripts/run_runtime_demo.sh [profile|pagination|quantity]" >&2
+if [[ ! "$BUG" =~ ^(profile|pagination|quantity|all)$ ]]; then
+  echo "Usage: scripts/run_runtime_demo.sh [profile|pagination|quantity|all]" >&2
   exit 2
 fi
 
@@ -29,6 +29,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-"$PYTHON" examples/runtime_demo/trigger.py "$BUG"
-"$PYTHON" scripts/wait_runtime_demo_job.py --since "$STARTED_AT"
+if [[ "$BUG" == "all" ]]; then
+  BUGS=(profile pagination quantity)
+else
+  BUGS=("$BUG")
+fi
+for SELECTED_BUG in "${BUGS[@]}"; do
+  STARTED_AT="$("$PYTHON" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())')"
+  "$PYTHON" examples/runtime_demo/trigger.py "$SELECTED_BUG"
+  "$PYTHON" scripts/wait_runtime_demo_job.py --since "$STARTED_AT"
+done
 echo "Demo app stopped. Selfheal service processes remain under 'selfheal down' control."

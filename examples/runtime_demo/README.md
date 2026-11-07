@@ -12,9 +12,9 @@ database, an already-supported free AI provider, and GitHub write access to
 the configured repository. Then run `scripts/run_runtime_demo.sh` or
 `scripts/run_runtime_demo.ps1`. The script starts Selfheal's native service
 processes through `selfheal up`, registers the demo app, starts this app on
-port 8110, triggers one selected defect, and waits for the healer job result.
+port 8110, triggers selected defects, and waits for each healer job result.
 The default trigger is the nullable profile route; pass `pagination` or
-`quantity` to select another case.
+`quantity` to select another case, or `all` to run all three sequentially.
 
 The worker opens a review PR only when provider inference, isolated tests, and
 GitHub access all succeed. A recorded failure is shown as a failure; the demo

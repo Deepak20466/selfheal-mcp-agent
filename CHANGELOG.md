@@ -9,7 +9,7 @@
   provider repair result is claimed until an actual run is recorded.
 - **Runtime error demo** (`examples/runtime_demo/`): three seeded FastAPI failures, app-scoped
   permissions, regression expectations, and native Bash/PowerShell scripts that wait for the
-  recorded healer job outcome.
+  recorded healer job outcome. Live repairs and PR outcomes are pending; none are claimed here.
 - **Healer observability**: request correlation IDs, `/readyz`, Prometheus `/metrics`, and a
   bounded PostgreSQL notification wakeup queue.
 - **Bounded API retries**: provider adapters retry explicit 502/503/504 responses with jitter;
@@ -22,8 +22,9 @@
   parent plus test-only diff before applying the scoring-only fix.
 - The no-policy benchmark arm still uses the OS sandbox for mined test execution. It only skips
   Selfheal's patch-size and anti-cheating policy checks.
-- Network mining, free-tier provider runs, and a runtime-demo PR are reported only when executed.
-  See `VERIFICATION.md` for counts and remaining limits.
+- Network mining, free-tier provider runs, and runtime-demo repairs are reported only when executed.
+  The current provider run is pending because this environment has no provider key or PostgreSQL
+  database configured. See `VERIFICATION.md` for the audit status and reproduction commands.
 
 All notable changes to this project are summarized here. This is a
 factual summary, not marketing copy — `CLAUDE.md`'s phase log is the

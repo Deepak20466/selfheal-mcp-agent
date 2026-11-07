@@ -131,12 +131,14 @@ def score(
             for arm in ("with_validation", "without_validation")
         }
         runs.append({"run_id": run_id, "provider": provider, "model": model, "arms": arms})
+    repeat_comparisons = _repeat_comparisons(grouped)
     report = {
         "schema_version": 1,
         "generated_at": datetime.now(UTC).isoformat(),
         "input_files": [str(path) for path in paths],
         "attempt_records": len(rows),
         "runs": runs,
+        "repeat_comparisons": repeat_comparisons,
         "limitations": [
             "Cost is reported only when the provider returned a billed-cost value; unknown is "
             "not treated as zero.",
@@ -152,6 +154,54 @@ def score(
     atomic_json(json_path, report)
     markdown_path.write_text(_markdown(report), encoding="utf-8")
     return json_path, markdown_path, report
+
+
+def _repeat_comparisons(
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    by_repeat: dict[tuple[str, str, str], dict[str, list[dict[str, Any]]]] = {}
+    for (run_id, provider, model), rows in grouped.items():
+        if run_id.endswith("-repeat-a"):
+            prefix, repeat = run_id[: -len("-repeat-a")], "a"
+        elif run_id.endswith("-repeat-b"):
+            prefix, repeat = run_id[: -len("-repeat-b")], "b"
+        else:
+            continue
+        by_repeat.setdefault((prefix, provider, model), {})[repeat] = rows
+
+    comparisons = []
+    for (prefix, provider, model), repeats in sorted(by_repeat.items()):
+        if "a" not in repeats or "b" not in repeats:
+            continue
+        arms: dict[str, Any] = {}
+        for arm in ("with_validation", "without_validation"):
+            first = {
+                str(row["case_id"]): bool(row.get("target_tests_pass"))
+                for row in repeats["a"]
+                if row.get("arm") == arm and row.get("case_id") is not None
+            }
+            second = {
+                str(row["case_id"]): bool(row.get("target_tests_pass"))
+                for row in repeats["b"]
+                if row.get("arm") == arm and row.get("case_id") is not None
+            }
+            paired = sorted(first.keys() & second.keys())
+            first_rate = sum(first[item] for item in paired) / len(paired) if paired else None
+            second_rate = sum(second[item] for item in paired) / len(paired) if paired else None
+            arms[arm] = {
+                "paired_cases": len(paired),
+                "repeat_a_resolved": sum(first[item] for item in paired),
+                "repeat_b_resolved": sum(second[item] for item in paired),
+                "repeat_a_resolve_rate": first_rate,
+                "repeat_b_resolve_rate": second_rate,
+                "absolute_rate_difference": (
+                    abs(first_rate - second_rate)
+                    if first_rate is not None and second_rate is not None
+                    else None
+                ),
+            }
+        comparisons.append({"pair": prefix, "provider": provider, "model": model, "arms": arms})
+    return comparisons
 
 
 def _percent(value: Any) -> str:
@@ -197,6 +247,24 @@ def _markdown(report: dict[str, Any]) -> str:
             )
     if not report["runs"]:
         lines.append("| No completed run | n/a | n/a | 0 | n/a | n/a | n/a | n/a | n/a |")
+    lines.extend(
+        [
+            "",
+            "## Repeat-run variation",
+            "",
+        ]
+    )
+    for comparison in report.get("repeat_comparisons", []):
+        for arm, metrics in comparison["arms"].items():
+            difference = metrics["absolute_rate_difference"]
+            lines.append(
+                f"- {comparison['pair']} / {arm}: {metrics['paired_cases']} paired cases; "
+                f"repeat A {_percent(metrics['repeat_a_resolve_rate'])}, "
+                f"repeat B {_percent(metrics['repeat_b_resolve_rate'])}; "
+                f"absolute rate difference {_percent(difference)}."
+            )
+    if not report.get("repeat_comparisons"):
+        lines.append("- No complete repeat pair is present; run-to-run variation is not measured.")
     lines.extend(
         [
             "",
