@@ -189,7 +189,7 @@ async def test_run_heal_job_suggest_opens_a_labeled_pr_with_no_verification(
             if call.request.method == "POST" and call.request.url.path.endswith("/pulls")
         )
         assert b"UNVERIFIED suggestion: review carefully" in pull_request.request.content
-        assert b"human will review it" in pull_request.request.content
+        assert b"Human review is required before merge" in pull_request.request.content
     finally:
         shutil.rmtree(bare_remote, ignore_errors=True)
         await _cleanup(app.id, clone_root)

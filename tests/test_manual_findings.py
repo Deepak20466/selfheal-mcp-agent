@@ -57,9 +57,12 @@ async def manual_client(
 
     healer_app_module.app.dependency_overrides[get_db] = _override_db
     transport = httpx.ASGITransport(app=healer_app_module.app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://healer.test") as client:
+    client = httpx.AsyncClient(transport=transport, base_url="http://healer.test")
+    try:
         yield client
-    healer_app_module.app.dependency_overrides.clear()
+    finally:
+        await client.aclose()
+        healer_app_module.app.dependency_overrides.clear()
 
 
 async def _login(client: httpx.AsyncClient) -> None:
