@@ -354,7 +354,10 @@ def test_score_reports_measured_rates_and_unknown_costs(tmp_path: Path) -> None:
 
     arm = report["runs"][0]["arms"]["with_validation"]
     assert arm["attempted"] == 2
-    assert arm["resolve_rate"] == 1.0
+    assert arm["target_tests_passed"] == 2
+    assert arm["target_test_pass_rate"] == 1.0
+    assert arm["resolved"] == 1
+    assert arm["resolve_rate"] == 0.5
     assert arm["resolve_rate_with_full_suite_pass"] == 0.5
     assert arm["false_positive_rate"] == 0.5
     assert arm["median_cost_usd"] == "0.02"
@@ -373,6 +376,7 @@ def test_score_compares_resolve_rates_for_paired_repeat_runs(tmp_path: Path) -> 
             "provider": "fixture",
             "model": "offline",
             "target_tests_pass": passed,
+            "full_suite_pass": passed,
         }
         for repeat, outcomes in (
             ("a", {"one": True, "two": False}),
@@ -437,6 +441,15 @@ def test_runner_uses_only_current_manifest_cases(
     cases = run_module._prepared_cases(prepared_root)
 
     assert [metadata["case_id"] for _path, metadata, _record in cases] == [kept_id]
+    frozen_cases = run_module._prepared_cases(
+        prepared_root, case_ids=[kept_id, case_id("fixture", stale_sha)]
+    )
+    assert [metadata["case_id"] for _path, metadata, _record in frozen_cases] == [
+        kept_id,
+        case_id("fixture", stale_sha),
+    ]
+    with pytest.raises(ValueError, match="no longer prepared as kept"):
+        run_module._prepared_cases(prepared_root, case_ids=[discarded_id])
 
 
 def test_rate_limit_backoff_honors_retry_after() -> None:
@@ -520,6 +533,72 @@ def test_runner_stops_after_recording_rate_limit(
     assert calls == ["with_validation"]
     assert len(rows) == 1
     assert json.loads(run_file.read_text(encoding="utf-8"))["failure_category"] == "rate_limited"
+
+
+def test_resume_skips_attempted_case_arm_and_limit_counts_existing_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    async def fake_arm(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs["arm"])
+        return {
+            "case_id": "fixture-case",
+            "arm": kwargs["arm"],
+            "failure_category": "tests_still_failing",
+            "retryable": False,
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+
+    monkeypatch.setattr(run_module, "_run_arm", fake_arm)
+    run_file = tmp_path / "partial.jsonl"
+    run_file.write_text(
+        json.dumps(
+            {
+                "case_id": "fixture-case",
+                "arm": "with_validation",
+                "failure_category": "rate_limited",
+                "rate_limited": True,
+                "retryable": True,
+                "rate_limit_attempt": 1,
+                "recorded_at": "2000-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    metadata = {"case_id": "fixture-case", "parent_sha": "a" * 40, "repository": "fixture"}
+
+    rows = asyncio.run(
+        run_module._run_cases(
+            cases=[(tmp_path, metadata, {})],
+            provider_name="gemini_api",
+            run_file=run_file,
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout_seconds=10,
+            resume=True,
+            provider_client=object(),
+            model="fixture-model",
+            attested_free=True,
+            limit=2,
+        )
+    )
+
+    assert calls == ["without_validation"]
+    assert len(rows) == 1
+    assert len(run_file.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_score_reader_preserves_every_attempt_row(tmp_path: Path) -> None:
+    run_file = tmp_path / "attempts.jsonl"
+    first = {"case_id": "same-case", "arm": "with_validation", "status": "failed"}
+    second = {"case_id": "same-case", "arm": "with_validation", "status": "resolved"}
+    run_file.write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n", encoding="utf-8")
+
+    rows = score_module._read_rows([run_file])
+
+    assert [row["status"] for row in rows] == ["failed", "resolved"]
 
 
 def test_model_tool_wrapper_rejects_git_history_tools() -> None:

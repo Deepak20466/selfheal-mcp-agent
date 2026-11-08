@@ -29,7 +29,7 @@ FAILURE_CATEGORIES = (
 
 
 def _read_rows(paths: list[Path]) -> list[dict[str, Any]]:
-    latest: dict[tuple[str, str, str], dict[str, Any]] = {}
+    rows: list[dict[str, Any]] = []
     for path in paths:
         for line in path.read_text(encoding="utf-8").splitlines():
             try:
@@ -41,8 +41,9 @@ def _read_rows(paths: list[Path]) -> list[dict[str, Any]]:
             ):
                 continue
             run_id = str(row.get("run_id", path.stem))
-            latest[(run_id, row["case_id"], row["arm"])] = row
-    return list(latest.values())
+            row.setdefault("run_id", run_id)
+            rows.append(row)
+    return rows
 
 
 def _median_cost(rows: list[dict[str, Any]]) -> str | None:
@@ -63,12 +64,13 @@ def _median_cost(rows: list[dict[str, Any]]) -> str | None:
 
 
 def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    resolved = [row for row in rows if row.get("target_tests_pass") is True]
+    target_pass = [row for row in rows if row.get("target_tests_pass") is True]
     full_pass = [
         row
         for row in rows
         if row.get("target_tests_pass") is True and row.get("full_suite_pass") is True
     ]
+    resolved = full_pass
     eligible = [
         row
         for row in rows
@@ -88,6 +90,8 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "attempted": len(rows),
         "resolved": len(resolved),
         "resolve_rate": len(resolved) / len(rows) if rows else None,
+        "target_tests_passed": len(target_pass),
+        "target_test_pass_rate": len(target_pass) / len(rows) if rows else None,
         "resolved_and_full_suite_passed": len(full_pass),
         "resolve_rate_with_full_suite_pass": len(full_pass) / len(rows) if rows else None,
         "false_positive_cases": len(false_positive),
@@ -177,12 +181,16 @@ def _repeat_comparisons(
         arms: dict[str, Any] = {}
         for arm in ("with_validation", "without_validation"):
             first = {
-                str(row["case_id"]): bool(row.get("target_tests_pass"))
+                str(row["case_id"]): bool(
+                    row.get("target_tests_pass") is True and row.get("full_suite_pass") is True
+                )
                 for row in repeats["a"]
                 if row.get("arm") == arm and row.get("case_id") is not None
             }
             second = {
-                str(row["case_id"]): bool(row.get("target_tests_pass"))
+                str(row["case_id"]): bool(
+                    row.get("target_tests_pass") is True and row.get("full_suite_pass") is True
+                )
                 for row in repeats["b"]
                 if row.get("arm") == arm and row.get("case_id") is not None
             }
@@ -215,22 +223,23 @@ def _markdown(report: dict[str, Any]) -> str:
         "",
         f"Generated: {report['generated_at']}",
         "",
-        "| Run | Provider / model | Arm | Cases | Resolve rate | Resolve + full suite | "
+        "| Run | Provider / model | Arm | Cases | Target pass rate | "
+        "Resolve rate (target + suite) | "
         "False positives | Median time | Median reported cost |",
         "|---|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for run in report["runs"]:
         for arm, metrics in run["arms"].items():
             lines.append(
-                "| {run} | {provider} / {model} | {arm} | {attempted} | {resolve} | {full} | "
+                "| {run} | {provider} / {model} | {arm} | {attempted} | {target} | {resolve} | "
                 "{false_positive} | {median_time} | {cost} |".format(
                     run=run["run_id"],
                     provider=run["provider"],
                     model=run["model"],
                     arm=arm,
                     attempted=metrics["attempted"],
+                    target=_percent(metrics["target_test_pass_rate"]),
                     resolve=_percent(metrics["resolve_rate"]),
-                    full=_percent(metrics["resolve_rate_with_full_suite_pass"]),
                     false_positive=(
                         f"{metrics['false_positive_cases']}/{metrics['false_positive_denominator']}"
                     ),

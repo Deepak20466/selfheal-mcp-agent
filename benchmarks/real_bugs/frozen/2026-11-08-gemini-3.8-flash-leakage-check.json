@@ -1,0 +1,209 @@
+{
+  "checks": [
+    {
+      "case_id": "attrs-1424df424700",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 2279,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": true,
+      "later_message_in_repository_files": true,
+      "later_message_strings_absent_from_model_context": false,
+      "later_message_text_collision_count": 6,
+      "later_message_text_collisions": [
+        {
+          "initial_user_messages": false,
+          "repository_paths": [
+            ".github/CONTRIBUTING.rst",
+            "docs/types.rst",
+            "src/attr/_compat.py",
+            "src/attr/_make.py",
+            "tests/test_make.py"
+          ],
+          "system_prompt": false
+        },
+        {
+          "initial_user_messages": false,
+          "repository_paths": [
+            "docs/why.rst"
+          ],
+          "system_prompt": false
+        },
+        {
+          "initial_user_messages": false,
+          "repository_paths": [
+            "src/attr/_make.py"
+          ],
+          "system_prompt": false
+        },
+        {
+          "initial_user_messages": true,
+          "repository_paths": [
+            ".github/CONTRIBUTING.rst",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".gitignore",
+            ".readthedocs.yml",
+            "AUTHORS.rst",
+            "CHANGELOG.rst",
+            "docs/conf.py",
+            "docs/examples.rst",
+            "docs/glossary.rst",
+            "docs/hashing.rst",
+            "docs/why.rst",
+            "MANIFEST.in",
+            "README.rst",
+            "setup.py",
+            "src/attr/_funcs.py",
+            "src/attr/validators.py",
+            "tests/test_make.py",
+            "tox.ini"
+          ],
+          "system_prompt": false
+        },
+        {
+          "initial_user_messages": true,
+          "repository_paths": [
+            ".github/CONTRIBUTING.rst",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".gitignore",
+            ".readthedocs.yml",
+            "AUTHORS.rst",
+            "CHANGELOG.rst",
+            "docs/conf.py",
+            "docs/examples.rst",
+            "docs/glossary.rst",
+            "docs/hashing.rst",
+            "docs/why.rst",
+            "MANIFEST.in",
+            "README.rst",
+            "setup.py",
+            "src/attr/_funcs.py",
+            "src/attr/validators.py",
+            "tests/test_make.py",
+            "tox.ini"
+          ],
+          "system_prompt": false
+        },
+        {
+          "initial_user_messages": true,
+          "repository_paths": [
+            ".github/CONTRIBUTING.rst",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".gitignore",
+            ".readthedocs.yml",
+            "AUTHORS.rst",
+            "CHANGELOG.rst",
+            "docs/conf.py",
+            "docs/examples.rst",
+            "docs/glossary.rst",
+            "docs/hashing.rst",
+            "docs/why.rst",
+            "MANIFEST.in",
+            "README.rst",
+            "setup.py",
+            "src/attr/_funcs.py",
+            "src/attr/validators.py",
+            "tests/test_make.py",
+            "tox.ini"
+          ],
+          "system_prompt": false
+        }
+      ],
+      "metadata_hashes_absent": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    },
+    {
+      "case_id": "h11-012e2418027f",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 437,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": false,
+      "later_message_in_repository_files": false,
+      "later_message_strings_absent_from_model_context": true,
+      "later_message_text_collision_count": 0,
+      "later_message_text_collisions": [],
+      "metadata_hashes_absent": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    },
+    {
+      "case_id": "idna-07b2fd741f5d",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 955,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": false,
+      "later_message_in_repository_files": false,
+      "later_message_strings_absent_from_model_context": true,
+      "later_message_text_collision_count": 0,
+      "later_message_text_collisions": [],
+      "metadata_hashes_absent": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    },
+    {
+      "case_id": "itsdangerous-3e2315dedf0e",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 1123,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": false,
+      "later_message_in_repository_files": false,
+      "later_message_strings_absent_from_model_context": true,
+      "later_message_text_collision_count": 0,
+      "later_message_text_collisions": [],
+      "metadata_hashes_absent": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    },
+    {
+      "case_id": "pluggy-50507273d865",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 57,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": false,
+      "later_message_in_repository_files": false,
+      "later_message_strings_absent_from_model_context": true,
+      "later_message_text_collision_count": 0,
+      "later_message_text_collisions": [],
+      "metadata_hashes_absent": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    }
+  ],
+  "config_sha256": "81b229e097fe196a640df2db5d8f689c8270d6ba716a89b47084ac2f071834b8",
+  "generated_at": "2026-11-08T00:27:51.950069+00:00",
+  "method": "Built the same initial user message and system prompt from a deterministic repository-stratified sample. Checked fixing-commit message and hash absence, human scoring artifact absence, model-visible snapshot history, and safe tool names. Literal later commit-message collisions in model-visible text are reported with workspace paths and fail the audit, even when no Git-history metadata is exposed.",
+  "passed": false,
+  "sample_case_ids": [
+    "attrs-1424df424700",
+    "h11-012e2418027f",
+    "idna-07b2fd741f5d",
+    "itsdangerous-3e2315dedf0e",
+    "pluggy-50507273d865"
+  ],
+  "sample_size": 5
+}

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from benchmarks.real_bugs.common import (
     CASE_ROOT,
@@ -35,6 +35,7 @@ from benchmarks.real_bugs.common import (
     validate_case_metadata,
 )
 from healer.backend_chain import BackendCooldownError
+from healer.mcp_client import MCPToolClient
 
 ARMS = ("with_validation", "without_validation")
 SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
@@ -498,7 +499,9 @@ async def _run_arm_inner(
                 )
                 await _run_one_attempt(
                     anthropic_client=client,
-                    mcp=trace,
+                    # The tracing wrapper implements the MCPToolClient methods
+                    # used by _run_one_attempt while recording calls locally.
+                    mcp=cast(MCPToolClient, trace),
                     job_id=job_id,
                     worktree_name=worktree_name,
                     messages=messages,
@@ -555,8 +558,9 @@ async def _run_arm_inner(
             if trace.last_patch:
                 patch_bytes = len(trace.last_patch.encode("utf-8"))
 
-    resolved = bool(target_result and target_result.get("passed"))
+    target_tests_passed = bool(target_result and target_result.get("passed"))
     full_suite_passed = bool(full_result and full_result.get("passed"))
+    resolved = target_tests_passed and full_suite_passed
     async with session_scope() as session:
         job = await session.get(HealJob, job_id)
         error = await session.get(Error, error_id)
@@ -570,16 +574,14 @@ async def _run_arm_inner(
             error.status = OpenResolvedStatus.RESOLVED
     if category is None:
         category = _failure_category(
-            resolved=resolved,
+            resolved=target_tests_passed,
             full_suite_passed=full_suite_passed,
             events=events,
             patch_error=trace.patch_error if trace else None,
             patch=trace.last_patch if trace else None,
         )
-    if category in {"no_patch", "invalid_patch", "rejected_by_policy", "tests_still_failing"}:
-        retryable = False
-    else:
-        retryable = category in {"provider_error", "timeout", "rate_limited"}
+    # Resume advances to unattempted case-arms; it never repeats a failed attempt.
+    retryable = False
 
     patch_changed_lines = _changed_line_count(trace.last_patch if trace else None)
     duration = time.monotonic() - started
@@ -590,7 +592,7 @@ async def _run_arm_inner(
         "provider": provider_name,
         "model": model,
         "status": "resolved" if resolved else "failed",
-        "target_tests_pass": resolved,
+        "target_tests_pass": target_tests_passed,
         "full_suite_pass": full_suite_passed,
         "extra_checks_available": bool(prepared_record.get("extra_checks_available")),
         "human_full_suite_pass": prepared_record.get("human_full_suite_pass"),
@@ -698,20 +700,25 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
         os.fsync(handle.fileno())
 
 
-def _prepared_cases(prepared_root: Path) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]:
+def _prepared_cases(
+    prepared_root: Path, *, case_ids: list[str] | None = None
+) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]:
     manifest = CASE_ROOT / "manifest.json"
-    if manifest.is_file():
+    if case_ids is not None:
+        identifiers = list(case_ids)
+    elif manifest.is_file():
         document = json.loads(manifest.read_text(encoding="utf-8"))
-        identifiers = document.get("case_ids") if isinstance(document, dict) else None
+        candidate_ids = document.get("case_ids") if isinstance(document, dict) else None
         if (
-            not isinstance(identifiers, list)
+            not isinstance(candidate_ids, list)
             or any(
                 not isinstance(item, str) or not safe_case_path(item) or Path(item).name != item
-                for item in identifiers
+                for item in candidate_ids
             )
-            or len(set(identifiers)) != len(identifiers)
+            or len(set(candidate_ids)) != len(candidate_ids)
         ):
             raise ValueError(f"{manifest}: expected a list of unique safe case IDs")
+        identifiers = list(candidate_ids)
     else:
         identifiers = (
             sorted(
@@ -724,6 +731,14 @@ def _prepared_cases(prepared_root: Path) -> list[tuple[Path, dict[str, Any], dic
             if CASE_ROOT.is_dir()
             else []
         )
+
+    if not isinstance(identifiers, list) or any(
+        not isinstance(item, str) or not safe_case_path(item) or Path(item).name != item
+        for item in identifiers
+    ):
+        raise ValueError("case list must contain safe case IDs")
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError("case list contains duplicate IDs")
 
     found = []
     for identifier in identifiers:
@@ -740,7 +755,28 @@ def _prepared_cases(prepared_root: Path) -> list[tuple[Path, dict[str, Any], dic
             raise ValueError(f"case metadata does not match manifest ID {identifier!r}")
         if prepared.get("status") == "kept":
             found.append((case_dir, metadata, prepared))
+        elif case_ids is not None:
+            raise ValueError(f"frozen case {identifier!r} is no longer prepared as kept")
+    if case_ids is not None and len(found) != len(case_ids):
+        raise ValueError("one or more frozen cases are missing from the prepared cache")
     return found
+
+
+def _frozen_case_ids(path: Path | None) -> list[str] | None:
+    if path is None:
+        return None
+    document = json.loads(path.read_text(encoding="utf-8"))
+    identifiers = document.get("case_ids") if isinstance(document, dict) else None
+    if not isinstance(identifiers, list) or not identifiers:
+        raise ValueError(f"{path}: expected a non-empty case_ids list")
+    if any(
+        not isinstance(item, str) or not safe_case_path(item) or Path(item).name != item
+        for item in identifiers
+    ):
+        raise ValueError(f"{path}: case_ids must be safe case IDs")
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError(f"{path}: case_ids must be unique")
+    return identifiers
 
 
 async def _run_cases(
@@ -757,20 +793,37 @@ async def _run_cases(
     attested_free: bool,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
+    run_file_exists = await asyncio.to_thread(run_file.is_file)
+    if run_file_exists and not resume:
+        raise ValueError(f"{run_file} already exists; use --resume to preserve prior attempts")
     previous = _latest_records(run_file) if resume else {}
+    pending = [
+        (metadata["case_id"], arm)
+        for _case_dir, metadata, _prepared in cases
+        for arm in ARMS
+        if (metadata["case_id"], arm) not in previous
+    ]
+    if not pending or (limit is not None and len(previous) >= limit):
+        return []
+    if resume:
+        prior_rate_limits = [row for row in previous.values() if row.get("rate_limited")]
+        if prior_rate_limits:
+            latest_rate_limit = max(
+                prior_rate_limits,
+                key=lambda row: str(row.get("recorded_at", "")),
+            )
+            delay = _rate_limit_backoff_remaining(latest_rate_limit)
+            if delay > MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS:
+                raise RateLimitBackoffActive(delay)
+            if delay > 0:
+                await asyncio.sleep(delay)
     written: list[dict[str, Any]] = []
     for _case_dir, metadata, prepared in cases:
         for arm in ARMS:
             prior = previous.get((metadata["case_id"], arm))
-            if prior and not prior.get("retryable"):
+            if prior:
                 continue
-            if prior and prior.get("rate_limited"):
-                delay = _rate_limit_backoff_remaining(prior)
-                if delay > MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS:
-                    raise RateLimitBackoffActive(delay)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-            if limit is not None and len(written) >= limit:
+            if limit is not None and len(previous) + len(written) >= limit:
                 return written
             row = await _run_arm(
                 metadata=metadata,
@@ -788,13 +841,18 @@ async def _run_cases(
             row["case_parent_sha"] = metadata["parent_sha"]
             row["repository"] = metadata["repository"]
             if row.get("rate_limited"):
-                previous_attempt = prior.get("rate_limit_attempt", 0) if prior else 0
+                previous_attempts = [
+                    item.get("rate_limit_attempt", 1)
+                    for item in previous.values()
+                    if item.get("rate_limited")
+                ]
                 row["rate_limit_attempt"] = (
-                    previous_attempt + 1 if isinstance(previous_attempt, int) else 1
+                    max([int(item) for item in previous_attempts if isinstance(item, int)] or [0])
+                    + 1
                 )
             _append_jsonl(run_file, row)
             written.append(row)
-            if row.get("rate_limited"):
+            if row.get("rate_limited") or row.get("failure_category") == "provider_error":
                 return written
     return written
 
@@ -808,11 +866,13 @@ def run_benchmark(
     timeout: float,
     resume: bool,
     limit: int | None = None,
+    case_list: Path | None = None,
 ) -> list[dict[str, Any]]:
+    frozen_ids = _frozen_case_ids(case_list)
+    cases = _prepared_cases(PREPARED_ROOT, case_ids=frozen_ids)
     _configure_database()
     _migrate_database()
     provider_client, model, attested_free = _provider(provider_name)
-    cases = _prepared_cases(PREPARED_ROOT)
     return asyncio.run(
         _run_cases(
             cases=cases,
@@ -839,6 +899,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=240)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--case-list", type=Path)
     args = parser.parse_args(argv)
     if not args.provider:
         parser.error("--provider or REAL_BUG_PROVIDER is required")
@@ -855,6 +916,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             resume=args.resume,
             limit=args.limit,
+            case_list=args.case_list,
         )
     except RateLimitBackoffActive as exc:
         remaining = int(exc.seconds_remaining + 0.999)
@@ -867,6 +929,12 @@ def main(argv: list[str] | None = None) -> int:
     if any(row.get("rate_limited") for row in rows):
         print(
             "Provider returned HTTP 429; stopped after recording this case. Resume with --resume."
+        )
+        return 75
+    if any(row.get("failure_category") == "provider_error" for row in rows):
+        print(
+            "Provider error recorded; stopped to avoid additional provider calls. "
+            "Resume with --resume after resolving the cause."
         )
         return 75
     return 0
