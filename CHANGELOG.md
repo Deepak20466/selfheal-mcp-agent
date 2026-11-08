@@ -3,13 +3,15 @@
 ## Unreleased — 2026-11-07
 
 ### Fixed
-- **Groq free-tier TPM handling**: after the preserved v1 diagnostic hit TPM 8,000 (1,366 used,
-  7,843 requested), Groq response output is capped at 4,096 tokens while all input/tool history is
-  preserved. A confirmed TPM 429 may retry once at the server's delay, capped at 10 seconds; daily
-  quota failures are non-resumable and `finish_reason=length` is an explicit failure. The benchmark
-  continues to pin `openai/gpt-oss-120b` and enforce its existing case timeout and total token cap.
-  New offline tests cover the reported rate limit, budget cap, history preservation, and no daily
-  quota retry. No new provider call was made for v2.
+- **Groq free-tier token budgeting**: after v2 recorded a TPM 429 and a request-length HTTP 400,
+  every Groq request now budgets prompt plus completion against the current 8,000 TPM allowance and
+  the 131,072-token model context. It uses provider remaining-token headers, visibly compacts only
+  rediscoverable file listings and non-diagnostic test-log lines, and fails closed if essential
+  evidence cannot fit. A confirmed temporary TPM 429 can retry once at the exact server delay only
+  if it is bounded to 60 seconds and fits the remaining case deadline. Daily quota is never retried.
+  V3 keeps the existing model, timeouts, case list, scoring, and case token cap. Offline regressions
+  cover the v2 429/400, multi-turn growth, preservation of test evidence and tool IDs, deadline
+  handling, and no daily-quota retry. No new provider call was made.
 - **Gemini function-call history**: preserve each complete original model Part (including opaque
   thought signatures) in subsequent `generateContent` requests. Match function responses by the
   returned function name and call ID, preserving model Part/call order for sequential and parallel
@@ -29,10 +31,10 @@
   `docs/benchmark-real-bugs.md`. No new Gemini request was made for the v9 fix.
 
 ### Added
-- **Separate GroqCloud frozen benchmark**: preserves the v1 cohort and one genuine recorded TPM
-  failure, and adds v2 with the same 41 cases, original ten pilot IDs, scoring rules, and safety
-  limits. Full, pilot, and one-case v2 diagnostic leakage audits pass. The new diagnostic is
-  unattempted and no repair result is claimed. See `docs/groqcloud-repair.md` for the operator-run
+- **Separate GroqCloud frozen benchmark**: preserves v1/v2 freezes and their two diagnostic
+  failures, and adds v3 with the same 41 cases, original ten pilot IDs, prompts, scoring rules, and
+  case limits. Full, pilot, and one-case v3 diagnostic leakage audits pass. The v3 diagnostic is
+  unattempted; no repair result is claimed. See `docs/groqcloud-repair.md` for the operator-run
   command and isolated VIMJ testing workflow.
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL

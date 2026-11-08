@@ -2,28 +2,31 @@
 
 ## GroqCloud integration verification — 2026-11-09
 
-Groq reuses the existing OpenAI-compatible adapter. The existing v1 diagnostic preserved one
-genuine provider failure on `attrs-73dc0d2e2860`: TPM limit 8,000, used 1,366, requested 7,843,
-server delay 9.0675 seconds. Its partial usage records 1,497 input and 75 output tokens before the
-failed request; the request payload itself was not saved. No repair completed. The v2 adapter caps
-Groq's response reservation at 4,096, preserves the full prompt/tool history, retries a confirmed
-temporary TPM error once within the server's 10-second bounded wait, refuses daily-quota retries,
-and records output-length termination as incomplete. The default/frozen model remains
-`openai/gpt-oss-120b`.
+The preserved v2 diagnostic has two failed attempts on `attrs-73dc0d2e2860`. The validation arm
+received TPM 429 with limit 8,000, 5,630 used, 7,689 requested, and a 39.8925-second server delay
+after `get_error`, `read_file`, and `run_tests`. The no-validation arm got HTTP 400 asking to reduce
+message/completion length after `get_error` and `list_files`. The saved records include aggregate
+usage (validation: 8,909 input/151 output; no-validation: 1,503 input/35 output), but not per-tool
+byte counts or rejected request payloads. Thus history growth is confirmed; the exact per-tool and
+prompt-versus-reservation contributions are not recoverable offline. Neither arm repaired the bug.
 
-The Groq v2 freeze retains the same 41 cases and original 10 pilot IDs as v1/Gemini. Its SHA-256 is
-`4c1adfa78b9add4bb446fc0b20e50b446ff396595b06f39d78699c23d3e90559`. Leakage audits passed for
-41/41, 10/10, and the separate one-case diagnostic. V1 evidence and all Gemini configs/results are
-unchanged. The v2 diagnostic and pilot have zero attempts and no measured metrics; no provider call
-was made by Codex.
+V3 preserves the same 41 cases, original 10 pilot IDs, prompts, scoring, and case limits. It
+budgets prompt plus output against 8,000 TPM and the model's documented 131,072-token context,
+uses a two-byte-per-estimated-token serialized-request heuristic (not exact tokenizer telemetry)
+and lower remaining-token response headers when available, visibly compacts rediscoverable file
+listings and non-diagnostic test-log lines, and never truncates `read_file`. If essential context
+does not fit, it fails before sending. A temporary TPM retry uses the exact provider delay at most
+once, only if no more than 60 seconds and within the remaining case deadline; daily quota is never
+retried. V3 SHA-256:
+`2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. Leakage audits passed for
+41/41, 10/10, and the separate diagnostic 1/1. V1/v2 files and all Gemini evidence remain unchanged;
+the v3 diagnostic has not been run.
 
-Offline verification: all Groq adapter tests **26 passed** and the Groq provider/daily-quota
-benchmark regressions **2 passed**. Repository-wide Ruff and formatting passed (**272 files**);
-scoped mypy passed for `core sentinel mcp_server healer` and the runner (**90 source files**). A
-full local pytest invocation could not start because the repository's
-session fixture tried its default local PostgreSQL endpoint at `localhost:5432`, which refused
-the connection. No database was created or changed. GitHub `test` and `k8s` checks both passed on
-commit `650b611` (PR #49).
+Offline verification: Groq adapter regressions **32 passed**; Groq provider/daily-quota benchmark
+regressions **2 passed**. Repository-wide Ruff and formatting and scoped mypy are being rerun for
+this change. The local full test suite requires the test PostgreSQL service; no production database
+or provider was accessed. GitHub CI for the previous commit passed; checks for this change will be
+reported after push.
 VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch
 workflow is documented in [`docs/groqcloud-repair.md`](docs/groqcloud-repair.md).
 

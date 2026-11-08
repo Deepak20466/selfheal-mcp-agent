@@ -27,6 +27,7 @@ import copy
 import json
 import random
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -45,7 +46,10 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 GROQ_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST = 4096
-GROQ_TPM_MAX_RETRY_AFTER_SECONDS = 10.0
+GROQ_MAX_CONTEXT_TOKENS = 131072
+GROQ_TPM_LIMIT_TOKENS = 8000
+GROQ_MIN_OUTPUT_TOKENS_PER_REQUEST = 256
+GROQ_TPM_MAX_RETRY_AFTER_SECONDS = 60.0
 GEMINI_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 _PROVIDER_RETRYABLE_STATUSES = frozenset({502, 503, 504})
 _PROVIDER_MAX_ATTEMPTS = 3
@@ -63,6 +67,10 @@ class GroqAPIRequestTimeout(RuntimeError):
 
 class GroqOutputTokenLimit(RuntimeError):
     """Groq ended a response at the adapter's output-token bound."""
+
+
+class GroqRequestBudgetError(RuntimeError):
+    """A Groq request cannot fit the configured context and TPM budgets."""
 
 
 class GroqDailyQuotaError(BackendCooldownError):
@@ -114,6 +122,113 @@ def _groq_tpm_retry_after_seconds(response: httpx.Response) -> float | None:
         return None
     match = re.search(r"try again in\s+(\d+(?:\.\d+)?)\s*s\b", str(message), re.IGNORECASE)
     return float(match.group(1)) if match else None
+
+
+def _groq_retry_delay_header_seconds(response: httpx.Response) -> float | None:
+    """Return the provider's reset interval header when it is well formed."""
+    raw = response.headers.get("x-ratelimit-reset-tokens", "").strip().lower()
+    if not raw:
+        return None
+    match = re.fullmatch(r"(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?", raw)
+    if not match or not any(match.groups()):
+        return None
+    return float(match.group(1) or 0) * 60 + float(match.group(2) or 0)
+
+
+def _groq_prompt_token_estimate(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> int:
+    """Estimate request tokens without loading an unverified tokenizer.
+
+    Two UTF-8 JSON bytes per estimated prompt token is deliberately more
+    conservative than typical English/code token density; framing overhead is
+    added separately. Groq's remaining-token headers are authoritative when
+    available, and provider 429s remain the final signal for account-wide use
+    outside this adapter. This is a budget estimate, not tokenizer telemetry.
+    """
+    encoded = json.dumps(
+        {"messages": messages, "tools": tools}, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    framing_allowance = 32 * (len(messages) + len(tools) + 1)
+    return (len(encoded) + 1) // 2 + framing_allowance
+
+
+def _groq_compact_json(content: str, max_bytes: int = 8192) -> str:
+    """Compact JSON tool output, visibly sampling only rediscoverable file lists."""
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return content
+    if isinstance(value, list) and all(isinstance(path, str) for path in value):
+        compact = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+        if len(compact.encode("utf-8")) > max_bytes:
+            # list_files accepts a glob, so omitted paths can be fetched again
+            # on demand. Keep an evenly spaced sample and make omission explicit.
+            sample_size = min(128, len(value))
+            while sample_size >= 2:
+                indexes = sorted(
+                    {
+                        round(index * (len(value) - 1) / (sample_size - 1))
+                        for index in range(sample_size)
+                    }
+                )
+                sampled = [value[index] for index in indexes]
+                omitted = len(value) - len(sampled)
+                sampled.append(
+                    f"[Selfheal omitted {omitted} paths from this listing; call list_files with a "
+                    "narrower glob to retrieve omitted paths]"
+                )
+                compact_sample = json.dumps(sampled, separators=(",", ":"), ensure_ascii=False)
+                if len(compact_sample.encode("utf-8")) <= max_bytes:
+                    return compact_sample
+                sample_size //= 2
+            return compact
+        return compact
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+_GROQ_TEST_SIGNAL = re.compile(
+    r"(?i)(::|\bFAILED\b|\bERRORS?\b|\bFAILURES?\b|\bpassed\b|\bfailed\b|"
+    r"traceback|assertionerror|exception|^E\s|^>\s|^\s*File \"|"
+    r"short test summary info|warning:|error:)",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _groq_compact_test_output(content: str, max_bytes: int) -> str | None:
+    """Keep test names/errors/traceback lines; visibly mark omitted log noise.
+
+    Return None if the diagnostic-bearing lines themselves cannot fit. The
+    caller then fails closed instead of dropping repair evidence.
+    """
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("output"), str):
+        return None
+    original = value["output"]
+    if len(content.encode("utf-8")) <= max_bytes:
+        return content
+    lines = original.splitlines()
+    if not lines:
+        return None
+    kept_indexes: set[int] = set()
+    for index, line in enumerate(lines):
+        if _GROQ_TEST_SIGNAL.search(line):
+            kept_indexes.update(range(max(0, index - 2), min(len(lines), index + 3)))
+    if not kept_indexes:
+        # For a successful, verbose test run retain its leading invocation and
+        # trailing summary; intermediate progress output is non-diagnostic.
+        kept_indexes.update(range(min(8, len(lines))))
+        kept_indexes.update(range(max(0, len(lines) - 24), len(lines)))
+    retained = [lines[index] for index in sorted(kept_indexes)]
+    omitted = len(lines) - len(kept_indexes)
+    value["output"] = (
+        "[Selfheal compacted test output; "
+        f"{omitted} non-selected lines omitted; complete output remains in local tool history]\n"
+        + "\n".join(retained)
+    )
+    compacted = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    return compacted if len(compacted.encode("utf-8")) <= max_bytes else None
 
 
 @dataclass
@@ -199,6 +314,7 @@ async def _provider_post(
     backend: str,
     headers: dict[str, str],
     payload: dict[str, Any],
+    request_timeout_seconds: float | None = None,
 ) -> httpx.Response:
     """Retry explicit upstream gateway failures with bounded jitter.
 
@@ -207,7 +323,15 @@ async def _provider_post(
     backend fallback instead of repeating a potentially billable request.
     """
     for attempt in range(_PROVIDER_MAX_ATTEMPTS):
-        response = await client.post(url, headers=headers, json=payload)
+        if request_timeout_seconds is None:
+            response = await client.post(url, headers=headers, json=payload)
+        else:
+            response = await client.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=request_timeout_seconds,
+            )
         if response.status_code not in _PROVIDER_RETRYABLE_STATUSES:
             return response
         if attempt + 1 >= _PROVIDER_MAX_ATTEMPTS:
@@ -233,6 +357,126 @@ async def _provider_post(
 class _GroqMessages:
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
+        self._tpm_usage: list[tuple[float, int]] = []
+        self._server_remaining_tokens: int | None = None
+        self._server_remaining_observed_at: float | None = None
+        self._server_token_reset_at: float | None = None
+
+    def _available_tpm_tokens(self, now: float) -> int:
+        self._tpm_usage = [(at, count) for at, count in self._tpm_usage if now - at < 60]
+        if self._server_token_reset_at is not None and now >= self._server_token_reset_at:
+            self._server_remaining_tokens = GROQ_TPM_LIMIT_TOKENS
+            self._server_remaining_observed_at = now
+            self._server_token_reset_at = None
+        if self._server_remaining_tokens is not None:
+            observed_at = self._server_remaining_observed_at or now
+            after_observation = sum(count for at, count in self._tpm_usage if at > observed_at)
+            return max(
+                0, min(GROQ_TPM_LIMIT_TOKENS, self._server_remaining_tokens - after_observation)
+            )
+        locally_used = sum(count for _, count in self._tpm_usage)
+        return max(0, GROQ_TPM_LIMIT_TOKENS - locally_used)
+
+    def _record_groq_usage(self, response: httpx.Response, usage: dict[str, Any]) -> None:
+        now = time.monotonic()
+        charged = max(0, int(usage.get("prompt_tokens", 0) or 0)) + max(
+            0, int(usage.get("completion_tokens", 0) or 0)
+        )
+        self._tpm_usage.append((now, charged))
+        raw_remaining = response.headers.get("x-ratelimit-remaining-tokens")
+        if raw_remaining is not None:
+            try:
+                self._server_remaining_tokens = min(
+                    GROQ_TPM_LIMIT_TOKENS, max(0, int(raw_remaining))
+                )
+            except ValueError:
+                return
+            self._server_remaining_observed_at = now
+            reset_after = _groq_retry_delay_header_seconds(response)
+            self._server_token_reset_at = now + reset_after if reset_after else None
+
+    def _set_tpm_state_from_error(self, response: httpx.Response) -> tuple[int, int, int] | None:
+        try:
+            error = response.json().get("error", {})
+            message = error.get("message", "") if isinstance(error, dict) else ""
+        except (ValueError, AttributeError):
+            return None
+        match = re.search(
+            r"(?i)tokens per minute.*?limit\s+(\d+).*?used\s+(\d+).*?requested\s+(\d+)",
+            str(message),
+        )
+        limit = GROQ_TPM_LIMIT_TOKENS
+        used = -1
+        requested = -1
+        if match:
+            limit = min(GROQ_TPM_LIMIT_TOKENS, int(match.group(1)))
+            used = int(match.group(2))
+            requested = int(match.group(3))
+            self._server_remaining_tokens = max(0, limit - used)
+            self._server_remaining_observed_at = time.monotonic()
+        return (limit, used, requested) if match else None
+
+    def _prepare_groq_messages(
+        self,
+        system: Any,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        requested_max_tokens: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
+        converted_tools = self._to_openai_tools(tools)
+        base_messages = self._to_openai_messages(system, messages)
+        call_names = {
+            call["id"]: call["function"]["name"]
+            for message in base_messages
+            if message.get("role") == "assistant"
+            for call in message.get("tool_calls", [])
+        }
+        requested_output = min(int(requested_max_tokens), GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST)
+        available_tpm = self._available_tpm_tokens(time.monotonic())
+        compression_levels = [8192, 4096, 2048, 1024, 512, 256, 128]
+        last_prompt_bound = 0
+        for output_limit in compression_levels:
+            candidate = copy.deepcopy(base_messages)
+            for message in candidate:
+                if message.get("role") != "tool":
+                    continue
+                tool_name = call_names.get(message.get("tool_call_id"))
+                if tool_name == "list_files":
+                    message["content"] = _groq_compact_json(
+                        str(message.get("content", "")), output_limit
+                    )
+                elif tool_name == "run_tests":
+                    compacted = _groq_compact_test_output(
+                        str(message.get("content", "")), output_limit
+                    )
+                    if compacted is not None:
+                        message["content"] = compacted
+            prompt_bound = _groq_prompt_token_estimate(candidate, converted_tools)
+            last_prompt_bound = prompt_bound
+            output_tokens = min(
+                requested_output,
+                GROQ_MAX_CONTEXT_TOKENS - prompt_bound,
+                available_tpm - prompt_bound,
+            )
+            minimum_required = min(requested_output, GROQ_MIN_OUTPUT_TOKENS_PER_REQUEST)
+            if output_tokens >= minimum_required and output_tokens > 0:
+                return candidate, converted_tools, prompt_bound, output_tokens
+        logger.warning(
+            "provider.request.rejected_by_local_budget",
+            backend="groq_api",
+            prompt_token_estimate=last_prompt_bound,
+            available_tpm_tokens=available_tpm,
+            context_limit_tokens=GROQ_MAX_CONTEXT_TOKENS,
+            requested_output_tokens=requested_output,
+            minimum_output_tokens=min(requested_output, GROQ_MIN_OUTPUT_TOKENS_PER_REQUEST),
+            full_tool_history_preserved=True,
+        )
+        raise GroqRequestBudgetError(
+            "Groq request not sent: prompt/tool history cannot fit the current TPM/context "
+            f"budget (prompt_estimate={last_prompt_bound}, available_tpm={available_tpm}, "
+            f"context_limit={GROQ_MAX_CONTEXT_TOKENS}, requested_output={requested_output}); "
+            "only list-files JSON and non-diagnostic test-output lines were compacted"
+        )
 
     def _to_openai_messages(
         self, system: Any, messages: list[dict[str, Any]]
@@ -313,13 +557,9 @@ class _GroqMessages:
         system = kwargs.get("system")
         messages = kwargs["messages"]
         tools = kwargs.get("tools", [])
-        max_tokens = min(
-            int(kwargs.get("max_tokens", GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST)),
-            GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST,
-        )
         request_timeout_seconds = kwargs.pop("request_timeout_seconds", None)
         if request_timeout_seconds is None:
-            request_timeout: float | httpx.Timeout = GROQ_API_DEFAULT_TIMEOUT_SECONDS
+            request_deadline = time.monotonic() + GROQ_API_DEFAULT_TIMEOUT_SECONDS
         elif (
             isinstance(request_timeout_seconds, bool)
             or not isinstance(request_timeout_seconds, (int, float))
@@ -327,11 +567,21 @@ class _GroqMessages:
         ):
             raise ValueError("request_timeout_seconds must be a positive number")
         else:
-            request_timeout = httpx.Timeout(float(request_timeout_seconds))
+            request_deadline = time.monotonic() + float(request_timeout_seconds)
+        requested_max_tokens = int(kwargs.get("max_tokens", GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST))
+        if requested_max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive number")
+        groq_messages, groq_tools, prompt_bound, max_tokens = self._prepare_groq_messages(
+            system, messages, tools, requested_max_tokens
+        )
+        remaining_request_seconds = request_deadline - time.monotonic()
+        if remaining_request_seconds <= 0:
+            raise GroqAPIRequestTimeout("Groq request deadline expired during local preflight")
+        request_timeout = httpx.Timeout(remaining_request_seconds)
 
         payload: dict[str, Any] = {
             "model": settings.groq_api_model,
-            "messages": self._to_openai_messages(system, messages),
+            "messages": groq_messages,
             "max_tokens": max_tokens,
             # The default model (openai/gpt-oss-120b) is a reasoning model:
             # verified live that with the default (higher) reasoning effort
@@ -341,8 +591,8 @@ class _GroqMessages:
             # for a tool-calling agent loop.
             "reasoning_effort": "low",
         }
-        if tools:
-            payload["tools"] = self._to_openai_tools(tools)
+        if groq_tools:
+            payload["tools"] = groq_tools
             payload["tool_choice"] = "auto"
 
         try:
@@ -358,10 +608,13 @@ class _GroqMessages:
                 if scope == "daily":
                     raise GroqDailyQuotaError()
                 retry_after = _groq_tpm_retry_after_seconds(response) if scope == "tpm" else None
+                counters = self._set_tpm_state_from_error(response) if scope == "tpm" else None
+                remaining_seconds = request_deadline - time.monotonic()
                 if (
                     scope == "tpm"
                     and retry_after is not None
                     and retry_after <= GROQ_TPM_MAX_RETRY_AFTER_SECONDS
+                    and retry_after + 1.0 < remaining_seconds
                 ):
                     logger.warning(
                         "provider.request.retry",
@@ -369,22 +622,72 @@ class _GroqMessages:
                         attempt=1,
                         status_code=429,
                         reason="temporary_tpm_limit",
+                        tpm_limit_tokens=counters[0] if counters else GROQ_TPM_LIMIT_TOKENS,
+                        tpm_used_tokens=counters[1] if counters else None,
+                        tpm_requested_tokens=counters[2] if counters else None,
                         delay_seconds=round(retry_after, 3),
                     )
                     await asyncio.sleep(retry_after)
+                    remaining_seconds = request_deadline - time.monotonic()
+                    if remaining_seconds <= 0:
+                        raise GroqAPIRequestTimeout(
+                            "Groq TPM retry delay exhausted the remaining request deadline"
+                        )
+                    # The provider's retry-after response is the reset signal;
+                    # retry one bounded request against a fresh 8K window.
+                    self._server_remaining_tokens = GROQ_TPM_LIMIT_TOKENS
+                    self._server_remaining_observed_at = time.monotonic()
+                    self._server_token_reset_at = None
                     response = await _provider_post(
                         client,
                         f"{GROQ_API_BASE}/chat/completions",
                         backend="groq_api",
                         headers={"Authorization": f"Bearer {self._api_key}"},
                         payload=payload,
+                        request_timeout_seconds=remaining_seconds,
                     )
                     if _groq_rate_limit_scope(response) == "daily":
                         raise GroqDailyQuotaError()
+                elif scope == "tpm":
+                    logger.warning(
+                        "provider.request.not_retried",
+                        backend="groq_api",
+                        reason=(
+                            "retry_delay_missing_or_exceeds_bound"
+                            if retry_after is None or retry_after > GROQ_TPM_MAX_RETRY_AFTER_SECONDS
+                            else "retry_delay_exceeds_remaining_deadline"
+                        ),
+                        retry_after_seconds=retry_after,
+                        remaining_deadline_seconds=max(0.0, remaining_seconds),
+                        tpm_limit_tokens=counters[0] if counters else GROQ_TPM_LIMIT_TOKENS,
+                        tpm_used_tokens=counters[1] if counters else None,
+                        tpm_requested_tokens=counters[2] if counters else None,
+                    )
         except httpx.TimeoutException as exc:
             raise GroqAPIRequestTimeout(f"Groq chat/completions HTTP {type(exc).__name__}") from exc
+        if response.status_code == 400 and any(
+            phrase in response.text.lower()
+            for phrase in ("reduce the length", "context length", "too many tokens")
+        ):
+            logger.warning(
+                "provider.request.rejected_for_length",
+                backend="groq_api",
+                prompt_token_estimate=prompt_bound,
+                completion_token_reservation=max_tokens,
+                context_limit_tokens=GROQ_MAX_CONTEXT_TOKENS,
+                tpm_limit_tokens=GROQ_TPM_LIMIT_TOKENS,
+            )
+            raise GroqRequestBudgetError(
+                "Groq rejected request length (HTTP 400) after local preflight; "
+                f"prompt_estimate={prompt_bound}, completion_reservation={max_tokens}, "
+                f"context_limit={GROQ_MAX_CONTEXT_TOKENS}, tpm_limit={GROQ_TPM_LIMIT_TOKENS}"
+            )
         _raise_for_status_classified(response, backend="groq_api")
         body = response.json()
+        usage = body.get("usage", {})
+        if not isinstance(usage, dict):
+            usage = {}
+        self._record_groq_usage(response, usage)
 
         choice = body["choices"][0]
         if choice.get("finish_reason") == "length":
@@ -404,7 +707,6 @@ class _GroqMessages:
                 _Block(type="tool_use", id=call["id"], name=call["function"]["name"], input=args)
             )
 
-        usage = body.get("usage", {})
         return _Response(
             content=blocks,
             usage=_Usage(

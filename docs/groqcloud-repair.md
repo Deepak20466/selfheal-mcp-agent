@@ -5,12 +5,23 @@
 `groq_api` reuses the project's OpenAI-compatible chat-completions adapter and the existing
 Selfheal repair loop. The default and frozen model is `openai/gpt-oss-120b`. The adapter carries
 assistant tool-call IDs and matching tool results across turns, including ordered batches of
-returned calls. It caps each response's output-token reservation at 4,096, applies the remaining
-case deadline to each HTTP request, and reports sanitized timeout failures without retrying them.
-Explicit 502/503/504 responses retain the existing bounded retry behavior. A confirmed TPM 429
-can be retried once using the server's delay, bounded at 10 seconds; daily quota failures are not
-retried. Complete conversation history is preserved, and `finish_reason=length` is a failure rather
-than a partial successful turn. API keys are read from
+returned calls. Before each request it conservatively estimates prompt size, includes tool schemas,
+and reduces the output reservation so the prompt plus completion fits the lower of the documented
+131,072-token context window and the configured 8,000-token free-tier TPM window (or a lower
+server-reported remaining-token count). The estimate is a UTF-8 JSON byte upper bound with framing
+allowance; it does not rely on an unverified tokenizer. Oversized `list_files` output is compacted
+to an explicit, evenly spaced sample that can be re-queried by glob. Oversized test output retains
+test names, errors, exception text and traceback lines and marks omitted log lines. `read_file`
+content is never truncated; if diagnostic context cannot fit, the adapter reports the budget and
+sends no request. Tool-call IDs and ordering remain unchanged, and compaction affects only the
+serialized request copy.
+
+The adapter applies the remaining case deadline to each HTTP request and reports sanitized timeout
+failures without retrying them. Explicit 502/503/504 responses retain the existing bounded retry
+behavior. A confirmed TPM 429 may retry once using the exact server delay, only when it is at most
+60 seconds and the delay plus one second fits the remaining case deadline. Daily quota failures are
+not retried. Complete conversation history is preserved, and `finish_reason=length` is a failure
+rather than a partial successful turn. API keys are read from
 `GROQ_API_KEY` and are never part of benchmark artifacts.
 
 Groq's current [model documentation](https://console.groq.com/docs/models) lists GPT-OSS 120B and
@@ -20,8 +31,8 @@ currently lists parallel tool use as unsupported for this model. The adapter pre
 order if multiple calls are returned, but this is not a claim that GPT-OSS 120B will produce
 parallel calls or that account quotas are available. The operator must verify free-plan access,
 the exact model quota, and disabled paid billing in their Groq account immediately before a live
-run. Codex has no API key, and no v2 provider call was made; the earlier v1 operator call is kept
-as a separate historical attempt.
+run. Codex makes no live provider calls; earlier operator attempts are preserved in separate v1
+and v2 result files.
 
 ## Groq v1 finding and frozen v2 configuration
 
@@ -51,32 +62,66 @@ The ten IDs remain the original deterministic selection in
 The separate diagnostic still uses only its first ID, `attrs-73dc0d2e2860`, and remains outside the
 official ten-case denominator.
 
+## Groq v2 findings and frozen v3 configuration
+
+The preserved v2 diagnostic has two failed arm attempts on `attrs-73dc0d2e2860`. The validation
+arm recorded the specified TPM 429 (8,000 limit, 5,630 used, 7,689 requested, 39.8925-second server
+delay) after `get_error`, `read_file`, and `run_tests`; its prior successful-turn usage totals were
+8,909 input and 151 output tokens. The no-validation arm recorded HTTP 400, “Please reduce the
+length of the messages or completion,” after `get_error` and `list_files`; its prior successful-turn
+usage totals were 1,503 input and 35 output tokens. Neither arm completed a repair. V2 stored tool
+names and aggregate usage, but not per-tool output byte counts or the rejected request bodies, so
+the individual contribution of source/test/listing history and completion reservation cannot be
+reconstructed. The traces do show that multi-turn history grew before the failures.
+
+Frozen v3 keeps the same cases, prompts, scoring, limits and 10 pilot IDs. It budgets the prompt
+estimate plus completion against 8,000 TPM and the model's documented 131,072-token context limit;
+uses current remaining-token headers where available; compacts only rediscoverable file listings
+and non-diagnostic test-log lines; preserves complete source and tool-call order; and fails closed
+if essential context will not fit. The local estimate uses serialized UTF-8 byte length at two
+bytes per estimated token plus framing overhead; this is a conservative planning heuristic, not an
+exact GPT-OSS tokenizer or a formal upper bound. Response rate-limit headers are authoritative
+after a successful request, and a server 429 may trigger one bounded wait/retry. A TPM retry uses
+the actual server delay only once, only when it is at most 60 seconds and fits the case's remaining
+deadline. Daily quota errors are never retried.
+
+Groq's [rate-limit documentation](https://console.groq.com/docs/rate-limits) currently lists 8K
+TPM for GPT-OSS 120B on the Free plan and documents the remaining/reset-token headers; the
+[model page](https://console.groq.com/docs/model/openai/gpt-oss-120b) lists a 131,072-token context.
+Account-specific limits can differ and must be checked by the operator.
+
+V3 is frozen in
+[`the Groq v3 config`](../benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3.json),
+SHA-256 `2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. Its leakage audits
+pass for 41/41 cases, the original pilot 10/10, and the diagnostic 1/1. V1/v2 config files,
+attempt records, and all Gemini evidence remain unchanged. The v3 diagnostic has not been run.
+
 Before running, the operator must independently verify the Groq free tier and billing state, set
 the required operator attestations, and provide `GROQ_API_KEY` privately in the external shell.
 `GROQ_API_MODEL` must be `openai/gpt-oss-120b`. `REAL_BUG_DATABASE_URL` must identify the isolated
 PostgreSQL 16 database at `127.0.0.1:5434/selfheal_real_bug_test`; the runner verifies the identity
 and refuses other targets. Do not put a database URL or credentials in this repository.
 
-### Fresh one-case v2 diagnostic
+### Fresh one-case v3 diagnostic
 
 Run only after the operator has confirmed the account's current free quota and disabled paid
 billing. This command records a single diagnostic separately; it does not complete or score the
 official pilot. It uses the frozen caps and timeout, and resume semantics preserve any attempt:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v2-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v2-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v3-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 If it records an attempt, preserve the JSONL and score it as a diagnostic only. Do not copy it into
 the pilot file. Before starting the official pilot, review that diagnostic and independently
 reconfirm free quota/billing. The separate ten-case result file is
-`benchmarks/real_bugs/results/runs/groq-v2-pilot-10.jsonl`.
+`benchmarks/real_bugs/results/runs/groq-v3-pilot-10.jsonl`.
 
 After the operator reviews the diagnostic, independently confirms quota/billing again, and
 decides to start the separate official pilot, run:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v2-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v2-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v3-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 ## VIMJ Studio OS SaaS safe workflow

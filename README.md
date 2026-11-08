@@ -76,10 +76,11 @@ pilot IDs and fixes Gemini Part/function-response round-tripping. See the [real-
 report](docs/benchmark-real-bugs.md) and [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
 The historical fixture benchmark remains separate.
 
-GroqCloud is available through the existing OpenAI-compatible adapter. The preserved v1 diagnostic
-recorded one 8,000-TPM rate limit; no repair completed. A separately frozen v2 caps Groq output
-reservations and adds one bounded retry for confirmed temporary TPM limits without truncating
-conversation history. No v2 attempt has been made. See the [Groq repair runbook](docs/groqcloud-repair.md).
+GroqCloud is available through the existing OpenAI-compatible adapter. Its preserved v1/v2
+diagnostics recorded a TPM 429 and a request-length HTTP 400; neither completed a repair. Frozen v3
+budgets each request against the model context and 8,000 TPM, safely compacts oversized file/test
+tool output, and honors bounded server-directed TPM retries. V3 has not been run. See the
+[Groq repair runbook](docs/groqcloud-repair.md).
 
 ## Architecture
 

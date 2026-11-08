@@ -67,42 +67,57 @@ the v9 audit files alongside the config.
 The 20/20 synthetic fixture benchmark is historical evidence only and is not part of this pilot
 or the pending 41-case real-bug benchmark.
 
-## Separate GroqCloud diagnostic and v2 configuration
+## Separate GroqCloud diagnostics and v3 configuration
 
 The Groq v1 diagnostic has one preserved attempt: an HTTP 429 TPM limit of 8,000, with 1,366 used,
 7,843 requested, and a provider-suggested 9.0675-second wait. It failed before any repair; no target
 or full suite passed. The saved run records 1,497 input and 75 output tokens from earlier successful
 turns, and its tool trace includes `get_error` and `read_file`. The failed request body was not
 saved, so the input-history/output-reservation share of the 7,843 cannot be separated from that
-record. The previous adapter allowed up to 8,000 output tokens per response; v2 caps that
-reservation at 4,096. Conversation and tool history remain complete and are not truncated. The
-saved evidence cannot establish whether the request projection was driven by output allowance,
-prompt history, or both; the separate v2 diagnostic will test the cap against the same frozen case.
+record. V2 capped the output reservation at 4,096 but did not budget it against conversation growth
+or the remaining TPM window.
+
+The saved v2 diagnostic has two failed arm attempts on `attrs-73dc0d2e2860`. The validation arm
+hit the 8,000 TPM limit with 5,630 used and 7,689 requested; Groq suggested 39.8925 seconds. Before
+failure the saved aggregate usage was 8,909 input and 151 output tokens, and tool names were
+`get_error`, `read_file`, and `run_tests`. The no-validation arm got HTTP 400, “Please reduce the
+length of the messages or completion,” after `get_error` and `list_files`; prior aggregate usage was
+1,503 input and 35 output tokens. Neither arm repaired the case. V2 records do not save per-tool
+output sizes or rejected request bodies, so the exact prompt/completion shares and the length that
+triggered HTTP 400 cannot be established offline. Both traces show multi-turn context growth before
+failure.
 
 Groq uses the existing `groq_api` adapter, not Gemini output or fallback routing. Its separately
-frozen v2 configuration preserves the original 41-case cohort, deterministic ten pilot IDs,
+frozen v3 configuration preserves the original 41-case cohort, deterministic ten pilot IDs,
 prompts, arms, caps, timeouts, and scoring rules. The freeze hash is
-`4c1adfa78b9add4bb446fc0b20e50b446ff396595b06f39d78699c23d3e90559`. Gemini v4-v9, the Groq v1
-freeze, and all prior attempt records remain unchanged. Full-cohort, ten-case, and diagnostic
-leakage audits pass.
+`2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. V3 budgets a local prompt
+token estimate plus completion against the 8,000 TPM cap and the documented 131,072-token context
+window. The estimate is serialized UTF-8 JSON bytes divided by two plus framing overhead; it is a
+planning heuristic, not exact tokenizer telemetry or a formal upper bound. V3 uses
+server-reported remaining TPM where available, visibly compacts rediscoverable `list_files`
+results and non-diagnostic `run_tests` lines, retains full `read_file` content, and fails locally
+when essential context cannot fit. A temporary TPM error is retried once at the exact server delay
+only if it is at most 60 seconds and fits the remaining case deadline; daily quota is never retried.
+Gemini v4-v9, Groq v1/v2 freezes, and prior attempts remain unchanged. V3 leakage audits pass
+41/41, 10/10, and 1/1.
 
 Groq's official model and tool-use documentation lists `openai/gpt-oss-120b` and local function
 tool calling, but currently lists no parallel tool use for this model. The adapter's offline tests
 cover ordered call IDs/results in a multi-call turn and a later sequential `run_tests` call. This
-does not establish free quota for the operator's account. No Groq key is available to Codex; no
-v2 provider call was made.
+does not establish free quota for the operator's account. Codex made no live Groq calls.
 
 | Groq evidence | Status |
 |---|---|
 | Frozen cohort / pilot selection | 41 / original 10 IDs |
 | Groq v1 diagnostic | 1 attempt; `attrs-73dc0d2e2860`; HTTP 429 TPM |
 | Groq v1 completed repairs | 0; target/full suite did not pass |
-| Groq v2 diagnostic attempts / repairs | 0 / 0 |
-| v2 resolve rate / full-suite-green resolve rate | Not measured |
-| v2 false-positive proxy, time, tokens, cost | Not measured |
+| Groq v2 diagnostic | 2 arm attempts; TPM 429 and HTTP 400; 0 repairs |
+| Groq v3 diagnostic attempts / repairs | 0 / 0 |
+| v3 resolve rate / full-suite-green resolve rate | Not measured |
+| v3 false-positive proxy, time, tokens, cost | Not measured |
 | Account free quota and billing state | Operator verification required |
 
-The fresh v2 diagnostic command and separate VIMJ safe testing workflow are documented in
+The fresh v3 diagnostic command and separate VIMJ safe testing workflow are documented in
 [`groqcloud-repair.md`](groqcloud-repair.md). Its JSONL path is separate from Gemini results and
 from the official ten-case Groq pilot. Run it only after verifying free quota and disabled paid
 billing; retain failures and timeouts as recorded.

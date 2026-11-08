@@ -25,9 +25,10 @@ adapter did not preserve signed function-call Parts. No repair completed. I repo
 result and make no successful real-bug repair-rate claim.
 
 GroqCloud has an offline-tested adapter path and separate frozen configurations using the same
-41-case cohort and original ten pilot IDs. The preserved v1 diagnostic hit one 8,000-TPM limit and
-completed no repair; v2 is prepared but unattempted. Report no Groq success rate, latency, or cost.
-See the [GroqCloud runbook](groqcloud-repair.md).
+41-case cohort and original ten pilot IDs. The preserved v1/v2 diagnostics recorded a TPM 429 and
+request-length HTTP 400; neither completed a repair. V3 adds per-request 8,000-TPM/context
+budgeting and safe tool-output compaction, but remains unattempted. Report no Groq success rate,
+latency, or cost. See the [GroqCloud runbook](groqcloud-repair.md).
 
 The clearest lesson came from dogfooding against `multi-agent-workspace`: it exposed a scanner bug
 that hid dependency findings and a worker exception path that could stop processing. I fixed both

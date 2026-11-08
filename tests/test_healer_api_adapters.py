@@ -511,6 +511,320 @@ async def test_groq_retries_recorded_tpm_limit_once_after_server_delay(
     assert requests[0]["messages"][2]["tool_calls"][0]["id"] == "call_tests"
 
 
+async def test_groq_v2_tpm_failure_honors_5630_7689_and_398925_second_delay(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(api_adapters.asyncio, "sleep", record_sleep)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "message": (
+                            "Rate limit reached on tokens per minute (TPM): Limit 8000, "
+                            "Used 5630, Requested 7689. Please try again in 39.8925s."
+                        ),
+                        "type": "tokens",
+                        "code": "rate_limit_exceeded",
+                    }
+                },
+            ),
+            httpx.Response(
+                200,
+                headers={"x-ratelimit-remaining-tokens": "7998"},
+                json={
+                    "choices": [
+                        {
+                            "message": {"role": "assistant", "content": "continue"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                },
+            ),
+        ]
+    )
+    messages = [
+        {"role": "user", "content": "Repair the failure."},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_run_tests_v2",
+                    "name": "run_tests",
+                    "input": {"test_path": "tests/test_app.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_run_tests_v2",
+                    "content": "failed test evidence",
+                }
+            ],
+        },
+    ]
+
+    response = await GroqClient(api_key="offline-test-key").messages.create(
+        model=None,
+        max_tokens=7843,
+        system=[],
+        tools=TOOLS,
+        messages=messages,
+        request_timeout_seconds=240,
+    )
+
+    assert response.content[0].text == "continue"
+    assert delays == [39.8925]
+    assert route.call_count == 2
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["max_tokens"] <= 4096
+    assert sent["messages"][2]["tool_calls"][0]["id"] == "call_run_tests_v2"
+
+
+async def test_groq_v2_context_growth_compacts_list_files_without_breaking_tool_order(
+    respx_mock: Any,
+) -> None:
+    from healer.api_adapters import _groq_prompt_token_estimate
+
+    list_tools = [
+        {
+            "name": "list_files",
+            "description": "List repository paths matching a glob",
+            "input_schema": {"type": "object", "properties": {"glob": {"type": "string"}}},
+        }
+    ]
+    files = [f"package/module_{index:05d}/source_{index:05d}.py" for index in range(2000)]
+    first_call = {
+        "id": "call_files_v2",
+        "type": "function",
+        "function": {"name": "list_files", "arguments": "{}"},
+    }
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                headers={
+                    "x-ratelimit-remaining-tokens": "5000",
+                    "x-ratelimit-reset-tokens": "20s",
+                },
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [first_call],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 1503, "completion_tokens": 35},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {"role": "assistant", "content": "I will inspect a file."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 8},
+                },
+            ),
+        ]
+    )
+    client = GroqClient(api_key="offline-test-key")
+    initial = [{"role": "user", "content": "Find the failing module."}]
+    response = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=list_tools, messages=initial
+    )
+    history = initial + [
+        {"role": "assistant", "content": response.content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_files_v2",
+                    "content": json.dumps(files),
+                }
+            ],
+        },
+    ]
+
+    second = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=list_tools, messages=history
+    )
+
+    assert second.content[0].text == "I will inspect a file."
+    assert route.call_count == 2
+    _, second_payload = [json.loads(call.request.content) for call in route.calls]
+    assistant_tool_calls = next(
+        message["tool_calls"] for message in second_payload["messages"] if message.get("tool_calls")
+    )
+    assert assistant_tool_calls[0]["id"] == "call_files_v2"
+    tool_result = second_payload["messages"][-1]["content"]
+    assert "Selfheal omitted" in tool_result
+    assert "call list_files with a narrower glob" in tool_result
+    assert "module_00000/source_00000.py" in tool_result
+    assert "module_01999/source_01999.py" in tool_result
+    assert [m.get("tool_call_id") for m in second_payload["messages"] if m["role"] == "tool"] == [
+        "call_files_v2"
+    ]
+    assert _groq_prompt_token_estimate(second_payload["messages"], second_payload["tools"]) <= 5000
+    assert second_payload["max_tokens"] <= 4096
+    assert (
+        second_payload["max_tokens"]
+        + _groq_prompt_token_estimate(second_payload["messages"], second_payload["tools"])
+        <= 5000
+    )
+
+
+async def test_groq_request_too_large_fails_closed_without_dropping_read_file_evidence(
+    respx_mock: Any,
+) -> None:
+    from healer.api_adapters import GroqRequestBudgetError
+
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [], "usage": {}})
+    )
+    messages = [
+        {"role": "user", "content": "Repair this exact source and failing test."},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_read_large",
+                    "name": "read_file",
+                    "input": {"path": "src/important.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_read_large",
+                    "content": "source evidence " + ("x" * 40000),
+                }
+            ],
+        },
+    ]
+
+    with pytest.raises(GroqRequestBudgetError, match="request not sent.*cannot fit"):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None, max_tokens=4096, system=[], tools=TOOLS, messages=messages
+        )
+
+    assert route.call_count == 0
+    assert "call_read_large" == messages[1]["content"][0]["id"]
+    assert len(messages[2]["content"][0]["content"]) > 40000
+
+
+def test_groq_test_output_compression_keeps_failure_names_errors_and_tracebacks() -> None:
+    from healer.api_adapters import _groq_compact_test_output
+
+    output = "\n".join(
+        ["routine progress line" for _ in range(80)]
+        + [
+            "FAILED tests/test_repair.py::test_handles_empty_config - AssertionError",
+            "Traceback (most recent call last):",
+            '  File "tests/test_repair.py", line 42, in test_handles_empty_config',
+            "    assert actual == expected",
+            "E   AssertionError: expected populated configuration",
+            "short test summary info",
+        ]
+    )
+    result = _groq_compact_test_output(
+        json.dumps({"passed": False, "output": output}), max_bytes=900
+    )
+
+    assert result is not None
+    compacted = json.loads(result)
+    assert compacted["passed"] is False
+    assert "test_handles_empty_config" in compacted["output"]
+    assert "AssertionError: expected populated configuration" in compacted["output"]
+    assert 'File "tests/test_repair.py", line 42' in compacted["output"]
+    assert "complete output remains in local tool history" in compacted["output"]
+    assert len(result.encode("utf-8")) <= 900
+
+
+async def test_groq_tpm_retry_is_skipped_when_server_delay_exceeds_case_deadline(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(api_adapters.asyncio, "sleep", record_sleep)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            429,
+            json={
+                "error": {
+                    "message": (
+                        "Rate limit reached on tokens per minute (TPM): Limit 8000, "
+                        "Used 5630, Requested 7689. Please try again in 39.8925s."
+                    )
+                }
+            },
+        )
+    )
+
+    with pytest.raises(BackendCooldownError):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None,
+            max_tokens=7843,
+            system=[],
+            tools=TOOLS,
+            messages=[{"role": "user", "content": "Repair the failure."}],
+            request_timeout_seconds=10,
+        )
+
+    assert route.call_count == 1
+    assert delays == []
+
+
+async def test_groq_length_400_is_reported_with_local_budget_diagnostics(respx_mock: Any) -> None:
+    from healer.api_adapters import GroqRequestBudgetError
+
+    respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            400,
+            json={"error": {"message": "Please reduce the length of the messages or completion."}},
+        )
+    )
+
+    with pytest.raises(GroqRequestBudgetError, match="HTTP 400.*prompt_estimate=.*context_limit="):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None,
+            max_tokens=100,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "small test request"}],
+        )
+
+
 async def test_groq_daily_quota_is_not_retried(respx_mock: Any) -> None:
     from healer.api_adapters import GroqDailyQuotaError
 
