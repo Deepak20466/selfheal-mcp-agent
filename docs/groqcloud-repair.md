@@ -92,7 +92,7 @@ Account-specific limits can differ and must be checked by the operator.
 
 V3 is frozen in
 [`the Groq v3 config`](../benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3.json),
-SHA-256 `2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. Its leakage audits
+SHA-256 `9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Its leakage audits
 pass for 41/41 cases, the original pilot 10/10, and the diagnostic 1/1. V1/v2 config files,
 attempt records, and all Gemini evidence remain unchanged. The v3 diagnostic has not been run.
 

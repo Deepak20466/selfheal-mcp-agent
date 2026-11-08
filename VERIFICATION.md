@@ -18,15 +18,16 @@ listings and non-diagnostic test-log lines, and never truncates `read_file`. If 
 does not fit, it fails before sending. A temporary TPM retry uses the exact provider delay at most
 once, only if no more than 60 seconds and within the remaining case deadline; daily quota is never
 retried. V3 SHA-256:
-`2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. Leakage audits passed for
+`9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Leakage audits passed for
 41/41, 10/10, and the separate diagnostic 1/1. V1/v2 files and all Gemini evidence remain unchanged;
 the v3 diagnostic has not been run.
 
 Offline verification: Groq adapter regressions **32 passed**; Groq provider/daily-quota benchmark
-regressions **2 passed**. Repository-wide Ruff and formatting and scoped mypy are being rerun for
-this change. The local full test suite requires the test PostgreSQL service; no production database
-or provider was accessed. GitHub CI for the previous commit passed; checks for this change will be
-reported after push.
+regressions **2 passed**. Repository-wide Ruff/formatting and scoped mypy passed. The local full test
+suite requires the test PostgreSQL service; no production database or provider was accessed. CI on
+`5995369` found one exact-float timeout assertion, now changed to verify the propagated timeout is
+within 1 ms and never exceeds the supplied deadline; the focused test passes. Full CI for the
+updated commit will be checked after push.
 VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch
 workflow is documented in [`docs/groqcloud-repair.md`](docs/groqcloud-repair.md).
 

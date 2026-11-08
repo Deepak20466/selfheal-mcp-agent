@@ -90,7 +90,7 @@ failure.
 Groq uses the existing `groq_api` adapter, not Gemini output or fallback routing. Its separately
 frozen v3 configuration preserves the original 41-case cohort, deterministic ten pilot IDs,
 prompts, arms, caps, timeouts, and scoring rules. The freeze hash is
-`2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa`. V3 budgets a local prompt
+`9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. V3 budgets a local prompt
 token estimate plus completion against the 8,000 TPM cap and the documented 131,072-token context
 window. The estimate is serialized UTF-8 JSON bytes divided by two plus framing overhead; it is a
 planning heuristic, not exact tokenizer telemetry or a formal upper bound. V3 uses

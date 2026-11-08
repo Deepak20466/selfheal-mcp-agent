@@ -483,7 +483,7 @@
   "test_harness_source_sha256": {
     "tests/conftest.py": "43d6faf07b5a020afef98aeb4ab737b7a34632f9f4730718cf9dfdb8907687d0",
     "tests/test_openrouter_repair.py": "bf8411d6f206ace4daebd8d29e02ac62398fcd84c3c6c1c25d57e38ffaf16736",
-    "tests/test_healer_api_adapters.py": "22795ec95ebfbfbbfabb0061035b3498f99ec3b2d5cc6ee30f49a5edec158791",
+    "tests/test_healer_api_adapters.py": "d33116d9d17e852b3dc14805f30922ba7022a768ae0e872930198625831f85bc",
     "tests/test_real_bug_benchmark.py": "638cd9203a4c739f432375331e14189e9de34e0e11f9ea1aa66d4aa638611011"
   },
   "timeouts_seconds": {
@@ -494,7 +494,7 @@
     "mcp_full_suite": 900.0,
     "mcp_target_test_default": 120.0
   },
-  "frozen_config_sha256": "2fb6d1bab3e28980629eaca54b8721b6d68e116e6aa4a65499f7cbf9a4340aaa",
+  "frozen_config_sha256": "9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29",
   "frozen_config": "2026-11-09-groq-openai-gpt-oss-120b-v3.json",
   "label": "fresh one-case Groq v3 diagnostic; isolated results file; excluded from official 10-case pilot denominator",
   "selection_rule": "The first ID in the predetermined v9 10-case pilot selection; chosen before any Groq outcome.",

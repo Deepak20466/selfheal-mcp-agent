@@ -281,9 +281,9 @@
       "snapshot_contains_only_synthetic_commit": true
     }
   ],
-  "config_sha256": "bddc52be9cdbf86107e69ee5032c84e1228ceea7d81ac956324e8f6658cdf000",
+  "config_sha256": "5c0673ce7d4912d1e0e59e237e2249cd662c16dee67b499fd305b07b99a07fa2",
   "dropped_cases": [],
-  "generated_at": "2026-11-08T22:14:39.040877+00:00",
+  "generated_at": "2026-11-08T22:22:52.374048+00:00",
   "kept_case_ids": [
     "attrs-2772a29b7bf2",
     "h11-012e2418027f",

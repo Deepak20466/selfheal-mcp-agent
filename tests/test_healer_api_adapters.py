@@ -355,10 +355,14 @@ async def test_groq_uses_propagated_case_deadline_for_http_timeout(
 
     assert response.content[0].text == "bounded"
     assert isinstance(constructed_timeouts[0], httpx.Timeout)
-    assert constructed_timeouts[0].connect == 17.5
-    assert constructed_timeouts[0].read == 17.5
-    assert constructed_timeouts[0].write == 17.5
-    assert constructed_timeouts[0].pool == 17.5
+    for timeout in (
+        constructed_timeouts[0].connect,
+        constructed_timeouts[0].read,
+        constructed_timeouts[0].write,
+        constructed_timeouts[0].pool,
+    ):
+        assert timeout <= 17.5
+        assert timeout == pytest.approx(17.5, abs=0.001)
 
 
 async def test_groq_read_timeout_is_sanitized_and_not_retried(respx_mock: Any) -> None:

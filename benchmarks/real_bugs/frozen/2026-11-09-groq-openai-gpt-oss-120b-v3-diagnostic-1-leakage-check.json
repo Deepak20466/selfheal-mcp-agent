@@ -40,9 +40,9 @@
       "snapshot_contains_only_synthetic_commit": true
     }
   ],
-  "config_sha256": "a8f7d8e14b68217c549c5ae98d3b3839af29bcb6feb5aa8a0a8cc71ffa9350bc",
+  "config_sha256": "01f9782d1e70bbcb6bb09a78f92048708bd119b1a318a66948d61616f09da544",
   "dropped_cases": [],
-  "generated_at": "2026-11-08T22:14:46.079974+00:00",
+  "generated_at": "2026-11-08T22:22:58.863375+00:00",
   "kept_case_ids": [
     "attrs-73dc0d2e2860"
   ],
