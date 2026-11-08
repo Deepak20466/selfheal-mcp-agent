@@ -1,0 +1,223 @@
+{
+  "attempt_records": 5,
+  "generated_at": "2026-11-08T19:50:45.280295+00:00",
+  "input_files": [
+    "benchmarks\\real_bugs\\results\\published\\gemini-v5-v8-attempts.jsonl"
+  ],
+  "limitations": [
+    "Cost is reported only when the provider returned a billed-cost value; unknown is not treated as zero.",
+    "False positives use aggregate full-suite pass/fail as an available extra-check signal.",
+    "The no-policy ablation retains OS sandboxing for repository test execution."
+  ],
+  "repeat_comparisons": [],
+  "runs": [
+    {
+      "arms": {
+        "with_validation": {
+          "attempted": 1,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 1,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 1,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 0,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": 121.046,
+          "other_failure_categories": {},
+          "resolve_rate": 0.0,
+          "resolve_rate_with_full_suite_pass": 0.0,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": 0.0,
+          "target_tests_passed": 0
+        },
+        "without_validation": {
+          "attempted": 0,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 0,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 0,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 0,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": null,
+          "other_failure_categories": {},
+          "resolve_rate": null,
+          "resolve_rate_with_full_suite_pass": null,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": null,
+          "target_tests_passed": 0
+        }
+      },
+      "model": "gemini-3.8-flash",
+      "provider": "gemini_api",
+      "run_id": "gemini-v5-pilot-10"
+    },
+    {
+      "arms": {
+        "with_validation": {
+          "attempted": 1,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 1,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 1,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 0,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": 121.094,
+          "other_failure_categories": {},
+          "resolve_rate": 0.0,
+          "resolve_rate_with_full_suite_pass": 0.0,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": 0.0,
+          "target_tests_passed": 0
+        },
+        "without_validation": {
+          "attempted": 0,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 0,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 0,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 0,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": null,
+          "other_failure_categories": {},
+          "resolve_rate": null,
+          "resolve_rate_with_full_suite_pass": null,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": null,
+          "target_tests_passed": 0
+        }
+      },
+      "model": "gemini-3.8-flash",
+      "provider": "gemini_api",
+      "run_id": "gemini-v7-pilot-10"
+    },
+    {
+      "arms": {
+        "with_validation": {
+          "attempted": 2,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 2,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 0,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 2,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": 133.9845,
+          "other_failure_categories": {},
+          "resolve_rate": 0.0,
+          "resolve_rate_with_full_suite_pass": 0.0,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": 0.0,
+          "target_tests_passed": 0
+        },
+        "without_validation": {
+          "attempted": 1,
+          "cost_reported_cases": 0,
+          "cost_unknown_cases": 1,
+          "failure_taxonomy": {
+            "cost_cap": 0,
+            "cost_unknown": 0,
+            "invalid_patch": 0,
+            "no_patch": 0,
+            "provider_error": 0,
+            "rate_limited": 0,
+            "rejected_by_policy": 0,
+            "repair_error": 1,
+            "tests_still_failing": 0,
+            "timeout": 0,
+            "token_cap": 0
+          },
+          "false_positive_cases": 0,
+          "false_positive_denominator": 0,
+          "false_positive_method": "target tests pass but aggregate full suite fails, where the human fix passed the full suite",
+          "false_positive_rate": null,
+          "median_cost_usd": null,
+          "median_time_seconds": 213.359,
+          "other_failure_categories": {},
+          "resolve_rate": 0.0,
+          "resolve_rate_with_full_suite_pass": 0.0,
+          "resolved": 0,
+          "resolved_and_full_suite_passed": 0,
+          "target_test_pass_rate": 0.0,
+          "target_tests_passed": 0
+        }
+      },
+      "model": "gemini-3.8-flash",
+      "provider": "gemini_api",
+      "run_id": "gemini-v8-pilot-10"
+    }
+  ],
+  "schema_version": 1
+}

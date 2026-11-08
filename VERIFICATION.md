@@ -2,30 +2,21 @@
 
 ## Current feature-branch verification — feat/gemini-benchmark-route (2026-11-09)
 
-The frozen real-bug pilot remains partial. Saved v5 and v7 evidence contains two Gemini request
-timeouts for one case/validation arm; zero repairs completed, nine pilot IDs were not attempted,
-and no no-validation runs were attempted. Both full-suite-green resolution and target resolution
-are 0/2; false-positive rate is undefined (zero eligible denominator), and cost is unknown. See
-[`docs/benchmark-real-bugs.md`](docs/benchmark-real-bugs.md) and the exact scored artifacts in
-[`benchmarks/real_bugs/results/published/`](benchmarks/real_bugs/results/published/).
+The frozen real-bug pilot remains partial. Five v5/v7/v8 records cover two of ten selected bugs:
+two Gemini request timeouts and three Gemini HTTP 400 `INVALID_ARGUMENT` errors caused by missing
+thought signatures in reconstructed function-call history. Zero repairs completed; eight IDs were
+not attempted. Resolve and full-suite-green rates are 0/5; false-positive rate is undefined and
+cost was not reported. See [`docs/benchmark-real-bugs.md`](docs/benchmark-real-bugs.md) and the
+scored artifacts under [`benchmarks/real_bugs/results/published/`](benchmarks/real_bugs/results/published/).
 
-Offline diagnosis traced `ExceptionGroup → ExceptionGroup → httpx.ReadTimeout` to the Gemini
-`generateContent` HTTP request. The MCP setup was in-memory and `get_error` was the only recorded
-tool call. The benchmark's 120-second adapter timeout did not inherit its 240-second case deadline.
-The v8 correction passes the remaining deadline into the adapter and raises a sanitized provider
-timeout with the original cause chained. It adds no retries and changes no cases, prompts, scoring,
-or limits. v8 preserves the v4 cohort and original pilot IDs, has hash
-`f270ac813c88bc776b1b958d84d4f9158bacbae01b0007bddb2e9b53ee5a3b1b`, and both the 41-case and
-10-case leakage audits pass with zero dropped cases.
-
-Offline checks after the code change: focused tests **61 passed, 1 deselected**; Ruff check and
-format check passed; scoped mypy passed (73 files); `git diff --check` passed. A normal pytest
-session could not start because repository `tests/conftest.py` attempted its default PostgreSQL
-connection on localhost:5432, which refused the connection. No full-suite pass is claimed. No
-provider calls were made in this work. The required Gemini credentials/attestations, fresh
-operator quota timestamp, and PostgreSQL password were unavailable, so no database verification or
-new Gemini attempt was made. For code/evidence commit `4a678f0`, both [standard CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42513919052)
-and [Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42513919054) passed.
+v9 preserves the 41-case cohort and the original 10 pilot IDs, changes only adapter serialization
+and regression-test sources, and has hash
+`ffb0dd226184027dde73ca031e7c88cd4e51aa2c6f366e7ea2ccbc7063da0e33`. Both 41-case and pilot
+leakage audits pass with zero drops. The adapter round-trips original Gemini model Parts, including
+opaque thought signatures, and returns function responses with matching names and IDs. No
+thought-signature value is synthesized or logged. Offline focused tests: adapter tests **19 passed**;
+Ruff and formatting passed; scoped mypy passed for the adapter. No provider call or database access
+was made. Full repository CI for this fix is pending until the pushed commit completes.
 
 The report includes the earlier diagnostic-request disclosure: a mock-mismatch test sent requests
 with the deliberately fake test key and received HTTP 400. These were not benchmark attempts and

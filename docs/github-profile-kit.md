@@ -10,7 +10,7 @@ An AI-assisted runtime and CI repair agent that verifies candidate patches befor
 
 ## Resume bullets
 
-- Built Selfheal's runtime/CI incident-to-review workflow around FastAPI, PostgreSQL, MCP tools, scoped repository access, patch checks, isolated verification, and a human-reviewed PR boundary. The frozen 41-case cohort and deterministic 10-case pilot passed leakage audits. Two recorded pilot requests for one case/arm timed out before repair; no repair completed and nine cases remain unattempted, so the pilot supports no successful repair-rate claim. See the [partial measured report](../benchmarks/real_bugs/results/published/2026-11-08.md).
+- Built Selfheal's runtime/CI incident-to-review workflow around FastAPI, PostgreSQL, MCP tools, scoped repository access, patch checks, isolated verification, and a human-reviewed PR boundary. The frozen 41-case cohort and deterministic 10-case pilot passed v9 leakage audits. Five v5/v7/v8 attempts cover two selected bugs; all failed before repair, and eight IDs remain unattempted. The pilot supports no successful repair-rate claim. See the [partial measured report](../benchmarks/real_bugs/results/published/pilot-through-v8.md).
 - Fixed two Selfheal defects found during engineer-directed, Claude-assisted dogfooding: a scanner path dropped dependency findings when stderr corrupted JSON, and a worker path failed to catch a remote-verification exception. Added two scanner tests and one worker regression test in [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6); these were not Selfheal-generated repairs.
 - Ran three controlled synthetic repair-to-PR demonstrations with passing repair CI; as of 2026-11-08, demo-01 PR #16 is merged and demo-02 #13 / demo-03 #10 remain open. Separately, the 31-turn PyPDF2 repair did not converge, and ShopCart's pagination fix was manual. See the [evidence ledger](history/RECOVERED_EVIDENCE.md).
 
@@ -19,9 +19,10 @@ An AI-assisted runtime and CI repair agent that verifies candidate patches befor
 Selfheal is a Python system that receives runtime and CI failures, gathers scoped repository context
 through MCP tools, and asks a configured model to propose a patch. It checks allowed write paths and
 patch policy, then runs verification in an isolated worktree before it can open a review PR. The
-workflow is backed by CI and controlled synthetic demos. Its real-bug pilot has two failed request
-attempts for one selected case and no completed repair. I report that partial result and do not
-claim a successful real-bug repair rate.
+workflow is backed by CI and controlled synthetic demos. The separate real-bug pilot has five
+recorded attempts across two bugs: two timed out and three were rejected by Gemini because the
+adapter did not preserve signed function-call Parts. No repair completed. I report that partial
+result and make no successful real-bug repair-rate claim.
 
 The clearest lesson came from dogfooding against `multi-agent-workspace`: it exposed a scanner bug
 that hid dependency findings and a worker exception path that could stop processing. I fixed both

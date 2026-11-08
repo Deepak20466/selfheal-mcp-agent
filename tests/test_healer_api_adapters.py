@@ -6,6 +6,7 @@ mocked in tests", extended here to the three API-key backends.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -20,6 +21,12 @@ from healer.api_adapters import (
     OpenRouterClient,
 )
 from healer.backend_chain import BackendCooldownError
+
+
+def _assert_gemini_parts_equal(actual: Any, expected: Any) -> None:
+    if actual != expected:
+        pytest.fail("Gemini model Parts changed during round-trip (opaque fields suppressed)")
+
 
 TOOLS = [
     {
@@ -352,6 +359,171 @@ async def test_gemini_function_call_response(respx_mock: Any) -> None:
     assert block.type == "tool_use"
     assert block.name == "get_error"
     assert block.input == {"error_id": 9}
+
+
+async def test_gemini_preserves_function_parts_signatures_and_response_ids(
+    respx_mock: Any,
+) -> None:
+    """Model Parts must round-trip unchanged; fixture signatures are opaque mock data only."""
+    fixture_signature_1 = "offline-fixture-signature-one-not-valid-for-provider-use"
+    fixture_signature_2 = "offline-fixture-signature-two-not-valid-for-provider-use"
+    fixture_signature_3 = "offline-fixture-signature-three-not-valid-for-provider-use"
+    first_model_parts = [
+        {
+            "functionCall": {
+                "id": "fixture-call-run-tests",
+                "name": "run_tests",
+                "args": {"test_path": "tests/test_example.py"},
+            },
+            "thoughtSignature": fixture_signature_1,
+        }
+    ]
+    second_model_parts = [
+        {
+            "text": "I will inspect the implementation first.",
+            "thoughtSignature": fixture_signature_2,
+        },
+        {
+            "functionCall": {
+                "id": "fixture-call-read-file",
+                "name": "read_file",
+                "args": {"path": "src/example.py"},
+            },
+            "thoughtSignature": fixture_signature_3,
+        },
+        {
+            "functionCall": {
+                "id": "fixture-call-run-tests-again",
+                "name": "run_tests",
+                "args": {"test_path": "tests/test_example.py"},
+            },
+            "thoughtSignature": fixture_signature_1,
+        },
+    ]
+
+    async def generate(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        contents = payload["contents"]
+        if len(contents) == 1:
+            return httpx.Response(
+                200,
+                json={"candidates": [{"content": {"parts": first_model_parts}}]},
+            )
+        if len(contents) == 3:
+            # This is the exact v8 failure point: return the reported 400 if
+            # the original run_tests Part was reconstructed without its signature.
+            if contents[1]["parts"] != first_model_parts:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "code": 400,
+                            "status": "INVALID_ARGUMENT",
+                            "message": (
+                                "Function call is missing a thought_signature in "
+                                "functionCall parts."
+                            ),
+                        }
+                    },
+                )
+            assert contents[2]["parts"] == [
+                {
+                    "functionResponse": {
+                        "name": "run_tests",
+                        "id": "fixture-call-run-tests",
+                        "response": {"content": "target test failed as expected"},
+                    }
+                }
+            ]
+            return httpx.Response(
+                200,
+                json={"candidates": [{"content": {"parts": second_model_parts}}]},
+            )
+
+        assert len(contents) == 5
+        _assert_gemini_parts_equal(contents[1]["parts"], first_model_parts)
+        assert contents[2]["parts"][0]["functionResponse"]["id"] == "fixture-call-run-tests"
+        _assert_gemini_parts_equal(contents[3]["parts"], second_model_parts)
+        # Simulate tool results arriving out of order. They must still match
+        # the original function calls and retain the model's part order.
+        assert contents[4]["parts"] == [
+            {
+                "functionResponse": {
+                    "name": "read_file",
+                    "id": "fixture-call-read-file",
+                    "response": {"content": "source contents"},
+                }
+            },
+            {
+                "functionResponse": {
+                    "name": "run_tests",
+                    "id": "fixture-call-run-tests-again",
+                    "response": {"content": "target tests passed"},
+                }
+            },
+        ]
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "done"}]}}]},
+        )
+
+    route = respx_mock.post(f"{GEMINI_API_BASE}/models/gemini-2.0-flash:generateContent").mock(
+        side_effect=generate
+    )
+    client = GeminiApiClient(api_key="fake-key")
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Investigate and repair the failure."}
+    ]
+
+    first = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=TOOLS, messages=messages
+    )
+    if fixture_signature_1 in repr(first.content[0]):
+        pytest.fail("Gemini thought signature leaked through block representation")
+    messages.extend(
+        [
+            {"role": "assistant", "content": first.content},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": first.content[0].id,
+                        "content": "target test failed as expected",
+                    }
+                ],
+            },
+        ]
+    )
+    second = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=TOOLS, messages=messages
+    )
+    messages.extend(
+        [
+            {"role": "assistant", "content": second.content},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": second.content[2].id,
+                        "content": "target tests passed",
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": second.content[1].id,
+                        "content": "source contents",
+                    },
+                ],
+            },
+        ]
+    )
+    final = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=TOOLS, messages=messages
+    )
+
+    assert final.content[0].text == "done"
+    assert route.call_count == 3
 
 
 async def test_gemini_429_raises_cooldown(respx_mock: Any) -> None:

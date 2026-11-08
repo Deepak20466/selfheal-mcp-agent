@@ -5,18 +5,19 @@
 This benchmark mines historical source-and-test fixes from the pinned repositories in
 [`benchmarks/real_bugs/repos.yaml`](../benchmarks/real_bugs/repos.yaml). Mining and preparation
 produce eligible cases; they are not model repair attempts. Only JSONL records produced by
-`benchmarks.real_bugs.run` count as provider results. `benchmarks/real_bugs/results/` contains
-generated score reports when runs are scored; no provider run or score report is committed for this
-benchmark. Raw local datasets, provider run files, and generated score reports are ignored.
+`benchmarks.real_bugs.run` count as provider results. The five preserved v5/v7/v8 attempt records
+and their scorer output are committed under `benchmarks/real_bugs/results/published/`; full local
+run files remain in the ignored `results/runs/` directory.
 
-**Status: partial pilot evidence exists; the 10-case pilot is incomplete.** The predetermined
-selection remains unchanged. The saved v5 and v7 records contain two attempts for one case in the
-`with_validation` arm. Both Gemini requests timed out before patch generation. No case completed,
-nine selected cases were not attempted, and no `without_validation` case was attempted. The 41-case
-cohort remains pending and separate. The current environment does not have the required runtime
-credentials, operator attestations, fresh quota timestamp, or verified isolated database access,
-so no further live attempt was made. Exact records and the scorer output are committed under
-[`results/published/`](../benchmarks/real_bugs/results/published/).
+**Status: partial pilot evidence exists; the 10-case pilot is incomplete.** The original selection
+is unchanged. Five records are preserved across v5, v7, and v8. The v5/v7 records are the same
+case/arm ending in request timeouts. The three v8 records cover two selected case IDs and both
+arms; all ended in Gemini HTTP 400 `INVALID_ARGUMENT` because function-call history omitted the
+model's `thoughtSignature`, including a `run_tests` call. No repair completed; eight selected IDs
+remain unattempted. These outcomes and all raw records are saved under
+[`results/published/`](../benchmarks/real_bugs/results/published/) and the ignored local source run
+file is preserved unchanged. The v9 adapter fix and both leakage audits are committed separately
+from these historical outcomes. Do not resume into an existing result file.
 
 **Diagnostic-request disclosure:** before the test environment was made hermetic, one targeted
 test rerun sent unmatched diagnostic requests to Gemini's endpoint using the deliberately fake
@@ -28,8 +29,8 @@ attempts, and they produced no benchmark outcomes. See
 ## Separate 10-case pilot
 
 This pilot is a separately labeled exploratory slice, not a replacement or partial score for the
-41-case benchmark. Its original deterministic IDs are preserved in the v8 pilot file
-[`2026-11-09-gemini-3.8-flash-v8-pilot-10.json`](../benchmarks/real_bugs/frozen/2026-11-09-gemini-3.8-flash-v8-pilot-10.json).
+41-case benchmark. Its original deterministic IDs are preserved in the v9 pilot file
+[`2026-11-09-gemini-3.8-flash-v9-pilot-10.json`](../benchmarks/real_bugs/frozen/2026-11-09-gemini-3.8-flash-v9-pilot-10.json).
 The rule groups case IDs by repository family, ranks each family by ascending SHA-256 of the UTF-8
 string `selfheal-real-bug-pilot-v1:` followed by the case ID (case ID breaks ties), and takes two
 cases from each of the five families. This gives ten selected cases while spanning all five
@@ -38,29 +39,31 @@ repositories. The frozen v4 config and its hash are unchanged.
 | Pilot status | Measured value |
 |---|---:|
 | Selected | 10 |
-| Attempt records | 2 (same case and arm, v5 and v7) |
-| Unique selected cases attempted | 1 of 10 |
+| Attempt records through v8 | 5 (2 timeout records in v5/v7; 3 HTTP 400 records in v8) |
+| Unique selected cases attempted | 2 of 10 |
 | Completed repairs | 0 |
-| Resolve rate | 0/2 (0%) |
-| Resolve rate with full suite green | 0/2 (0%); verification was not reached |
+| Resolve rate | 0/5 (0%) |
+| Resolve rate with full suite green | 0/5 (0%); no full suite passed |
 | False-positive proxy versus human fix | Not measurable: 0 eligible denominator |
-| Median elapsed time | 121.046s (v5); 121.094s (v7) |
-| Provider tokens | 0 reported in both records |
-| Cost | Unknown in both records; no cost was reported |
-| Failure category | `provider_error`: 1 in v5 and 1 in v7 |
-| Not attempted | 9 of 10 pilot IDs; all no-validation arms; 41-case cohort |
+| Median elapsed time | 121.094s across the five saved attempt records |
+| Provider tokens | 6,989 reported across the five records |
+| Cost | Unknown in all five records; no billed cost was reported |
+| Failure categories | `provider_error`: 2; `repair_error`: 3 |
+| Not attempted | 8 of 10 pilot IDs; 41-case cohort |
 
-These are actual saved attempt records, not extrapolations. Neither attempt reached target tests or
-the full suite. False-positive rate is undefined because no eligible candidate passed target tests
-and the false-positive denominator requires a human-fix-passing case. The v7 record preserves the
-sanitized nested exception chain. The scorer summary is
-[`2026-11-08.json`](../benchmarks/real_bugs/results/published/2026-11-08.json), its readable table is
-[`2026-11-08.md`](../benchmarks/real_bugs/results/published/2026-11-08.md), and the source JSONL is
-[`gemini-v5-v7-attempts.jsonl`](../benchmarks/real_bugs/results/published/gemini-v5-v7-attempts.jsonl).
+These are saved attempts, not extrapolations. No repair resolved and no full suite passed. The
+false-positive proxy is undefined because its denominator is zero. The scorer summary is
+[`pilot-through-v8.json`](../benchmarks/real_bugs/results/published/pilot-through-v8.json), its
+readable table is [`pilot-through-v8.md`](../benchmarks/real_bugs/results/published/pilot-through-v8.md),
+and the preserved five-record source is
+[`gemini-v5-v8-attempts.jsonl`](../benchmarks/real_bugs/results/published/gemini-v5-v8-attempts.jsonl).
+The original v8 three-record run file remains unmodified at
+`benchmarks/real_bugs/results/runs/gemini-v8-pilot-10.jsonl` in the local results directory.
 
 The selected pilot contexts passed independent leakage audits with zero dropped IDs in v4, v7,
-and v8. The full v8 cohort audit passed all 41 cases with zero leakage-driven drops; its pilot
-audit passed all 10. See the v8 audit files alongside the config.
+v8, and v9. The v9 full cohort audit passed all 41 cases; its pilot audit passed all 10. The v9
+freeze preserves the original IDs and rules while recording that it postdates prior attempts. See
+the v9 audit files alongside the config.
 The 20/20 synthetic fixture benchmark is historical evidence only and is not part of this pilot
 or the pending 41-case real-bug benchmark.
 
@@ -68,10 +71,12 @@ or the pending 41-case real-bug benchmark.
 
 v4 froze the original 41-case cohort and pilot selection; v5 corrected database initialization
 ordering; v6 added sanitized exception-chain evidence; v7 made workspace snapshots collision-free
-on Windows; v8 corrected Gemini request deadline propagation. Each version preserves the prior
-version as history. v8 hash: `f270ac813c88bc776b1b958d84d4f9158bacbae01b0007bddb2e9b53ee5a3b1b`.
-Its source hashes and leakage audit are recorded in the frozen files. The v8 change does not alter
-cases, prompts, scoring, or limits.
+on Windows; v8 propagated the request deadline; v9 preserves complete Gemini model Parts, including
+opaque `thoughtSignature` values, and maps responses to the exact function names and IDs. The
+v8 hash is `f270ac813c88bc776b1b958d84d4f9158bacbae01b0007bddb2e9b53ee5a3b1b`; the v9 hash is
+`ffb0dd226184027dde73ca031e7c88cd4e51aa2c6f366e7ea2ccbc7063da0e33`. v9 changes neither cases,
+prompts, limits, nor scoring. Its source hashes and two leakage audits are included in the frozen
+files.
 
 ## Case selection
 
@@ -139,7 +144,7 @@ $env:GEMINI_QUOTA_CHECKED_UTC = "<current UTC timestamp ending in Z>"
 $env:GEMINI_38_FLASH_FREE_QUOTA = "true"
 ```
 
-To reproduce the separate v8 pilot after the operator has independently checked and set every
+To resume the separate v9 pilot after the operator has independently checked and set every
 required value (including a fresh UTC quota timestamp and `PGPASSWORD`), use this exact runner
 command. It loads the already frozen ten IDs, runs both arms, caps each case at 40,000 tokens and
 zero reported cost, applies the 240-second case timeout, and uses resume semantics. The runner
@@ -149,12 +154,12 @@ provider or model.
 ```powershell
 python -m benchmarks.real_bugs.run `
   --provider gemini_api `
-  --case-list benchmarks/real_bugs/frozen/2026-11-09-gemini-3.8-flash-v8-pilot-10.json `
-  --run-file benchmarks/real_bugs/results/runs/gemini-v8-pilot-10.jsonl `
+  --case-list benchmarks/real_bugs/frozen/2026-11-09-gemini-3.8-flash-v9-pilot-10.json `
+  --run-file benchmarks/real_bugs/results/runs/gemini-v9-pilot-10.jsonl `
   --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
-This command is a reproduction instruction, not evidence that a v8 provider run occurred. Preserve
+This command is a reproduction instruction, not evidence that a v9 provider run occurred. Preserve
 the JSONL on interruption; do not delete failed rows or selectively retry them.
 
 The Gemini quota timestamp must be checked against AI Studio immediately before the run; the
@@ -217,18 +222,20 @@ counted as resolved and as a false-positive proxy, preserving both facts.
 
 ## Where it fails
 
-Both observed v5/v7 attempts failed before repair: the saved exception chain ends in
-`httpx.ReadTimeout` from the Gemini `generateContent` HTTP request. The preceding benchmark
-bootstrap and `get_error` tool call use in-memory MCP transport; no MCP network request was active
-at the timeout. The runner had a 240-second case deadline but the adapter kept a hardcoded
-120-second HTTP timeout, which caused the request to expire early. v8 propagates the remaining
-case budget into HTTPX and emits a sanitized timeout classification; tests verify propagation and
-that expired deadlines do not start requests. Evidence cannot establish whether Gemini itself or
-the network path stalled. Current execution is blocked at preflight: all required Gemini runtime
-values/attestations and PostgreSQL password are unavailable, and quota freshness cannot be
-verified. This blocker is not a benchmark case and is not in the denominator.
+The two v5/v7 attempts failed before repair: the saved exception chain ends in `httpx.ReadTimeout`
+from Gemini `generateContent`. The benchmark's in-memory MCP setup and `get_error` tool call were
+not network operations. Its 120-second adapter timeout did not inherit the 240-second case
+deadline. v8 propagated the remaining case budget and added sanitized timeout classification.
+Separately, all three v8 attempts failed with Gemini HTTP 400 `INVALID_ARGUMENT`: conversation
+reconstruction dropped the original model Part's `thoughtSignature`, and used a local tool-use ID
+as `functionResponse.name` instead of the function name/provider call ID. The returned error named
+`default_api:run_tests`. v9 now returns complete model Parts unchanged and emits matching function
+responses in source-call order. Offline tests simulate the 200 → `run_tests` → 400 path, followed
+by sequential and parallel function calls. No live request was used to verify the fix. This follows
+Google's [function-calling guidance](https://ai.google.dev/gemini-api/docs/generate-content/function-calling):
+return original Parts with signatures and include matching function-call IDs in responses.
 
-The frozen v8 cohort contains 41 IDs and its leakage audit passes with zero drops; the separate
+The frozen v9 cohort contains 41 IDs and its leakage audit passes with zero drops; the separate
 10-ID pilot audit also passes with zero drops. Before the cohort freeze, 75 candidates were
 discarded because preparation found flaky tests or a human fix that did not pass; 127 candidates
 were not prepared at freeze time. Those selection exclusions are not pilot attempts.
@@ -248,16 +255,14 @@ were not prepared at freeze time. Those selection exclusions are not pilot attem
 - The no-policy arm still uses the OS test sandbox for security. It does not estimate outcomes on an
   unsafe host runner.
 - Results are per attempt and can be affected by model nondeterminism, rate limits, timeouts, and
-  token budgets. The two observed attempt records are failures and both remain in the denominator;
-  no retry was made to improve their scores.
+  token budgets. All five v5/v7/v8 records remain in the denominator; prior records were preserved,
+  not selectively rerun to improve scores.
 - The 10-case pilot is a deterministic, five-repository slice and is too small to estimate
   performance over the full frozen list. Selection by repository-stratified hash is reproducible
-  but is not a random sample of real-world bugs. Only one of ten selected IDs was attempted, once
-  per v5 and v7; these two requests are not independent samples. No repair-quality result can be
-  inferred from this failure-only partial record.
-- Full-suite-green resolve rate is 0/2 because neither attempt got to tests; the false-positive
-  proxy has no eligible denominator. Provider token usage was reported as zero, which means no
-  generation usage was returned in these records; billed cost is unknown, not zero.
-- The current environment preflight lacks required credentials, operator attestations, fresh quota
-  evidence, and database authentication. No new provider request was made. Operator attestations
-  and quota timestamp must be refreshed by the operator after checking the exact free-tier account.
+  but is not a random sample of real-world bugs. Only two of ten selected IDs appear in the five
+  records, and the v5/v7 records repeat the same case/arm across versions. No repair-quality result
+  can be inferred from this failure-only partial record.
+- Full-suite-green resolve rate is 0/5; false-positive proxy has no eligible denominator. The five
+  attempt rows report 6,989 tokens total; billed cost is unknown, not zero.
+- No new provider request or database operation was made to implement or test the adapter fix. A
+  future live resume still requires the operator's quota and database preflight to pass.

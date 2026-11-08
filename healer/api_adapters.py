@@ -23,6 +23,7 @@ plain `RuntimeError` for anything else (a normal failure, per the task's
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import random
 from dataclasses import dataclass, field
@@ -59,6 +60,8 @@ class _Block:
     id: str | None = None
     name: str | None = None
     input: dict[str, Any] = field(default_factory=dict)
+    gemini_part: dict[str, Any] | None = field(default=None, repr=False)
+    gemini_call_id: str | None = None
 
 
 @dataclass
@@ -417,6 +420,7 @@ class _GeminiMessages:
 
     def _to_gemini_contents(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
+        pending_calls: dict[str, tuple[str, str | None]] = {}
         for msg in messages:
             role = msg["role"]
             content = msg["content"]
@@ -427,32 +431,76 @@ class _GeminiMessages:
                 continue
             if role == "assistant":
                 parts: list[dict[str, Any]] = []
+                pending_calls = {}
                 for block in content:
                     block_type = block.type if isinstance(block, _Block) else block.get("type")
+                    raw_part = (
+                        block.gemini_part if isinstance(block, _Block) else block.get("gemini_part")
+                    )
+                    if isinstance(raw_part, dict):
+                        # Gemini 3 thought signatures are opaque, model-generated
+                        # values. Return each original Part byte-for-byte at the
+                        # JSON-value level and in its original position.
+                        parts.append(copy.deepcopy(raw_part))
+                        if block_type == "tool_use":
+                            block_id = block.id if isinstance(block, _Block) else block.get("id")
+                            name = block.name if isinstance(block, _Block) else block.get("name")
+                            call_id = (
+                                block.gemini_call_id
+                                if isinstance(block, _Block)
+                                else block.get("gemini_call_id")
+                            )
+                            if isinstance(block_id, str) and isinstance(name, str):
+                                pending_calls[block_id] = (
+                                    name,
+                                    call_id if isinstance(call_id, str) else None,
+                                )
+                        continue
                     if block_type == "text":
                         text = block.text if isinstance(block, _Block) else block.get("text")
                         if text:
                             parts.append({"text": text})
                     elif block_type == "tool_use":
+                        block_id = block.id if isinstance(block, _Block) else block.get("id")
                         name = block.name if isinstance(block, _Block) else block.get("name")
                         args = block.input if isinstance(block, _Block) else block.get("input", {})
                         parts.append({"functionCall": {"name": name, "args": args}})
+                        if isinstance(block_id, str) and isinstance(name, str):
+                            call_id = (
+                                block.gemini_call_id
+                                if isinstance(block, _Block)
+                                else block.get("gemini_call_id")
+                            )
+                            pending_calls[block_id] = (
+                                name,
+                                call_id if isinstance(call_id, str) else None,
+                            )
                 out.append({"role": "model", "parts": parts})
             else:
                 parts = []
+                result_items = {
+                    item.get("tool_use_id", ""): item
+                    for item in content
+                    if isinstance(item, dict) and item.get("type") == "tool_result"
+                }
+                if result_items.keys() - pending_calls.keys():
+                    raise ValueError("Gemini function response has no matching function call")
+                for block_id, (name, call_id) in pending_calls.items():
+                    item = result_items.get(block_id)
+                    if item is None:
+                        raise ValueError("Gemini function call has no matching function response")
+                    function_response: dict[str, Any] = {
+                        "name": name,
+                        "response": {"content": str(item.get("content", ""))},
+                    }
+                    if call_id is not None:
+                        function_response["id"] = call_id
+                    parts.append({"functionResponse": function_response})
                 for item in content:
-                    if isinstance(item, dict) and item.get("type") == "tool_result":
-                        parts.append(
-                            {
-                                "functionResponse": {
-                                    "name": item.get("tool_use_id", ""),
-                                    "response": {"content": str(item.get("content", ""))},
-                                }
-                            }
-                        )
-                    elif isinstance(item, dict) and item.get("type") == "text":
+                    if isinstance(item, dict) and item.get("type") == "text":
                         parts.append({"text": item.get("text", "")})
                 out.append({"role": "user", "parts": parts})
+                pending_calls = {}
         # Privacy guard, defense-in-depth (terminal-only v1.0 Step 5): see
         # the matching comment in _GroqMessages._to_openai_messages above.
         for m in out:
@@ -526,19 +574,39 @@ class _GeminiMessages:
         blocks: list[_Block] = []
         call_index = 0
         for part in parts:
-            if "text" in part:
-                blocks.append(_Block(type="text", text=part["text"]))
-            elif "functionCall" in part:
+            if not isinstance(part, dict):
+                continue
+            if "functionCall" in part:
                 call = part["functionCall"]
                 call_index += 1
+                provider_call_id = call.get("id")
+                block_id = (
+                    provider_call_id
+                    if isinstance(provider_call_id, str) and provider_call_id
+                    else f"call_{call_index}"
+                )
                 blocks.append(
                     _Block(
                         type="tool_use",
-                        id=f"call_{call_index}",
+                        id=block_id,
                         name=call["name"],
                         input=dict(call.get("args", {})),
+                        gemini_part=copy.deepcopy(part),
+                        gemini_call_id=(
+                            provider_call_id
+                            if isinstance(provider_call_id, str) and provider_call_id
+                            else None
+                        ),
                     )
                 )
+            elif "text" in part:
+                blocks.append(
+                    _Block(type="text", text=part["text"], gemini_part=copy.deepcopy(part))
+                )
+            else:
+                # Preserve unrecognized model Parts too: Gemini 3 can attach
+                # signatures to Parts other than function calls.
+                blocks.append(_Block(type="gemini_part", gemini_part=copy.deepcopy(part)))
 
         usage_meta = body.get("usageMetadata", {})
         return _Response(

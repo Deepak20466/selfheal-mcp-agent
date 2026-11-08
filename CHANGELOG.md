@@ -3,6 +3,12 @@
 ## Unreleased — 2026-11-07
 
 ### Fixed
+- **Gemini function-call history**: preserve each complete original model Part (including opaque
+  thought signatures) in subsequent `generateContent` requests. Match function responses by the
+  returned function name and call ID, preserving model Part/call order for sequential and parallel
+  calls. Added offline regressions for the reported `run_tests` HTTP 400 and multi-call histories.
+  Frozen v9 keeps the v4-v8 files, original 41 cases, and pilot IDs unchanged; both v9 leakage
+  audits pass.
 - **Gemini benchmark request deadline propagation**: the runner now passes the remaining case
   deadline to the Gemini HTTP client instead of allowing its fixed 120-second timeout to outlive
   the runner's case budget. HTTPX timeouts are classified at the provider-request boundary with
@@ -10,11 +16,10 @@
   pilot IDs. Regression coverage checks timeout propagation and prevents requests after expiry.
 
 ### Evidence
-- The saved v5 and v7 records contain two attempts for the same case and validation arm; both
-  timed out before patch generation. No repair completed and nine pilot cases remain unattempted.
-  Current operator credentials, attestations, fresh quota, and isolated database authentication
-  are unavailable, so live execution remains blocked. See `docs/benchmark-real-bugs.md` for the
-  measured partial results and limitations.
+- Five saved v5/v7/v8 attempt records cover two bugs: two request timeouts and three Gemini HTTP
+  400 errors from missing thought signatures. No repair completed; eight pilot IDs remain
+  unattempted. The saved score report and raw records are linked from
+  `docs/benchmark-real-bugs.md`. No new Gemini request was made for the v9 fix.
 
 ### Added
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
