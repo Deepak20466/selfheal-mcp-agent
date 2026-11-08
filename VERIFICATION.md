@@ -22,7 +22,8 @@ benchmark regressions **2 passed**. Repository-wide Ruff and formatting passed (
 scoped mypy passed for `core sentinel mcp_server healer` and the runner (**90 source files**). A
 full local pytest invocation could not start because the repository's
 session fixture tried its default local PostgreSQL endpoint at `localhost:5432`, which refused
-the connection. No database was created or changed. GitHub CI is pending for the new commit.
+the connection. No database was created or changed. GitHub `test` and `k8s` checks both passed on
+commit `650b611` (PR #49).
 VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch
 workflow is documented in [`docs/groqcloud-repair.md`](docs/groqcloud-repair.md).
 
