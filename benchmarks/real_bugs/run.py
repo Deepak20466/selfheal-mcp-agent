@@ -70,6 +70,38 @@ class RateLimitBackoffActive(RuntimeError):
         super().__init__("provider cooldown remains active")
 
 
+def _exception_chain_summary(error: BaseException, *, max_chars: int = 2000) -> str:
+    """Describe grouped and chained errors without persisting an unsanitized traceback."""
+    from sentinel.scrubber import scrub_text
+
+    lines: list[str] = []
+    seen: set[int] = set()
+
+    def visit(current: BaseException, relation: str, depth: int) -> None:
+        if id(current) in seen or depth > 8 or len(lines) >= 16:
+            return
+        seen.add(id(current))
+        try:
+            message = str(current)
+        except Exception:
+            message = "<exception message unavailable>"
+        summary = scrub_text(f"{relation}{type(current).__name__}: {message}")
+        lines.append(summary[:1000])
+
+        if isinstance(current, BaseExceptionGroup):
+            for nested in current.exceptions:
+                visit(nested, "nested exception: ", depth + 1)
+
+        cause = current.__cause__
+        if cause is not None:
+            visit(cause, "caused by: ", depth + 1)
+        elif current.__context__ is not None and not current.__suppress_context__:
+            visit(current.__context__, "during handling: ", depth + 1)
+
+    visit(error, "", 0)
+    return " | ".join(lines)[:max_chars]
+
+
 @dataclass
 class UsageMeter:
     token_limit: int
@@ -482,7 +514,6 @@ async def _run_arm_inner(
     from mcp_server import git_utils
     from mcp_server.sandbox import REPO_ROOT
     from mcp_server.server import mcp
-    from sentinel.scrubber import scrub_text
 
     case_id_value = metadata["case_id"]
     connected_path = REPO_ROOT / "connected_apps" / "real_bugs" / case_id_value / arm
@@ -599,7 +630,7 @@ async def _run_arm_inner(
         rate_limited = exc.status_code == 429
         category = "rate_limited" if rate_limited else "provider_error"
         retry_after_seconds = exc.retry_after_seconds
-        stop_message = scrub_text(f"{type(exc).__name__}: {exc}")[:2000]
+        stop_message = _exception_chain_summary(exc)
     except Exception as exc:
         category = (
             "provider_error"
@@ -607,7 +638,7 @@ async def _run_arm_inner(
             or not any(e["tool"] in {"run_tests", "propose_patch"} for e in trace.events)
             else "repair_error"
         )
-        stop_message = scrub_text(f"{type(exc).__name__}: {exc}")[:2000]
+        stop_message = _exception_chain_summary(exc)
         if trace is not None:
             events = list(trace.events)
             if trace.last_patch:

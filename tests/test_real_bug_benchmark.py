@@ -34,6 +34,21 @@ def _git(repository: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+def test_exception_group_summary_records_sanitized_nested_cause() -> None:
+    nested = TimeoutError("provider request timed out; token=do-not-record-this")
+    error = ExceptionGroup(
+        "unhandled errors in a TaskGroup (1 sub-exception)",
+        [ExceptionGroup("server task failed", [nested])],
+    )
+
+    summary = run_module._exception_chain_summary(error)
+
+    assert "ExceptionGroup: unhandled errors in a TaskGroup" in summary
+    assert "TimeoutError: provider request timed out" in summary
+    assert "[REDACTED]" in summary
+    assert "do-not-record-this" not in summary
+
+
 def _historical_repo(root: Path) -> tuple[Path, str, str]:
     repository = root / "upstream"
     repository.mkdir()
