@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — 2026-11-09
+
+### Fixed
+- **Groq temporary TPM exhaustion after a successful turn**: the v3 diagnostic showed a 6,818-token
+  prompt estimate with 5,936 TPM remaining after one successful API response. V4 now waits once for
+  the exact server token-reset header only if the unchanged conversation plus minimum output fits a
+  fresh 8,000-token window and the request deadline permits it. If no usable reset time is available,
+  or the request cannot fit a fresh window, the adapter stops before sending. Offline regressions
+  cover both the exact 6,818/5,936 case and a request that cannot fit a fresh allowance.
+
+### Evidence
+- Preserved v3 diagnostic: one successful provider response (1,505 input and 89 output tokens),
+  then a local budget rejection; 2.438 seconds, cost unknown, and no repair. V4 keeps all 41 cases,
+  the original pilot IDs, prompts, and scoring; the full, pilot, and diagnostic leakage audits pass.
+  No v4 provider request was made.
+- VIMJ PR #1 remains a separate Codex-assisted SQLite timestamp repair, not a Selfheal repair. Its
+  backend suite and PR CI passed; production PostgreSQL behavior was not verified.
+
 ## Unreleased — 2026-11-07
 
 ### Fixed
@@ -32,10 +50,10 @@
 
 ### Added
 - **Separate GroqCloud frozen benchmark**: preserves v1/v2 freezes and their two diagnostic
-  failures, and adds v3 with the same 41 cases, original ten pilot IDs, prompts, scoring rules, and
-  case limits. Full, pilot, and one-case v3 diagnostic leakage audits pass. The v3 diagnostic is
-  unattempted; no repair result is claimed. See `docs/groqcloud-repair.md` for the operator-run
-  command and isolated VIMJ testing workflow.
+  failures, and adds v3/v4 with the same 41 cases, original ten pilot IDs, prompts, scoring rules,
+  and case limits. V3 recorded one failed diagnostic after one successful API response; V4 adds a
+  bounded wait for the exact TPM reset header and passes all three leakage audits. No repair result
+  is claimed. See `docs/groqcloud-repair.md` for the operator-run command and VIMJ evidence.
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL
   records, and result scoring. Offline fixture tests cover mining, preparation, and scoring. No

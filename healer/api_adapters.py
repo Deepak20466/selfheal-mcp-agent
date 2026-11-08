@@ -422,6 +422,7 @@ class _GroqMessages:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         requested_max_tokens: int,
+        available_tpm_override: int | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int]:
         converted_tools = self._to_openai_tools(tools)
         base_messages = self._to_openai_messages(system, messages)
@@ -432,7 +433,11 @@ class _GroqMessages:
             for call in message.get("tool_calls", [])
         }
         requested_output = min(int(requested_max_tokens), GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST)
-        available_tpm = self._available_tpm_tokens(time.monotonic())
+        available_tpm = (
+            self._available_tpm_tokens(time.monotonic())
+            if available_tpm_override is None
+            else min(GROQ_TPM_LIMIT_TOKENS, max(0, available_tpm_override))
+        )
         compression_levels = [8192, 4096, 2048, 1024, 512, 256, 128]
         last_prompt_bound = 0
         for output_limit in compression_levels:
@@ -571,9 +576,65 @@ class _GroqMessages:
         requested_max_tokens = int(kwargs.get("max_tokens", GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST))
         if requested_max_tokens <= 0:
             raise ValueError("max_tokens must be a positive number")
-        groq_messages, groq_tools, prompt_bound, max_tokens = self._prepare_groq_messages(
-            system, messages, tools, requested_max_tokens
-        )
+        try:
+            groq_messages, groq_tools, prompt_bound, max_tokens = self._prepare_groq_messages(
+                system, messages, tools, requested_max_tokens
+            )
+        except GroqRequestBudgetError as current_budget_error:
+            try:
+                self._prepare_groq_messages(
+                    system,
+                    messages,
+                    tools,
+                    requested_max_tokens,
+                    available_tpm_override=GROQ_TPM_LIMIT_TOKENS,
+                )
+            except GroqRequestBudgetError as fresh_budget_error:
+                raise GroqRequestBudgetError(
+                    "Groq request not sent: prompt/tool history cannot fit a fresh "
+                    f"{GROQ_TPM_LIMIT_TOKENS}-token TPM window; {fresh_budget_error}"
+                ) from current_budget_error
+
+            now = time.monotonic()
+            reset_at = self._server_token_reset_at
+            wait_seconds = reset_at - now if reset_at is not None else None
+            remaining_request_seconds = request_deadline - now
+            if wait_seconds is None or wait_seconds <= 0:
+                raise GroqRequestBudgetError(
+                    "Groq request not sent: it can fit a fresh TPM window but the server "
+                    "did not provide a usable token-reset time; "
+                    f"{current_budget_error}"
+                ) from current_budget_error
+            if wait_seconds > GROQ_TPM_MAX_RETRY_AFTER_SECONDS:
+                raise GroqRequestBudgetError(
+                    "Groq request not sent: it can fit a fresh TPM window but the server "
+                    f"reset delay exceeds the {GROQ_TPM_MAX_RETRY_AFTER_SECONDS:g}-second "
+                    f"wait bound; remaining deadline={remaining_request_seconds:.3f}s"
+                ) from current_budget_error
+            if wait_seconds + 1.0 >= remaining_request_seconds:
+                raise GroqAPIRequestTimeout(
+                    "Groq TPM reset wait would exhaust the remaining request deadline"
+                ) from current_budget_error
+
+            logger.warning(
+                "provider.request.waiting_for_tpm_reset",
+                backend="groq_api",
+                current_available_tpm_tokens=self._available_tpm_tokens(now),
+                fresh_tpm_limit_tokens=GROQ_TPM_LIMIT_TOKENS,
+                reset_wait_seconds=round(wait_seconds, 3),
+            )
+            await asyncio.sleep(wait_seconds)
+            if request_deadline - time.monotonic() <= 0:
+                raise GroqAPIRequestTimeout(
+                    "Groq TPM reset wait exhausted the remaining request deadline"
+                ) from current_budget_error
+            # The server's reset header is the signal for a replenished window.
+            self._server_remaining_tokens = GROQ_TPM_LIMIT_TOKENS
+            self._server_remaining_observed_at = time.monotonic()
+            self._server_token_reset_at = None
+            groq_messages, groq_tools, prompt_bound, max_tokens = self._prepare_groq_messages(
+                system, messages, tools, requested_max_tokens
+            )
         remaining_request_seconds = request_deadline - time.monotonic()
         if remaining_request_seconds <= 0:
             raise GroqAPIRequestTimeout("Groq request deadline expired during local preflight")

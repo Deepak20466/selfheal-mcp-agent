@@ -699,6 +699,186 @@ async def test_groq_v2_context_growth_compacts_list_files_without_breaking_tool_
     )
 
 
+async def test_groq_v3_budget_waits_for_reset_when_history_fits_fresh_tpm(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    original_estimate = api_adapters._groq_prompt_token_estimate
+
+    def estimate_history(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> int:
+        if any(message.get("role") == "tool" for message in messages):
+            return 6818
+        return original_estimate(messages, tools)
+
+    monkeypatch.setattr(api_adapters.asyncio, "sleep", record_sleep)
+    monkeypatch.setattr(api_adapters, "_groq_prompt_token_estimate", estimate_history)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                headers={
+                    "x-ratelimit-remaining-tokens": "5936",
+                    "x-ratelimit-reset-tokens": "5s",
+                },
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_read_context",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "get_error",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 1505, "completion_tokens": 89},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "continue repair"}}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                },
+            ),
+        ]
+    )
+    client = GroqClient(api_key="offline-test-key")
+    initial = [
+        {"role": "user", "content": "Repair the failing test without changing its contract."}
+    ]
+    first = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=TOOLS, messages=initial
+    )
+    history = initial + [
+        {"role": "assistant", "content": first.content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_read_context",
+                    "content": "failing test and relevant source context",
+                }
+            ],
+        },
+    ]
+
+    second = await client.messages.create(
+        model=None,
+        max_tokens=4096,
+        system=[],
+        tools=TOOLS,
+        messages=history,
+        request_timeout_seconds=120,
+    )
+
+    assert second.content[0].text == "continue repair"
+    assert delays == [5.0]
+    assert route.call_count == 2
+    resumed_request = json.loads(route.calls[1].request.content)
+    assert resumed_request["max_tokens"] == 1182
+    assert resumed_request["max_tokens"] + 6818 == 8000
+    assistant_message = next(
+        message for message in resumed_request["messages"] if message.get("tool_calls")
+    )
+    tool_message = next(
+        message for message in resumed_request["messages"] if message["role"] == "tool"
+    )
+    assert assistant_message["tool_calls"][0]["id"] == "call_read_context"
+    assert tool_message["tool_call_id"] == "call_read_context"
+    assert tool_message["content"] == "failing test and relevant source context"
+
+
+async def test_groq_v3_budget_rejects_history_that_cannot_fit_fresh_tpm(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+    from healer.api_adapters import GroqRequestBudgetError
+
+    original_estimate = api_adapters._groq_prompt_token_estimate
+
+    def estimate_history(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> int:
+        if any(message.get("role") == "tool" for message in messages):
+            return 7800
+        return original_estimate(messages, tools)
+
+    monkeypatch.setattr(api_adapters, "_groq_prompt_token_estimate", estimate_history)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            headers={
+                "x-ratelimit-remaining-tokens": "5936",
+                "x-ratelimit-reset-tokens": "5s",
+            },
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "call_context",
+                                    "type": "function",
+                                    "function": {"name": "get_error", "arguments": "{}"},
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1505, "completion_tokens": 89},
+            },
+        )
+    )
+    client = GroqClient(api_key="offline-test-key")
+    initial = [{"role": "user", "content": "Repair the failing test."}]
+    first = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=TOOLS, messages=initial
+    )
+    history = initial + [
+        {"role": "assistant", "content": first.content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_context",
+                    "content": "source and test evidence",
+                }
+            ],
+        },
+    ]
+
+    with pytest.raises(GroqRequestBudgetError, match="cannot fit a fresh 8000-token TPM window"):
+        await client.messages.create(
+            model=None,
+            max_tokens=4096,
+            system=[],
+            tools=TOOLS,
+            messages=history,
+            request_timeout_seconds=120,
+        )
+
+    assert route.call_count == 1
+
+
 async def test_groq_request_too_large_fails_closed_without_dropping_read_file_evidence(
     respx_mock: Any,
 ) -> None:

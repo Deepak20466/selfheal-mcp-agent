@@ -112,12 +112,32 @@ does not establish free quota for the operator's account. Codex made no live Gro
 | Groq v1 diagnostic | 1 attempt; `attrs-73dc0d2e2860`; HTTP 429 TPM |
 | Groq v1 completed repairs | 0; target/full suite did not pass |
 | Groq v2 diagnostic | 2 arm attempts; TPM 429 and HTTP 400; 0 repairs |
-| Groq v3 diagnostic attempts / repairs | 0 / 0 |
-| v3 resolve rate / full-suite-green resolve rate | Not measured |
-| v3 false-positive proxy, time, tokens, cost | Not measured |
+| Groq v3 diagnostic attempts / completed repairs | 1 / 0 |
+| Groq v3 successful API responses before stop | 1; next request was rejected locally before sending |
+| Groq v3 target-test pass | 0/1 |
+| Groq v3 full-suite-green resolve | 0/1 |
+| Groq v3 elapsed time | 2.438s |
+| Groq v3 reported tokens | 1,505 input + 89 output = 1,594 |
+| Groq v3 reported cost | Unknown; provider returned no billed-cost value |
+| Groq v3 failure | Prompt estimate 6,818 exceeded 5,936 remaining TPM after a successful turn; no repair completed |
+| Groq v4 diagnostic / official pilot attempts | 0 / 0 |
 | Account free quota and billing state | Operator verification required |
 
-The fresh v3 diagnostic command and separate VIMJ safe testing workflow are documented in
+The one v3 diagnostic attempt is preserved at
+[`groq-v3-diagnostic-1.jsonl`](../benchmarks/real_bugs/results/published/groq-v3-diagnostic-1.jsonl).
+Its scorer label is `provider_error`; the detailed record shows a local `GroqRequestBudgetError`
+after one successful response. The conversation included the initial repair prompt, the model's
+tool-call history, and `get_error`/`read_file` context. The saved artifact does not retain per-message
+sizes, so it cannot establish the precise contribution of each item.
+
+V4 preserves the 41 cases and original 10 pilot IDs, with unchanged prompts and scoring. It adds a
+single wait based only on the server token-reset header when the complete prompt and minimum output
+fit a fresh 8,000-TPM window and the request deadline allows it; histories that cannot fit a fresh
+window still fail locally. Full, pilot, and diagnostic leakage audits pass. V4 has not been run.
+Its hash is `f63154b3b6b9fa110a450ff69a524753f335652f6c6c80eb5824c948ce7b8335`; v1-v3 configs and
+all prior result rows remain unchanged.
+
+The fresh v4 diagnostic command and separate VIMJ safe testing workflow are documented in
 [`groqcloud-repair.md`](groqcloud-repair.md). Its JSONL path is separate from Gemini results and
 from the official ten-case Groq pilot. Run it only after verifying free quota and disabled paid
 billing; retain failures and timeouts as recorded.
@@ -290,6 +310,12 @@ by sequential and parallel function calls. No live request was used to verify th
 Google's [function-calling guidance](https://ai.google.dev/gemini-api/docs/generate-content/function-calling):
 return original Parts with signatures and include matching function-call IDs in responses.
 
+The separate Groq v3 diagnostic made one successful API call and then rejected the next request
+locally: its prompt estimate was 6,818 tokens while the observed remaining TPM was 5,936. The raw
+record traces `get_error` and `read_file` but does not preserve per-message sizes. No repair was
+attempted after the budget rejection. V4 can wait once for a server reset header if the estimated
+request fits a fresh window and the case deadline allows; that behavior has offline tests only.
+
 The frozen v9 cohort contains 41 IDs and its leakage audit passes with zero drops; the separate
 10-ID pilot audit also passes with zero drops. Before the cohort freeze, 75 candidates were
 discarded because preparation found flaky tests or a human fix that did not pass; 127 candidates
@@ -312,6 +338,9 @@ were not prepared at freeze time. Those selection exclusions are not pilot attem
 - Results are per attempt and can be affected by model nondeterminism, rate limits, timeouts, and
   token budgets. All five v5/v7/v8 records remain in the denominator; prior records were preserved,
   not selectively rerun to improve scores.
+- Groq's v3 diagnostic is a separate one-case experiment, not part of the Gemini pilot denominator
+  or the official Groq pilot. Its byte-based token estimate is heuristic, and its result does not
+  prove whether an eventual 1,182-token completion cap can produce a repair.
 - The 10-case pilot is a deterministic, five-repository slice and is too small to estimate
   performance over the full frozen list. Selection by repository-stratified hash is reproducible
   but is not a random sample of real-world bugs. Only two of ten selected IDs appear in the five

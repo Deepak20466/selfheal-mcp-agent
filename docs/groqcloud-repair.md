@@ -5,11 +5,11 @@
 `groq_api` reuses the project's OpenAI-compatible chat-completions adapter and the existing
 Selfheal repair loop. The default and frozen model is `openai/gpt-oss-120b`. The adapter carries
 assistant tool-call IDs and matching tool results across turns, including ordered batches of
-returned calls. Before each request it conservatively estimates prompt size, includes tool schemas,
+returned calls. Before each request it estimates prompt size, includes tool schemas,
 and reduces the output reservation so the prompt plus completion fits the lower of the documented
 131,072-token context window and the configured 8,000-token free-tier TPM window (or a lower
-server-reported remaining-token count). The estimate is a UTF-8 JSON byte upper bound with framing
-allowance; it does not rely on an unverified tokenizer. Oversized `list_files` output is compacted
+server-reported remaining-token count). The estimate is a UTF-8 JSON byte heuristic with framing
+allowance; it does not rely on an unverified tokenizer and is not exact token telemetry. Oversized `list_files` output is compacted
 to an explicit, evenly spaced sample that can be re-queried by glob. Oversized test output retains
 test names, errors, exception text and traceback lines and marks omitted log lines. `read_file`
 content is never truncated; if diagnostic context cannot fit, the adapter reports the budget and
@@ -94,7 +94,23 @@ V3 is frozen in
 [`the Groq v3 config`](../benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3.json),
 SHA-256 `9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Its leakage audits
 pass for 41/41 cases, the original pilot 10/10, and the diagnostic 1/1. V1/v2 config files,
-attempt records, and all Gemini evidence remain unchanged. The v3 diagnostic has not been run.
+attempt records, and all Gemini evidence remain unchanged. V3 has one preserved diagnostic attempt:
+[`groq-v3-diagnostic-1.jsonl`](../benchmarks/real_bugs/results/published/groq-v3-diagnostic-1.jsonl).
+It made one successful API call (1,505 input/89 output tokens), then its next request was stopped
+locally with `prompt_estimate=6818` and `available_tpm=5936`. Runtime was 2.438s, cost was not
+reported, and no repair completed. The trace contains `get_error` and `read_file`; the artifact does
+not record per-message sizes, so their exact contribution cannot be separated. The runner labels the
+failure `provider_error`, while the detailed cause is a local `GroqRequestBudgetError`.
+
+Frozen v4 addresses the confirmed temporary-window blocker without changing the cohort, prompts,
+scoring, timeouts, or caps. When the request can fit a fresh 8,000-token window, the adapter waits
+once for the exact `x-ratelimit-reset-tokens` time, bounded to 60 seconds and the request deadline.
+It stops without another request if the prompt plus minimum output cannot fit a fresh window or if
+the server did not provide usable reset timing. The prompt estimate remains heuristic, so this is a
+safe bounded attempt rather than a guarantee that the account will accept the request. V4 hash:
+`f63154b3b6b9fa110a450ff69a524753f335652f6c6c80eb5824c948ce7b8335`. Leakage audits pass for
+41/41, 10/10, and 1/1. V1-v3 freezes and all historical results are unchanged; no v4 provider run
+has occurred.
 
 Before running, the operator must independently verify the Groq free tier and billing state, set
 the required operator attestations, and provide `GROQ_API_KEY` privately in the external shell.
@@ -102,26 +118,26 @@ the required operator attestations, and provide `GROQ_API_KEY` privately in the 
 PostgreSQL 16 database at `127.0.0.1:5434/selfheal_real_bug_test`; the runner verifies the identity
 and refuses other targets. Do not put a database URL or credentials in this repository.
 
-### Fresh one-case v3 diagnostic
+### Fresh one-case v4 diagnostic
 
 Run only after the operator has confirmed the account's current free quota and disabled paid
-billing. This command records a single diagnostic separately; it does not complete or score the
-official pilot. It uses the frozen caps and timeout, and resume semantics preserve any attempt:
+billing. This uses a new results file; do not resume into the already failed v3 results file. It
+records one diagnostic outside the official pilot denominator:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v3-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v4-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v4-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 If it records an attempt, preserve the JSONL and score it as a diagnostic only. Do not copy it into
 the pilot file. Before starting the official pilot, review that diagnostic and independently
 reconfirm free quota/billing. The separate ten-case result file is
-`benchmarks/real_bugs/results/runs/groq-v3-pilot-10.jsonl`.
+`benchmarks/real_bugs/results/runs/groq-v4-pilot-10.jsonl`.
 
 After the operator reviews the diagnostic, independently confirms quota/billing again, and
 decides to start the separate official pilot, run:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v3-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v3-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v4-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v4-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 ## VIMJ Studio OS SaaS safe workflow
@@ -139,4 +155,7 @@ services, production credentials, student/guardian records, or customer data. Le
 an isolated repository snapshot, propose a narrow source-only diff, and run the target test followed
 by the relevant backend suite. Review the diff and test output yourself, push only that branch, and
 open a PR for human review. Do not merge, deploy, or claim a repair unless the actual patch passes
-the relevant tests. VIMJ has not been modified or tested by this change.
+the relevant tests. Separately, VIMJ PR [#1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1)
+contains a Codex-assisted SQLite password-reset timestamp fix; its 30 backend tests and PR CI pass.
+That patch was not produced by Selfheal and is not verified against production PostgreSQL. No
+Selfheal run against VIMJ is recorded.

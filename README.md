@@ -1,5 +1,8 @@
 # Selfheal
 
+[![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
+[![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
+
 - Capture runtime, contract, and CI failures.
 - Gather scoped repository context through MCP tools.
 - Propose candidate patches with a configured AI backend.
@@ -23,6 +26,15 @@ python -m cli.main --help
 For native PostgreSQL setup, local services, and credentials needed to run repairs, follow
 [Local installation and operations](docs/operations.md). Keep local environment files out of Git.
 
+## Providers and MCP tools
+
+The repair loop supports Claude, Codex, and Gemini CLI backends; Anthropic-compatible API,
+OpenRouter, Gemini API, and Groq API adapters; and explicitly configured backend chains. Availability
+depends on operator credentials, model access, and quota. Benchmark commands select one frozen
+provider and do not fall back to another. The repository MCP surface includes error lookup, scoped
+file listing/reading, patch proposal, and sandboxed test execution. See [backend selection](docs/operations.md)
+and [security boundaries](docs/architecture.md).
+
 ## Tested on
 
 | Repository | Classification | Verified scope and current outcome |
@@ -32,7 +44,7 @@ For native PostgreSQL setup, local services, and credentials needed to run repai
 | [`selfheal-e2e-demo-03`](https://github.com/Deepak20466/selfheal-e2e-demo-03) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) and CI passed; PR #10 remains open. |
 | [`multi-agent-workspace`](https://github.com/Deepak20466/multi-agent-workspace) | Manual, engineer-directed and Claude-assisted | Dogfooding exposed two Selfheal defects, fixed in Selfheal commits [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6). The PyPDF2 repair did not converge; a separate manual PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged despite unrelated failing CI. |
 | [ShopCart](https://github.com/Deepak20466/ShopCart) | Manual changes; AI-prepared onboarding | Selfheal onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) needed manual setup repair before CI ran. The pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2); clean-build work was PR [#3](https://github.com/Deepak20466/ShopCart/pull/3); safe dependency updates were PR [#4](https://github.com/Deepak20466/ShopCart/pull/4). All four are merged. PR #4 reduced audit findings from 36 (5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). |
-| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
+| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Codex-assisted, not Selfheal-autonomous | VIMJ PR [#1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1) fixes a SQLite naive/aware password-reset expiry comparison; its backend CI passed 30 tests. The reproduction is SQLite-specific and was not verified against production PostgreSQL. |
 | [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
 | [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
 
@@ -77,10 +89,12 @@ report](docs/benchmark-real-bugs.md) and [saved partial results](benchmarks/real
 The historical fixture benchmark remains separate.
 
 GroqCloud is available through the existing OpenAI-compatible adapter. Its preserved v1/v2
-diagnostics recorded a TPM 429 and a request-length HTTP 400; neither completed a repair. Frozen v3
-budgets each request against the model context and 8,000 TPM, safely compacts oversized file/test
-tool output, and honors bounded server-directed TPM retries. V3 has not been run. See the
-[Groq repair runbook](docs/groqcloud-repair.md).
+diagnostics recorded a TPM 429 and a request-length HTTP 400; neither completed a repair. The v3
+diagnostic made one successful API call (1,505 input and 89 output tokens), then stopped locally
+when its 6,818-token prompt estimate exceeded 5,936 remaining TPM. It made no second request and
+completed no repair. Frozen v4 can wait once for the server's token-reset header only when the
+history can fit a fresh 8,000-token window and the request deadline allows it; its full, pilot, and
+diagnostic leakage audits pass. No v4 provider run has occurred. See the [Groq repair runbook](docs/groqcloud-repair.md).
 
 ## Architecture
 
@@ -105,8 +119,8 @@ The PyPDF2 repair did not converge, so no fix to that issue is claimed. ShopCart
 was fixed manually (engineer-directed, Claude-assisted) in PR #2, not by Selfheal's repair loop.
 Earlier seeded trials also include failed AI repair attempts and CI checks; the evidence ledger
 links each result rather than counting only successful attempts.
-The five saved attempt records have a 0/5 resolve rate and 0/5 full-suite-green resolve rate; no
-repair completed. False-positive rate is not measurable (zero eligible human-fix denominator),
+The five saved Gemini attempt records have a 0/5 resolve rate and 0/5 full-suite-green resolve rate;
+no repair completed. False-positive rate is not measurable (zero eligible human-fix denominator),
 and cost is unknown for every attempt. Their overall median time is 121.094s. Failure categories
 are `provider_error` (2) and `repair_error` (3). Eight selected bugs and the full 41-case run remain
 unattempted. The scorer's failure categories are `no_patch`, `invalid_patch`,
@@ -118,6 +132,11 @@ incorrect function-response names/IDs. v9 returns the original Parts and maps re
 their calls; offline regression coverage includes the `run_tests` rejection and multiple calls.
 No live verification of this fix has been made. See the [partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md)
 and [Gemini adapter tests](tests/test_healer_api_adapters.py).
+
+The separate Groq v3 diagnostic made one successful provider call, then stopped locally at the
+6,818-estimated / 5,936-remaining TPM boundary; it made no repair. V4 adds an offline-tested bounded
+wait using the server reset header and passes all three leakage audits, but has not been run. The
+original Groq 10-case pilot remains unattempted. See the [Groq result and limits](docs/groqcloud-repair.md).
 
 The no-policy ablation bypasses Selfheal's patch policy but still uses the OS sandbox for untrusted
 repository tests. Pull requests are review artifacts; this evidence does not claim that tests alone
@@ -135,8 +154,9 @@ recovery. Tests and API-backed demos do not establish kernel-level sandbox escap
 Historical Claude Code costs are subscription-usage records, not API billing measurements. Provider
 prices and quotas can change; the provider API could not attest the earlier free-tier account's full
 billing state. The available evidence does not include an independent review of that billing
-ledger. No Selfheal run was found for the VIMJ attendance system or either Attendance Academy
-repository in the reviewed session logs, PRs, or Actions records.
+ledger. No Selfheal run was found for VIMJ or either Attendance Academy repository in the reviewed
+session logs, PRs, or Actions records. VIMJ PR #1 is a separate Codex-assisted change, not an agent
+repair.
 
 For complete dated results and limitations, see [VERIFICATION.md](VERIFICATION.md),
 [the evidence ledger](docs/history/RECOVERED_EVIDENCE.md), and the separate
@@ -150,6 +170,7 @@ current terminal-first product.
 - [Architecture and security boundaries](docs/architecture.md)
 - [Connect an application](docs/onboarding.md)
 - [Runtime error demo](examples/runtime_demo/README.md)
+- [Three-minute interview walkthrough](docs/interview-demo.md)
 - [Real-bug benchmark method](docs/benchmark-real-bugs.md)
 - [Historical fixture benchmark](docs/benchmark.md)
 - [Verification report](VERIFICATION.md)

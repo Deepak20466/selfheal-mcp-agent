@@ -18,18 +18,28 @@ listings and non-diagnostic test-log lines, and never truncates `read_file`. If 
 does not fit, it fails before sending. A temporary TPM retry uses the exact provider delay at most
 once, only if no more than 60 seconds and within the remaining case deadline; daily quota is never
 retried. V3 SHA-256:
-`9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Leakage audits passed for
-41/41, 10/10, and the separate diagnostic 1/1. V1/v2 files and all Gemini evidence remain unchanged;
-the v3 diagnostic has not been run.
+`9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Its leakage audits passed
+for 41/41, 10/10, and the separate diagnostic 1/1. The v3 diagnostic then recorded one successful
+API response (1,505 input/89 output tokens) followed by a local budget rejection at
+`prompt_estimate=6818`, `available_tpm=5936`; duration was 2.438 seconds, cost unknown, no repair.
+The preserved JSONL is [`groq-v3-diagnostic-1.jsonl`](benchmarks/real_bugs/results/published/groq-v3-diagnostic-1.jsonl).
+It confirms the v3 adapter did not wait for the server reset header after a successful turn.
 
-Offline verification: Groq adapter regressions **32 passed**; Groq provider/daily-quota benchmark
-regressions **2 passed**. Repository-wide Ruff/formatting and scoped mypy passed. The local full test
-suite requires the test PostgreSQL service; no production database or provider was accessed. CI on
-`5995369` found one exact-float timeout assertion, now changed to verify the propagated timeout is
-within 1 ms and never exceeds the supplied deadline; the focused test passes. Full CI for the
-updated commit will be checked after push.
-VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch
-workflow is documented in [`docs/groqcloud-repair.md`](docs/groqcloud-repair.md).
+V4 adds that one bounded reset-header wait only when the history plus minimum output can fit a fresh
+8,000 TPM window and the request deadline permits it. The v4 SHA-256 is
+`f63154b3b6b9fa110a450ff69a524753f335652f6c6c80eb5824c948ce7b8335`; its 41-case, 10-case, and
+one-case leakage audits pass. V1-v3, all previous result records, and the Gemini evidence are
+unchanged. V4 has not been sent to Groq.
+
+Offline verification: Groq adapter and benchmark regressions **67 passed, 1 skipped**; repository-
+wide Ruff and formatting passed; scoped mypy passed for 90 files. Full CI and Kubernetes CI passed
+on Selfheal commit [`0bdc670`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/0bdc670cd9140480891c99f3b5bd1d78f91c83f4). The new v4 changes still require updated hosted CI.
+No live provider request was made for v4.
+
+VIMJ PR [#1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1) is a separate Codex-assisted
+SQLite password-reset timestamp fix, not a Selfheal repair. Its backend suite passed 30 tests and
+both PR CI runs passed. The reproduction was not verified against production PostgreSQL. No
+production database or service was accessed or changed.
 
 The local `pip-audit --progress-spinner off` check exited nonzero and reported 132 advisories across
 11 packages in the active Python environment; it also could not identify the project distribution
@@ -164,7 +174,7 @@ repairs. The full evidence notes, confidence statements, and source inventory ar
 
 ### Repositories with no recovered Selfheal run
 
-As of the 2026-11-07 GitHub CLI search, no Selfheal run or related PR/issue was found in the reviewed PR, issue, or Actions listings for [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas/pulls), [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter/pulls), or [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system/pulls). This is a scoped “no record found” result; it does not establish that undocumented local work never occurred. The VIMJ Actions runs inspected were scheduled database activity checks, unrelated to Selfheal.
+As of the 2026-11-09 review, no Selfheal run was found for [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas/pulls), [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter/pulls), or [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system/pulls). VIMJ PR #1 is a separate Codex-assisted fix with passing backend CI; it is not an autonomous Selfheal outcome. This is a scoped search of recorded PR, issue, and Actions evidence, not a claim about undocumented local work.
 
 ## Historical acceptance status as of 2026-10-20
 
