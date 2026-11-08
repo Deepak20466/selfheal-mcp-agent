@@ -9,11 +9,43 @@ produce eligible cases; they are not model repair attempts. Only JSONL records p
 generated score reports when runs are scored; no provider run or score report is committed for this
 benchmark. Raw local datasets, provider run files, and generated score reports are ignored.
 
-**Status: harness included; results not yet measured.** No real provider attempts are recorded in
-this checkout.
-The execution environment has no `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY`, no
-`REAL_BUG_DATABASE_URL`, and no PostgreSQL listener on port 5432. No provider calls or runtime-demo
-repairs were made. Do not infer repair results from mined or prepared cases.
+**Status: the 10-case pilot selection is frozen, but live execution is blocked.** The separate
+pilot selected 10 cases deterministically from frozen v4 before observing any pilot outcomes. In
+the latest execution preflight, required Gemini credentials, PostgreSQL password, and operator
+free-tier attestations were unavailable. PostgreSQL authentication and a Gemini request were not
+attempted. No pilot cases were attempted; no pilot repair result or metric is available. The
+41-case v4 benchmark remains pending and is not represented by this pilot. See the safe preflight
+record and pilot-specific leakage audit under `benchmarks/real_bugs/frozen/`.
+
+## Separate 10-case pilot
+
+This pilot is a separately labeled exploratory slice of v4, not a replacement or partial score
+for the 41-case benchmark. Its selection is recorded in
+[`2026-11-08-gemini-3.8-flash-v4-pilot-10.json`](../benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4-pilot-10.json).
+The rule groups case IDs by repository family, ranks each family by ascending SHA-256 of the UTF-8
+string `selfheal-real-bug-pilot-v1:` followed by the case ID (case ID breaks ties), and takes two
+cases from each of the five families. This gives ten selected cases while spanning all five
+repositories. The frozen v4 config and its hash are unchanged.
+
+| Pilot status | Measured value |
+|---|---:|
+| Selected | 10 |
+| Attempted | 0 |
+| Resolve rate with full suite green | Not measured |
+| False-positive rate versus human fix | Not measured |
+| Median execution time | Not measured |
+| Cost | Not measured |
+| Failure categories | No case outcomes; no frequencies measured |
+
+Preflight stopped before a database query or provider request because the required runtime
+credentials and free-tier attestations were unavailable. The timestamp freshness check passed,
+but a fresh timestamp alone does not authorize or enable a run. The preflight record is
+[`2026-11-08-gemini-3.8-flash-v4-pilot-10-status.json`](../benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4-pilot-10-status.json).
+
+The selected pilot contexts were audited independently: 10 of 10 passed with zero dropped cases.
+See [`2026-11-08-gemini-3.8-flash-v4-pilot-10-leakage-audit.json`](../benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4-pilot-10-leakage-audit.json).
+The 20/20 synthetic fixture benchmark is historical evidence only and is not part of this pilot
+or the pending 41-case real-bug benchmark.
 
 ## Case selection
 
@@ -139,6 +171,18 @@ The taxonomy distinguishes `no_patch`, `invalid_patch`, `rejected_by_policy`,
 `cost_unknown`, and `repair_error`. A case that fixes target tests but breaks the full suite is
 counted as resolved and as a false-positive proxy, preserving both facts.
 
+## Where it fails
+
+The selected pilot has no attempted repairs, so it has no observed repair failures to classify.
+Its zero attempts are an environment preflight blocker, not a provider error and not a failed case;
+do not count them in a repair denominator. On execution, record each arm for every attempted case
+including `no_patch`, invalid or policy-rejected patches, target-test failures, timeouts, rate
+limits, provider errors, token/cost limits, and repair errors. The frozen v4 cohort has 41
+leakage-audited cases and no leakage-driven drops. Before that freeze, 75 candidates were discarded
+during preparation because they were flaky or their human fix did not pass, and 127 candidates had
+not been prepared at freeze time; these exclusions are recorded in the frozen config and are not
+pilot outcomes.
+
 ## Threats to validity
 
 - Commit-message mining favors fixes whose authors wrote “fix”; it misses bugs fixed under other
@@ -155,3 +199,10 @@ counted as resolved and as a false-positive proxy, preserving both facts.
   unsafe host runner.
 - Results are per attempt and can be affected by model nondeterminism, rate limits, timeouts, and
   token budgets. Failed and incomplete records remain in scoring; they are not silently removed.
+- The 10-case pilot is a deterministic, five-repository slice and is too small to estimate
+  performance over the full frozen list. Selection by repository-stratified hash is reproducible
+  but is not a random sample of real-world bugs. Because it has not run, it currently provides no
+  evidence about repair quality, model reliability, time, or cost.
+- The current pilot blocker is environmental: absent credentials/attestations prevented even
+  database authentication from being checked. This is not a provider failure and does not enter
+  any benchmark denominator.

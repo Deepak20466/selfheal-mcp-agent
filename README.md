@@ -68,7 +68,11 @@ The dated outcomes and evidence links are in [VERIFICATION.md](VERIFICATION.md) 
 
 ## Real-bug benchmark status
 
-Benchmark status: harness included; results not yet measured.
+Benchmark status: a separate deterministic 10-case pilot is selected, but live Gemini execution
+is blocked in the current environment. No pilot cases have been attempted and no repair metrics
+are measured. The frozen 41-case v4 benchmark remains pending and separate. See
+[the real-bug benchmark report](docs/benchmark-real-bugs.md) for the selected IDs, methodology,
+blocker, and limitations. The historical fixture benchmark remains separate.
 
 ## Architecture
 
@@ -98,6 +102,9 @@ with the full suite green, false-positive rate, median time, median cost, and fa
 are therefore unknown. The scorer's failure categories are `no_patch`, `invalid_patch`,
 `rejected_by_policy`, `tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`,
 `cost_unknown`, and `repair_error`; these are labels in the harness, not measured frequencies.
+The separately selected 10-case pilot is also not run: required Gemini/database credentials and
+free-tier attestations were unavailable to the execution process, so database and provider checks
+were not attempted. Its attempted-case count is zero; all pilot outcome metrics remain unmeasured.
 
 The no-policy ablation bypasses Selfheal's patch policy but still uses the OS sandbox for untrusted
 repository tests. Pull requests are review artifacts; this evidence does not claim that tests alone
