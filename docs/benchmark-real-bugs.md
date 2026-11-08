@@ -17,6 +17,13 @@ attempted. No pilot cases were attempted; no pilot repair result or metric is av
 41-case v4 benchmark remains pending and is not represented by this pilot. See the safe preflight
 record and pilot-specific leakage audit under `benchmarks/real_bugs/frozen/`.
 
+**Diagnostic-request disclosure:** before the test environment was made hermetic, one targeted
+test rerun sent unmatched diagnostic requests to Gemini's endpoint using the deliberately fake
+test key installed by `tests/conftest.py`; Gemini returned HTTP 400. The recorded adjustment note
+states that no user's API key was sent. These were test-mock failures, not benchmark repair
+attempts, and they produced no benchmark outcomes. See
+[`2026-11-08-runner-adjustment.md`](../benchmarks/real_bugs/results/2026-11-08-runner-adjustment.md).
+
 ## Separate 10-case pilot
 
 This pilot is a separately labeled exploratory slice of v4, not a replacement or partial score
