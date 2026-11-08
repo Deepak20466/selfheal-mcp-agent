@@ -2,22 +2,25 @@
 
 ## GroqCloud integration verification — 2026-11-09
 
-Groq reuses the existing OpenAI-compatible adapter. The frozen model is
-`openai/gpt-oss-120b`; the benchmark now pins that model and propagates the remaining per-case
-deadline to the HTTP request. Timeout exceptions are sanitized and not retried. The official Groq
-documentation currently lists local tool use but no parallel tool use for this model; multiple
-returned call IDs/results are still covered in the adapter's offline translation test.
+Groq reuses the existing OpenAI-compatible adapter. The existing v1 diagnostic preserved one
+genuine provider failure on `attrs-73dc0d2e2860`: TPM limit 8,000, used 1,366, requested 7,843,
+server delay 9.0675 seconds. Its partial usage records 1,497 input and 75 output tokens before the
+failed request; the request payload itself was not saved. No repair completed. The v2 adapter caps
+Groq's response reservation at 4,096, preserves the full prompt/tool history, retries a confirmed
+temporary TPM error once within the server's 10-second bounded wait, refuses daily-quota retries,
+and records output-length termination as incomplete. The default/frozen model remains
+`openai/gpt-oss-120b`.
 
-The separate Groq v1 freeze uses the same 41 cases, original 10 pilot IDs, prompts, scoring, arms,
-timeouts, and caps. Its SHA-256 is
-`35cb2c6013a62f72c2821d12c5119b88ed0b63fb6c032bd995a0e135366e5d51`. Leakage audits passed for
-41/41, 10/10, and the separate one-case diagnostic. No live Groq calls were made; the diagnostic
-and the official pilot have zero attempts and no measured metrics.
+The Groq v2 freeze retains the same 41 cases and original 10 pilot IDs as v1/Gemini. Its SHA-256 is
+`4c1adfa78b9add4bb446fc0b20e50b446ff396595b06f39d78699c23d3e90559`. Leakage audits passed for
+41/41, 10/10, and the separate one-case diagnostic. V1 evidence and all Gemini configs/results are
+unchanged. The v2 diagnostic and pilot have zero attempts and no measured metrics; no provider call
+was made by Codex.
 
-Offline verification: all Groq adapter tests plus the Groq model-pin regression test **23 passed**;
-repository-wide Ruff and formatting passed (**272 files**); scoped mypy passed for
-`core sentinel mcp_server healer` and the runner (**90 source files**). A full pytest invocation
-could not start because the repository's
+Offline verification: all Groq adapter tests **26 passed** and the Groq provider/daily-quota
+benchmark regressions **2 passed**. Repository-wide Ruff and formatting passed (**272 files**);
+scoped mypy passed for `core sentinel mcp_server healer` and the runner (**90 source files**). A
+full local pytest invocation could not start because the repository's
 session fixture tried its default local PostgreSQL endpoint at `localhost:5432`, which refused
 the connection. No database was created or changed. GitHub CI is pending for the new commit.
 VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch

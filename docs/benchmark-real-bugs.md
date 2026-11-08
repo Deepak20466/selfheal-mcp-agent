@@ -67,30 +67,42 @@ the v9 audit files alongside the config.
 The 20/20 synthetic fixture benchmark is historical evidence only and is not part of this pilot
 or the pending 41-case real-bug benchmark.
 
-## Separate GroqCloud configuration (not yet run)
+## Separate GroqCloud diagnostic and v2 configuration
+
+The Groq v1 diagnostic has one preserved attempt: an HTTP 429 TPM limit of 8,000, with 1,366 used,
+7,843 requested, and a provider-suggested 9.0675-second wait. It failed before any repair; no target
+or full suite passed. The saved run records 1,497 input and 75 output tokens from earlier successful
+turns, and its tool trace includes `get_error` and `read_file`. The failed request body was not
+saved, so the input-history/output-reservation share of the 7,843 cannot be separated from that
+record. The previous adapter allowed up to 8,000 output tokens per response; v2 caps that
+reservation at 4,096. Conversation and tool history remain complete and are not truncated. The
+saved evidence cannot establish whether the request projection was driven by output allowance,
+prompt history, or both; the separate v2 diagnostic will test the cap against the same frozen case.
 
 Groq uses the existing `groq_api` adapter, not Gemini output or fallback routing. Its separately
-frozen v1 configuration preserves the 41-case cohort, the original deterministic ten pilot IDs,
-the prompts, arms, caps, timeouts, and scoring rules. The freeze hash is
-`35cb2c6013a62f72c2821d12c5119b88ed0b63fb6c032bd995a0e135366e5d51`. Gemini v4-v9 and all Gemini
-attempt records remain unchanged. Full-cohort, ten-case, and one-case leakage audits all pass.
+frozen v2 configuration preserves the original 41-case cohort, deterministic ten pilot IDs,
+prompts, arms, caps, timeouts, and scoring rules. The freeze hash is
+`4c1adfa78b9add4bb446fc0b20e50b446ff396595b06f39d78699c23d3e90559`. Gemini v4-v9, the Groq v1
+freeze, and all prior attempt records remain unchanged. Full-cohort, ten-case, and diagnostic
+leakage audits pass.
 
 Groq's official model and tool-use documentation lists `openai/gpt-oss-120b` and local function
 tool calling, but currently lists no parallel tool use for this model. The adapter's offline tests
 cover ordered call IDs/results in a multi-call turn and a later sequential `run_tests` call. This
-does not establish free quota for the operator's account. No Groq key was available to this
-execution environment and no provider call was made.
+does not establish free quota for the operator's account. No Groq key is available to Codex; no
+v2 provider call was made.
 
 | Groq evidence | Status |
 |---|---|
 | Frozen cohort / pilot selection | 41 / original 10 IDs |
-| One-case diagnostic | Prepared only; `attrs-73dc0d2e2860` |
-| Groq attempts / completed cases | 0 / 0 |
-| Resolve rate / full-suite-green resolve rate | Not measured |
-| False-positive proxy, time, tokens, cost | Not measured |
+| Groq v1 diagnostic | 1 attempt; `attrs-73dc0d2e2860`; HTTP 429 TPM |
+| Groq v1 completed repairs | 0; target/full suite did not pass |
+| Groq v2 diagnostic attempts / repairs | 0 / 0 |
+| v2 resolve rate / full-suite-green resolve rate | Not measured |
+| v2 false-positive proxy, time, tokens, cost | Not measured |
 | Account free quota and billing state | Operator verification required |
 
-The diagnostic command and separate VIMJ safe testing workflow are documented in
+The fresh v2 diagnostic command and separate VIMJ safe testing workflow are documented in
 [`groqcloud-repair.md`](groqcloud-repair.md). Its JSONL path is separate from Gemini results and
 from the official ten-case Groq pilot. Run it only after verifying free quota and disabled paid
 billing; retain failures and timeouts as recorded.

@@ -70,6 +70,15 @@ class RateLimitBackoffActive(RuntimeError):
         super().__init__("provider cooldown remains active")
 
 
+def _cooldown_failure_category(error: BaseException) -> tuple[bool, str]:
+    """Keep daily quota failures out of the resumable per-minute rate-limit path."""
+    if getattr(error, "daily_quota_exhausted", False):
+        return False, "provider_error"
+    if getattr(error, "status_code", None) == 429:
+        return True, "rate_limited"
+    return False, "provider_error"
+
+
 @dataclass(frozen=True)
 class AttemptWorkspace:
     """Unique per-attempt paths owned by one benchmark arm invocation."""
@@ -746,8 +755,7 @@ async def _run_arm_inner(
         category = exc.category
         stop_message = str(exc)
     except BackendCooldownError as exc:
-        rate_limited = exc.status_code == 429
-        category = "rate_limited" if rate_limited else "provider_error"
+        rate_limited, category = _cooldown_failure_category(exc)
         retry_after_seconds = exc.retry_after_seconds
         stop_message = _exception_chain_summary(exc)
     except Exception as exc:

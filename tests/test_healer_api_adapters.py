@@ -380,6 +380,193 @@ async def test_groq_read_timeout_is_sanitized_and_not_retried(respx_mock: Any) -
     assert route.call_count == 1
 
 
+async def test_groq_caps_output_reservation_without_truncating_tool_history(
+    respx_mock: Any,
+) -> None:
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "continue"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+    )
+    client = GroqClient(api_key="offline-test-key")
+    messages: list[dict[str, Any]] = [
+        {"role": "user", "content": "Repair the failure."},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_read",
+                    "name": "read_file",
+                    "input": {"path": "src/app.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "call_read", "content": "source context"}
+            ],
+        },
+    ]
+    expected_history = client.messages._to_openai_messages([], messages)
+
+    await client.messages.create(
+        model=None,
+        max_tokens=7843,
+        system=[],
+        tools=TOOLS,
+        messages=messages,
+    )
+
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["max_tokens"] == 4096
+    assert 1366 + sent["max_tokens"] < 8000
+    assert sent["messages"] == expected_history
+    assert sent["messages"][2]["tool_calls"][0]["id"] == "call_read"
+    assert sent["messages"][3] == {
+        "role": "tool",
+        "tool_call_id": "call_read",
+        "content": "source context",
+    }
+
+
+async def test_groq_retries_recorded_tpm_limit_once_after_server_delay(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    delays: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(api_adapters.asyncio, "sleep", record_sleep)
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                429,
+                json={
+                    "error": {
+                        "message": (
+                            "Rate limit reached on tokens per minute (TPM): Limit 8000, "
+                            "Used 1366, Requested 7843. Please try again in 9.0675s."
+                        ),
+                        "type": "tokens",
+                        "code": "rate_limit_exceeded",
+                    }
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {"role": "assistant", "content": "recovered"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                },
+            ),
+        ]
+    )
+    messages = [
+        {"role": "user", "content": "Repair the failure."},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_tests",
+                    "name": "run_tests",
+                    "input": {"test_path": "tests/test_app.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call_tests", "content": "failed"}],
+        },
+    ]
+
+    response = await GroqClient(api_key="offline-test-key").messages.create(
+        model=None, max_tokens=7843, system=[], tools=TOOLS, messages=messages
+    )
+
+    assert response.content[0].text == "recovered"
+    assert delays == [9.0675]
+    assert route.call_count == 2
+    requests = [json.loads(call.request.content) for call in route.calls]
+    assert [request["max_tokens"] for request in requests] == [4096, 4096]
+    assert requests[0]["messages"] == requests[1]["messages"]
+    assert requests[0]["messages"][2]["tool_calls"][0]["id"] == "call_tests"
+
+
+async def test_groq_daily_quota_is_not_retried(respx_mock: Any) -> None:
+    from healer.api_adapters import GroqDailyQuotaError
+
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            429,
+            headers={"retry-after": "86400"},
+            json={
+                "error": {
+                    "message": "Rate limit reached on tokens per day (TPD): daily quota exhausted",
+                    "type": "tokens",
+                    "code": "rate_limit_exceeded",
+                }
+            },
+        )
+    )
+
+    with pytest.raises(GroqDailyQuotaError):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None,
+            max_tokens=100,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hello"}],
+        )
+
+    assert route.call_count == 1
+
+
+async def test_groq_output_cap_reports_incomplete_response(respx_mock: Any) -> None:
+    from healer.api_adapters import GroqOutputTokenLimit
+
+    respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "partial"},
+                        "finish_reason": "length",
+                    }
+                ]
+            },
+        )
+    )
+
+    with pytest.raises(GroqOutputTokenLimit, match="reached the output-token cap"):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None,
+            max_tokens=7843,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hello"}],
+        )
+
+
 async def test_groq_429_raises_cooldown_with_retry_after(respx_mock: Any) -> None:
     respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(429, headers={"retry-after": "120"}, text="rate limited")

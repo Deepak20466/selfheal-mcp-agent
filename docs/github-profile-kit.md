@@ -24,10 +24,10 @@ recorded attempts across two bugs: two timed out and three were rejected by Gemi
 adapter did not preserve signed function-call Parts. No repair completed. I report that partial
 result and make no successful real-bug repair-rate claim.
 
-GroqCloud has an offline-tested adapter path and a separate frozen v1 configuration using the
-same 41-case cohort and original ten pilot IDs. Its one-case diagnostic is unattempted; report no
-Groq success rate, latency, or cost until the operator verifies free quota and runs it. See the
-[GroqCloud runbook](groqcloud-repair.md).
+GroqCloud has an offline-tested adapter path and separate frozen configurations using the same
+41-case cohort and original ten pilot IDs. The preserved v1 diagnostic hit one 8,000-TPM limit and
+completed no repair; v2 is prepared but unattempted. Report no Groq success rate, latency, or cost.
+See the [GroqCloud runbook](groqcloud-repair.md).
 
 The clearest lesson came from dogfooding against `multi-agent-workspace`: it exposed a scanner bug
 that hid dependency findings and a worker exception path that could stop processing. I fixed both

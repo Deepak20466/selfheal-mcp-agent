@@ -851,6 +851,19 @@ def test_groq_provider_fails_closed_on_unconfirmed_or_changed_model(
         run_module._provider("groq_api")
 
 
+def test_daily_provider_quota_is_not_marked_resumable() -> None:
+    from healer.api_adapters import GroqDailyQuotaError
+    from healer.backend_chain import BackendCooldownError
+
+    assert run_module._cooldown_failure_category(GroqDailyQuotaError()) == (
+        False,
+        "provider_error",
+    )
+    assert run_module._cooldown_failure_category(
+        BackendCooldownError("temporary TPM", status_code=429)
+    ) == (True, "rate_limited")
+
+
 def test_runner_stops_after_recording_rate_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

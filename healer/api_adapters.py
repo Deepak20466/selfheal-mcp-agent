@@ -26,6 +26,7 @@ import asyncio
 import copy
 import json
 import random
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -43,6 +44,8 @@ GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
 GROQ_API_DEFAULT_TIMEOUT_SECONDS = 120.0
+GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST = 4096
+GROQ_TPM_MAX_RETRY_AFTER_SECONDS = 10.0
 GEMINI_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 _PROVIDER_RETRYABLE_STATUSES = frozenset({502, 503, 504})
 _PROVIDER_MAX_ATTEMPTS = 3
@@ -56,6 +59,61 @@ class GeminiAPIRequestTimeout(RuntimeError):
 
 class GroqAPIRequestTimeout(RuntimeError):
     """The Groq chat-completions HTTP request exceeded its bounded timeout."""
+
+
+class GroqOutputTokenLimit(RuntimeError):
+    """Groq ended a response at the adapter's output-token bound."""
+
+
+class GroqDailyQuotaError(BackendCooldownError):
+    """A daily Groq quota was exhausted; benchmark resume must not retry it."""
+
+    def __init__(self) -> None:
+        self.daily_quota_exhausted = True
+        super().__init__(
+            "groq_api daily quota exhausted; no automatic retry was made",
+            status_code=429,
+        )
+
+
+def _groq_rate_limit_scope(response: httpx.Response) -> str | None:
+    if response.status_code != 429:
+        return None
+    try:
+        error = response.json().get("error", {})
+        message = error.get("message", "") if isinstance(error, dict) else ""
+    except (ValueError, AttributeError):
+        message = ""
+    normalized = str(message).lower()
+    if any(term in normalized for term in ("per day", "daily", "(rpd)", "(tpd)")):
+        return "daily"
+    if "tokens per minute" in normalized or "(tpm)" in normalized:
+        return "tpm"
+    return "unknown"
+
+
+def _groq_tpm_retry_after_seconds(response: httpx.Response) -> float | None:
+    raw = response.headers.get("retry-after", "").strip()
+    if raw:
+        try:
+            seconds = float(raw)
+            if seconds >= 0:
+                return seconds
+        except (OverflowError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(raw)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+            except (OverflowError, TypeError, ValueError):
+                pass
+    try:
+        error = response.json().get("error", {})
+        message = error.get("message", "") if isinstance(error, dict) else ""
+    except (ValueError, AttributeError):
+        return None
+    match = re.search(r"try again in\s+(\d+(?:\.\d+)?)\s*s\b", str(message), re.IGNORECASE)
+    return float(match.group(1)) if match else None
 
 
 @dataclass
@@ -255,7 +313,10 @@ class _GroqMessages:
         system = kwargs.get("system")
         messages = kwargs["messages"]
         tools = kwargs.get("tools", [])
-        max_tokens = kwargs.get("max_tokens", 4096)
+        max_tokens = min(
+            int(kwargs.get("max_tokens", GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST)),
+            GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST,
+        )
         request_timeout_seconds = kwargs.pop("request_timeout_seconds", None)
         if request_timeout_seconds is None:
             request_timeout: float | httpx.Timeout = GROQ_API_DEFAULT_TIMEOUT_SECONDS
@@ -293,12 +354,44 @@ class _GroqMessages:
                     headers={"Authorization": f"Bearer {self._api_key}"},
                     payload=payload,
                 )
+                scope = _groq_rate_limit_scope(response)
+                if scope == "daily":
+                    raise GroqDailyQuotaError()
+                retry_after = _groq_tpm_retry_after_seconds(response) if scope == "tpm" else None
+                if (
+                    scope == "tpm"
+                    and retry_after is not None
+                    and retry_after <= GROQ_TPM_MAX_RETRY_AFTER_SECONDS
+                ):
+                    logger.warning(
+                        "provider.request.retry",
+                        backend="groq_api",
+                        attempt=1,
+                        status_code=429,
+                        reason="temporary_tpm_limit",
+                        delay_seconds=round(retry_after, 3),
+                    )
+                    await asyncio.sleep(retry_after)
+                    response = await _provider_post(
+                        client,
+                        f"{GROQ_API_BASE}/chat/completions",
+                        backend="groq_api",
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                        payload=payload,
+                    )
+                    if _groq_rate_limit_scope(response) == "daily":
+                        raise GroqDailyQuotaError()
         except httpx.TimeoutException as exc:
             raise GroqAPIRequestTimeout(f"Groq chat/completions HTTP {type(exc).__name__}") from exc
         _raise_for_status_classified(response, backend="groq_api")
         body = response.json()
 
-        message = body["choices"][0]["message"]
+        choice = body["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise GroqOutputTokenLimit(
+                "Groq response reached the output-token cap; prompt and tool history were preserved"
+            )
+        message = choice["message"]
         blocks: list[_Block] = []
         if message.get("content"):
             blocks.append(_Block(type="text", text=message["content"]))
