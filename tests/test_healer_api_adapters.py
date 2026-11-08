@@ -789,7 +789,12 @@ async def test_groq_v3_budget_waits_for_reset_when_history_fits_fresh_tpm(
     )
 
     assert second.content[0].text == "continue repair"
-    assert delays == [5.0]
+    # The reset deadline is set when the first response arrives, so local
+    # preflight time is subtracted before sleeping. Keep a narrow tolerance
+    # while still proving we honor the server's approximately five-second
+    # reset rather than retrying immediately or waiting longer.
+    assert len(delays) == 1
+    assert 4.9 <= delays[0] <= 5.0
     assert route.call_count == 2
     resumed_request = json.loads(route.calls[1].request.content)
     assert resumed_request["max_tokens"] == 1182
