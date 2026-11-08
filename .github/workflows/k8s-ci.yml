@@ -221,8 +221,8 @@ jobs:
               with urllib.request.urlopen("https://api.github.com", timeout=15) as response:
                   assert response.status == 200, f"GitHub API through allowlisted proxy returned {response.status}"
           except urllib.error.HTTPError as exc:
-              # GitHub Actions runner IPs can exhaust GitHub's unauthenticated
-              # API quota. Accept only GitHub's explicit exhausted-quota
+              # GitHub Actions runner IPs can exhaust the unauthenticated
+              # API quota. Accept only the explicit exhausted-quota
               # response; a policy denial or any other HTTP error still fails.
               body = exc.read().lower()
               assert (
