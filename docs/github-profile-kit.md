@@ -10,16 +10,17 @@ An AI-assisted runtime and CI repair agent that verifies candidate patches befor
 
 ## Resume bullets
 
-- Improved Selfheal after dogfooding exposed two defects in its scanner and worker. Added two scanner regression tests and one worker regression test in [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6); these were engineer-directed, Claude-assisted changes, not Selfheal-generated repairs.
-- Scanned `multi-agent-workspace` and surfaced 16 dependency CVEs across five packages. The 31-turn PyPDF2 repair attempt did not converge; a separate manual dependency PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged, but its required CI failed on an unrelated missing `psycopg` dependency.
-- Recorded three controlled synthetic repair-to-PR trials with passing repair CI; GitHub state checked 2026-11-08 shows demo-01 PR #16 merged and demo-02 #13 / demo-03 #10 open. In ShopCart, onboarding PR #1 needed a manual repair before CI could run; the pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2). The clean-build PR #3 and safe dependency-update PR #4 are also merged. See the [evidence ledger](history/RECOVERED_EVIDENCE.md).
+- Built Selfheal's runtime/CI incident-to-review workflow around FastAPI, PostgreSQL, MCP tools, scoped repository access, patch checks, isolated verification, and a human-reviewed PR boundary. The frozen real-bug v4 cohort contains 41 audited cases; its separate deterministic 10-case pilot has not been attempted, so it supports no repair-rate claim.
+- Fixed two Selfheal defects found during engineer-directed, Claude-assisted dogfooding: a scanner path dropped dependency findings when stderr corrupted JSON, and a worker path failed to catch a remote-verification exception. Added two scanner tests and one worker regression test in [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6); these were not Selfheal-generated repairs.
+- Ran three controlled synthetic repair-to-PR demonstrations with passing repair CI; as of 2026-11-08, demo-01 PR #16 is merged and demo-02 #13 / demo-03 #10 remain open. Separately, the 31-turn PyPDF2 repair did not converge, and ShopCart's pagination fix was manual. See the [evidence ledger](history/RECOVERED_EVIDENCE.md).
 
 ## Interview explanation: 60 seconds
 
 Selfheal is a Python system that receives runtime and CI failures, gathers scoped repository context
-through MCP tools, and asks a configured model to propose a patch. It checks the candidate against
-write-path and patch rules, runs verification in an isolated worktree, and can open a GitHub PR when
-the checks pass.
+through MCP tools, and asks a configured model to propose a patch. It checks allowed write paths and
+patch policy, then runs verification in an isolated worktree before it can open a review PR. The
+workflow is backed by CI and controlled synthetic demos; its real-bug pilot is selected but has not
+run, so I do not claim a real-bug repair rate.
 
 The clearest lesson came from dogfooding against `multi-agent-workspace`: it exposed a scanner bug
 that hid dependency findings and a worker exception path that could stop processing. I fixed both

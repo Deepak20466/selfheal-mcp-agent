@@ -217,8 +217,20 @@ jobs:
               print("DNS filter passed: unlisted in-cluster services are refused")
           else:
               raise AssertionError("DNS filter resolved an unlisted in-cluster service")
-          with urllib.request.urlopen("https://api.github.com", timeout=15) as response:
-              assert response.status == 200, f"GitHub API through allowlisted proxy returned {response.status}"
+          try:
+              with urllib.request.urlopen("https://api.github.com", timeout=15) as response:
+                  assert response.status == 200, f"GitHub API through allowlisted proxy returned {response.status}"
+          except urllib.error.HTTPError as exc:
+              # GitHub Actions runner IPs can exhaust GitHub's unauthenticated
+              # API quota. Accept only GitHub's explicit exhausted-quota
+              # response; a policy denial or any other HTTP error still fails.
+              body = exc.read().lower()
+              assert (
+                  exc.code == 403
+                  and exc.headers.get("X-RateLimit-Remaining") == "0"
+                  and b"rate limit exceeded" in body
+              ), f"GitHub API through allowlisted proxy returned HTTP {exc.code}"
+              print("GitHub API egress passed; unauthenticated quota is exhausted")
           tls_context = ssl.create_default_context()
           def tunnel_tls(host, server_name):
               proxy = socket.create_connection(("selfheal-egress", 3128), timeout=10)
