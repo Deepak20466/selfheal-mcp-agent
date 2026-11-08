@@ -24,7 +24,8 @@ session could not start because repository `tests/conftest.py` attempted its def
 connection on localhost:5432, which refused the connection. No full-suite pass is claimed. No
 provider calls were made in this work. The required Gemini credentials/attestations, fresh
 operator quota timestamp, and PostgreSQL password were unavailable, so no database verification or
-new Gemini attempt was made. GitHub CI for the resulting commit is pending until push.
+new Gemini attempt was made. For code/evidence commit `4a678f0`, both [standard CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42513919052)
+and [Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42513919054) passed.
 
 The report includes the earlier diagnostic-request disclosure: a mock-mismatch test sent requests
 with the deliberately fake test key and received HTTP 400. These were not benchmark attempts and
