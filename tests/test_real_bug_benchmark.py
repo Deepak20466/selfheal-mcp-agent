@@ -34,6 +34,159 @@ def _git(repository: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="exercises Windows workspace collisions")
+def test_windows_attempt_workspace_preserves_legacy_directory_and_clones_to_reserved_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.worktree as worktree_module
+
+    repository_root = tmp_path / "repository"
+    worktrees_root = repository_root / "worktrees"
+    monkeypatch.setattr(worktree_module, "WORKTREES_ROOT", worktrees_root)
+    case_id_value = "fixture-case"
+    arm = "with_validation"
+    legacy = repository_root / "connected_apps" / "real_bugs" / case_id_value / arm
+    legacy.mkdir(parents=True)
+    user_file = legacy / "keep.txt"
+    user_file.write_text("preserve existing workspace", encoding="utf-8")
+
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "module.py").write_text("value = 1\n", encoding="utf-8")
+    _git(source, "init", "--quiet")
+    _git(source, "config", "user.name", "Fixture")
+    _git(source, "config", "user.email", "fixture@example.invalid")
+    _git(source, "add", "module.py")
+    _git(source, "commit", "--quiet", "-m", "fixture")
+
+    workspace = run_module._allocate_attempt_workspace(
+        case_id_value=case_id_value,
+        arm=arm,
+        repository_root=repository_root,
+        worktrees_root=worktrees_root,
+    )
+    try:
+        run_module._git_init_snapshot(source, workspace.snapshot)
+        assert workspace.root.parent != legacy
+        cloned = asyncio.run(
+            worktree_module.create_worktree_for_connected_app(
+                workspace.worktree_name,
+                "benchmark/fixture-case-with-validation",
+                source_dir=workspace.snapshot,
+            )
+        )
+        assert cloned == workspace.worktree_path
+        assert (cloned / "module.py").read_text(encoding="utf-8") == "value = 1\n"
+        assert user_file.read_text(encoding="utf-8") == "preserve existing workspace"
+    finally:
+        run_module._cleanup_owned_path(
+            workspace.worktree_path, workspace.worktree_marker, workspace.owner_token
+        )
+        run_module._cleanup_owned_path(workspace.root, workspace.root_marker, workspace.owner_token)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises interrupted Windows workspace recovery")
+def test_windows_interrupted_workspace_is_not_reused_or_deleted(tmp_path: Path) -> None:
+    repository_root = tmp_path / "repository"
+    worktrees_root = repository_root / "worktrees"
+    kwargs = {
+        "case_id_value": "fixture-case",
+        "arm": "without_validation",
+        "repository_root": repository_root,
+        "worktrees_root": worktrees_root,
+    }
+    interrupted = run_module._allocate_attempt_workspace(**kwargs)
+    interrupted.snapshot.mkdir()
+    stale_patch = interrupted.snapshot / "stale-patch.txt"
+    stale_patch.write_text("interrupted state", encoding="utf-8")
+
+    resumed = run_module._allocate_attempt_workspace(**kwargs)
+    try:
+        assert resumed.root != interrupted.root
+        assert resumed.worktree_path != interrupted.worktree_path
+        assert not (resumed.snapshot / "stale-patch.txt").exists()
+        assert stale_patch.read_text(encoding="utf-8") == "interrupted state"
+    finally:
+        run_module._cleanup_owned_path(
+            resumed.worktree_path, resumed.worktree_marker, resumed.owner_token
+        )
+        run_module._cleanup_owned_path(resumed.root, resumed.root_marker, resumed.owner_token)
+        run_module._cleanup_owned_path(
+            interrupted.root, interrupted.root_marker, interrupted.owner_token
+        )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercises Windows benchmark resume workspaces")
+def test_windows_resume_skips_attempted_arm_and_allocates_fresh_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.worktree as worktree_module
+    import mcp_server.sandbox as sandbox_module
+
+    repository_root = tmp_path / "repository"
+    worktrees_root = repository_root / "worktrees"
+    monkeypatch.setattr(sandbox_module, "REPO_ROOT", repository_root)
+    monkeypatch.setattr(sandbox_module, "WORKTREES_ROOT", worktrees_root)
+    monkeypatch.setattr(worktree_module, "WORKTREES_ROOT", worktrees_root)
+    case_id_value = "fixture-case"
+    legacy = repository_root / "connected_apps" / "real_bugs" / case_id_value / "without_validation"
+    legacy.mkdir(parents=True)
+    preserved = legacy / "user-owned.txt"
+    preserved.write_text("do not remove", encoding="utf-8")
+
+    run_file = tmp_path / "resume.jsonl"
+    run_file.write_text(
+        json.dumps(
+            {
+                "case_id": case_id_value,
+                "arm": "with_validation",
+                "failure_category": "provider_error",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    metadata = {
+        "case_id": case_id_value,
+        "parent_sha": "a" * 40,
+        "repository": "fixture",
+    }
+    allocated: list[run_module.AttemptWorkspace] = []
+
+    async def run_inner(*, workspace: run_module.AttemptWorkspace, **kwargs: Any) -> dict[str, Any]:
+        allocated.append(workspace)
+        return {
+            "case_id": kwargs["metadata"]["case_id"],
+            "arm": kwargs["arm"],
+            "status": "failed",
+            "failure_category": "repair_error",
+        }
+
+    monkeypatch.setattr(run_module, "_run_arm_inner", run_inner)
+    rows = asyncio.run(
+        run_module._run_cases(
+            cases=[(tmp_path, metadata, {})],
+            provider_name="gemini_api",
+            run_file=run_file,
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout_seconds=10,
+            resume=True,
+            provider_client=object(),
+            model="fixture-model",
+            attested_free=True,
+        )
+    )
+
+    assert [row["arm"] for row in rows] == ["without_validation"]
+    assert len(allocated) == 1
+    assert allocated[0].root.parent != legacy
+    assert allocated[0].root.is_relative_to(repository_root / "connected_apps" / "real_bugs")
+    assert allocated[0].snapshot != legacy
+    assert preserved.read_text(encoding="utf-8") == "do not remove"
+    assert not allocated[0].root.exists()
+
+
 def test_exception_group_summary_records_sanitized_nested_cause() -> None:
     nested = TimeoutError("provider request timed out; token=do-not-record-this")
     error = ExceptionGroup(
