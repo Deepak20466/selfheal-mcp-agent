@@ -189,6 +189,197 @@ async def test_groq_tool_call_response_and_round_trip(respx_mock: Any) -> None:
     assert b"KeyError" in sent_body
 
 
+async def test_groq_preserves_parallel_and_sequential_tool_history(respx_mock: Any) -> None:
+    groq_tools = [
+        {
+            "name": "read_file",
+            "description": "Read a repository file",
+            "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}},
+        },
+        {
+            "name": "run_tests",
+            "description": "Run a test path",
+            "input_schema": {
+                "type": "object",
+                "properties": {"test_path": {"type": "string"}},
+            },
+        },
+    ]
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_read",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "read_file",
+                                            "arguments": '{"path":"src/app.py"}',
+                                        },
+                                    },
+                                    {
+                                        "id": "call_tests",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "run_tests",
+                                            "arguments": '{"test_path":"tests/test_app.py"}',
+                                        },
+                                    },
+                                ],
+                            }
+                        }
+                    ]
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_tests_again",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "run_tests",
+                                            "arguments": '{"test_path":"tests/test_app.py"}',
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                },
+            ),
+            httpx.Response(
+                200,
+                json={"choices": [{"message": {"role": "assistant", "content": "Done."}}]},
+            ),
+        ]
+    )
+    client = GroqClient(api_key="offline-test-key")
+    messages: list[dict[str, Any]] = [{"role": "user", "content": "Fix and verify."}]
+
+    first = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=groq_tools, messages=messages
+    )
+    messages.extend(
+        [
+            {"role": "assistant", "content": first.content},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "call_read", "content": "source"},
+                    {"type": "tool_result", "tool_use_id": "call_tests", "content": "failed"},
+                ],
+            },
+        ]
+    )
+    second = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=groq_tools, messages=messages
+    )
+    messages.extend(
+        [
+            {"role": "assistant", "content": second.content},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_tests_again",
+                        "content": "passed",
+                    }
+                ],
+            },
+        ]
+    )
+    final = await client.messages.create(
+        model=None, max_tokens=100, system=[], tools=groq_tools, messages=messages
+    )
+
+    assert final.content[0].text == "Done."
+    requests = [json.loads(call.request.content) for call in route.calls]
+    assert [call["id"] for call in requests[1]["messages"][2]["tool_calls"]] == [
+        "call_read",
+        "call_tests",
+    ]
+    assert [
+        (message["tool_call_id"], message["content"])
+        for message in requests[1]["messages"]
+        if message["role"] == "tool"
+    ] == [("call_read", "source"), ("call_tests", "failed")]
+    assert requests[2]["messages"][-2]["tool_calls"][0]["id"] == "call_tests_again"
+    assert requests[2]["messages"][-1] == {
+        "role": "tool",
+        "tool_call_id": "call_tests_again",
+        "content": "passed",
+    }
+
+
+async def test_groq_uses_propagated_case_deadline_for_http_timeout(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "bounded"}}]}
+        )
+    )
+    constructed_timeouts: list[httpx.Timeout | float] = []
+    real_async_client = httpx.AsyncClient
+
+    def capture_timeout(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        constructed_timeouts.append(kwargs["timeout"])
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(api_adapters.httpx, "AsyncClient", capture_timeout)
+    response = await GroqClient(api_key="offline-test-key").messages.create(
+        model=None,
+        max_tokens=10,
+        system=[],
+        tools=[],
+        messages=[{"role": "user", "content": "hello"}],
+        request_timeout_seconds=17.5,
+    )
+
+    assert response.content[0].text == "bounded"
+    assert isinstance(constructed_timeouts[0], httpx.Timeout)
+    assert constructed_timeouts[0].connect == 17.5
+    assert constructed_timeouts[0].read == 17.5
+    assert constructed_timeouts[0].write == 17.5
+    assert constructed_timeouts[0].pool == 17.5
+
+
+async def test_groq_read_timeout_is_sanitized_and_not_retried(respx_mock: Any) -> None:
+    from healer.api_adapters import GroqAPIRequestTimeout
+
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=httpx.ReadTimeout("offline timeout fixture")
+    )
+
+    with pytest.raises(GroqAPIRequestTimeout, match="Groq chat/completions HTTP ReadTimeout"):
+        await GroqClient(api_key="offline-test-key").messages.create(
+            model=None,
+            max_tokens=10,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hello"}],
+        )
+
+    assert route.call_count == 1
+
+
 async def test_groq_429_raises_cooldown_with_retry_after(respx_mock: Any) -> None:
     respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(429, headers={"retry-after": "120"}, text="rate limited")

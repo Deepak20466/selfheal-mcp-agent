@@ -67,6 +67,34 @@ the v9 audit files alongside the config.
 The 20/20 synthetic fixture benchmark is historical evidence only and is not part of this pilot
 or the pending 41-case real-bug benchmark.
 
+## Separate GroqCloud configuration (not yet run)
+
+Groq uses the existing `groq_api` adapter, not Gemini output or fallback routing. Its separately
+frozen v1 configuration preserves the 41-case cohort, the original deterministic ten pilot IDs,
+the prompts, arms, caps, timeouts, and scoring rules. The freeze hash is
+`35cb2c6013a62f72c2821d12c5119b88ed0b63fb6c032bd995a0e135366e5d51`. Gemini v4-v9 and all Gemini
+attempt records remain unchanged. Full-cohort, ten-case, and one-case leakage audits all pass.
+
+Groq's official model and tool-use documentation lists `openai/gpt-oss-120b` and local function
+tool calling, but currently lists no parallel tool use for this model. The adapter's offline tests
+cover ordered call IDs/results in a multi-call turn and a later sequential `run_tests` call. This
+does not establish free quota for the operator's account. No Groq key was available to this
+execution environment and no provider call was made.
+
+| Groq evidence | Status |
+|---|---|
+| Frozen cohort / pilot selection | 41 / original 10 IDs |
+| One-case diagnostic | Prepared only; `attrs-73dc0d2e2860` |
+| Groq attempts / completed cases | 0 / 0 |
+| Resolve rate / full-suite-green resolve rate | Not measured |
+| False-positive proxy, time, tokens, cost | Not measured |
+| Account free quota and billing state | Operator verification required |
+
+The diagnostic command and separate VIMJ safe testing workflow are documented in
+[`groqcloud-repair.md`](groqcloud-repair.md). Its JSONL path is separate from Gemini results and
+from the official ten-case Groq pilot. Run it only after verifying free quota and disabled paid
+billing; retain failures and timeouts as recorded.
+
 ### Frozen setup history
 
 v4 froze the original 41-case cohort and pilot selection; v5 corrected database initialization

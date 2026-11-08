@@ -375,6 +375,10 @@ def _provider(provider_name: str) -> tuple[Any, str, bool]:
             or os.environ.get("GROQ_GPT_OSS_120B_FREE_QUOTA") != "true"
         ):
             raise RuntimeError("Groq requires fresh Free Plan and model-quota confirmation flags")
+        if settings.groq_api_model != "openai/gpt-oss-120b":
+            raise RuntimeError(
+                "the frozen Groq benchmark requires GROQ_API_MODEL=openai/gpt-oss-120b"
+            )
         from healer.api_adapters import GroqClient
 
         return GroqClient(), settings.groq_api_model, True

@@ -1,5 +1,33 @@
 # Verification report
 
+## GroqCloud integration verification — 2026-11-09
+
+Groq reuses the existing OpenAI-compatible adapter. The frozen model is
+`openai/gpt-oss-120b`; the benchmark now pins that model and propagates the remaining per-case
+deadline to the HTTP request. Timeout exceptions are sanitized and not retried. The official Groq
+documentation currently lists local tool use but no parallel tool use for this model; multiple
+returned call IDs/results are still covered in the adapter's offline translation test.
+
+The separate Groq v1 freeze uses the same 41 cases, original 10 pilot IDs, prompts, scoring, arms,
+timeouts, and caps. Its SHA-256 is
+`35cb2c6013a62f72c2821d12c5119b88ed0b63fb6c032bd995a0e135366e5d51`. Leakage audits passed for
+41/41, 10/10, and the separate one-case diagnostic. No live Groq calls were made; the diagnostic
+and the official pilot have zero attempts and no measured metrics.
+
+Offline verification: all Groq adapter tests plus the Groq model-pin regression test **23 passed**;
+repository-wide Ruff and formatting passed (**272 files**); scoped mypy passed for
+`core sentinel mcp_server healer` and the runner (**90 source files**). A full pytest invocation
+could not start because the repository's
+session fixture tried its default local PostgreSQL endpoint at `localhost:5432`, which refused
+the connection. No database was created or changed. GitHub CI is pending for the new commit.
+VIMJ Studio OS SaaS was inspected read-only and not modified or tested; its safe isolated-branch
+workflow is documented in [`docs/groqcloud-repair.md`](docs/groqcloud-repair.md).
+
+The local `pip-audit --progress-spinner off` check exited nonzero and reported 132 advisories across
+11 packages in the active Python environment; it also could not identify the project distribution
+there. This is an environment-level result, not a verified audit of the repository's CI-resolved
+dependency set. The CI dependency audit must be checked separately after push.
+
 ## Current feature-branch verification — feat/gemini-benchmark-route (2026-11-09)
 
 The frozen real-bug pilot remains partial. Five v5/v7/v8 records cover two of ten selected bugs:

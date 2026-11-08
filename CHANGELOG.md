@@ -3,6 +3,12 @@
 ## Unreleased — 2026-11-07
 
 ### Fixed
+- **Groq benchmark deadline and model pinning**: the Groq adapter now honors the remaining
+  per-case HTTP deadline, sanitizes provider timeout classification, and does not retry transport
+  timeouts. The benchmark refuses a model override from the frozen
+  `openai/gpt-oss-120b` configuration. Offline tests cover ordered multi-call tool history,
+  sequential `run_tests`, timeout propagation, timeout non-retry, missing keys, and existing 429/
+  503 handling. No live Groq request was made.
 - **Gemini function-call history**: preserve each complete original model Part (including opaque
   thought signatures) in subsequent `generateContent` requests. Match function responses by the
   returned function name and call ID, preserving model Part/call order for sequential and parallel
@@ -22,6 +28,11 @@
   `docs/benchmark-real-bugs.md`. No new Gemini request was made for the v9 fix.
 
 ### Added
+- **Separate GroqCloud frozen benchmark**: adds a provider-specific v1 freeze using the existing
+  41-case cohort, original ten pilot IDs, scoring rules, and safety limits. Full, pilot, and
+  one-case diagnostic leakage audits pass. The diagnostic is prepared but unattempted; no Groq
+  benchmark outcome is claimed. See `docs/groqcloud-repair.md` for the operator-run command and
+  the isolated VIMJ testing workflow.
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL
   records, and result scoring. Offline fixture tests cover mining, preparation, and scoring. No

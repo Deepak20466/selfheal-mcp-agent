@@ -826,6 +826,31 @@ def test_gemini_provider_requires_recent_model_quota_attestation(
         run_module._provider("gemini_api")
 
 
+def test_groq_provider_fails_closed_on_unconfirmed_or_changed_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.config import settings
+    from healer import api_adapters
+
+    marker = object()
+    monkeypatch.setattr(api_adapters, "GroqClient", lambda: marker)
+    monkeypatch.setattr(settings, "groq_api_model", "openai/gpt-oss-120b")
+    monkeypatch.setenv("REAL_BUG_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("REAL_BUG_BILLING_DISABLED", "true")
+    monkeypatch.setenv("GROQ_FREE_PLAN_CONFIRMED", "true")
+    monkeypatch.setenv("GROQ_GPT_OSS_120B_FREE_QUOTA", "true")
+
+    client, model, attested_free = run_module._provider("groq_api")
+
+    assert client is marker
+    assert model == "openai/gpt-oss-120b"
+    assert attested_free is True
+
+    monkeypatch.setattr(settings, "groq_api_model", "another-model")
+    with pytest.raises(RuntimeError, match="frozen Groq benchmark requires"):
+        run_module._provider("groq_api")
+
+
 def test_runner_stops_after_recording_rate_limit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
