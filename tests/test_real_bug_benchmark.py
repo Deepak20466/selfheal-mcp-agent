@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -450,6 +451,109 @@ def test_runner_uses_only_current_manifest_cases(
     ]
     with pytest.raises(ValueError, match="no longer prepared as kept"):
         run_module._prepared_cases(prepared_root, case_ids=[discarded_id])
+
+
+def test_runner_configures_database_before_importing_cached_settings(tmp_path: Path) -> None:
+    script = textwrap.dedent(
+        """
+        import os
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        from sqlalchemy.engine import make_url
+
+        os.environ.pop("DATABASE_URL", None)
+        os.environ["REAL_BUG_DATABASE_URL"] = (
+            "postgresql+asyncpg://benchmark@127.0.0.1:5434/selfheal_real_bug_test"
+        )
+        from benchmarks.real_bugs import run as runner
+
+        assert "core.config" not in sys.modules
+        assert "healer.backend_chain" not in sys.modules
+
+        project = Path(tempfile.mkdtemp())
+        (project / "alembic").mkdir()
+        (project / "alembic.ini").write_text("[alembic]\\nscript_location = alembic\\n")
+        runner.ROOT = project / "benchmarks" / "real_bugs"
+        runner._prepared_cases = lambda *_args, **_kwargs: []
+
+        from alembic import command
+
+        observed = []
+
+        def verify_database(database_url):
+            url = make_url(database_url)
+            observed.append(("verify", url.host, url.port, url.database))
+
+        runner._verify_database_connection = verify_database
+
+        def verify_settings(_config, _revision):
+            from core.config import settings
+
+            url = make_url(settings.database_url)
+            observed.append(("alembic", url.host, url.port, url.database))
+
+        command.upgrade = verify_settings
+
+        def verify_provider(_provider_name):
+            from core.config import settings
+
+            url = make_url(settings.database_url)
+            observed.append(("runner", url.host, url.port, url.database))
+            return object(), "fixture-model", True
+
+        runner._provider = verify_provider
+        rows = runner.run_benchmark(
+            provider_name="gemini_api",
+            run_file=project / "attempts.jsonl",
+            token_limit=100,
+            cost_limit=runner.Decimal("0"),
+            timeout=1,
+            resume=True,
+        )
+        expected = ("127.0.0.1", 5434, "selfheal_real_bug_test")
+        assert rows == []
+        assert observed == [
+            ("verify", *expected),
+            ("alembic", *expected),
+            ("runner", *expected),
+        ]
+        assert os.environ["DATABASE_URL"] == os.environ["REAL_BUG_DATABASE_URL"]
+
+        os.environ.pop("DATABASE_URL")
+        runner._verify_database_connection = lambda _url: (_ for _ in ()).throw(
+            RuntimeError("database identity unavailable")
+        )
+        try:
+            runner.run_benchmark(
+                provider_name="gemini_api",
+                run_file=project / "blocked.jsonl",
+                token_limit=100,
+                cost_limit=runner.Decimal("0"),
+                timeout=1,
+                resume=True,
+            )
+        except RuntimeError as exc:
+            assert "database identity unavailable" in str(exc)
+        else:
+            raise AssertionError("runner did not fail closed on database verification error")
+        assert observed == [
+            ("verify", *expected),
+            ("alembic", *expected),
+            ("runner", *expected),
+        ]
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_rate_limit_backoff_honors_retry_after() -> None:

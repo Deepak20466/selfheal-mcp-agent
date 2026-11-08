@@ -1,0 +1,22 @@
+{
+  "label": "separate 10-case pilot",
+  "selection_rule": "Group the frozen 41 cases by repository family (case ID prefix); within each family sort by SHA-256 of UTF-8 string \"selfheal-real-bug-pilot-v1:\" + case_id, ascending, with case ID as tie-breaker; select the first two from each family. Selection was recorded before pilot outcomes.",
+  "selection_seed": "selfheal-real-bug-pilot-v1",
+  "frozen_config": "2026-11-08-gemini-3.8-flash-v5.json",
+  "frozen_config_sha256": "5292072a8bcf18fab9d919f1c58aa9bbe08a93cfe2c3f2fb76b4b166d48a2e72",
+  "case_count": 10,
+  "case_ids": [
+    "attrs-73dc0d2e2860",
+    "attrs-2772a29b7bf2",
+    "h11-7a2b4d34c09f",
+    "h11-012e2418027f",
+    "idna-07b2fd741f5d",
+    "idna-970994b28061",
+    "itsdangerous-c8da134c3fff",
+    "itsdangerous-49879772a2dd",
+    "pluggy-d90ef2ea9f45",
+    "pluggy-50c3a8164d2d"
+  ],
+  "outcomes_observed_at_selection": false,
+  "leakage_audit": "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v5-pilot-10-leakage-check.json"
+}

@@ -34,13 +34,16 @@ from benchmarks.real_bugs.common import (
     safe_case_path,
     validate_case_metadata,
 )
-from healer.backend_chain import BackendCooldownError
 from healer.mcp_client import MCPToolClient
 
 ARMS = ("with_validation", "without_validation")
 SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
 RATE_LIMIT_BACKOFF_BASE_SECONDS = 30
 MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS = 300
+REAL_BUG_DATABASE_HOST = "127.0.0.1"
+REAL_BUG_DATABASE_PORT = 5434
+REAL_BUG_DATABASE_NAME = "selfheal_real_bug_test"
+REAL_BUG_DATABASE_MAJOR_VERSION = 16
 GEMINI_FREE_QUOTA_FLAGS = {
     "gemini-3.8-flash": "GEMINI_38_FLASH_FREE_QUOTA",
     "gemini-3.5-flash-lite": "GEMINI_35_FLASH_LITE_FREE_QUOTA",
@@ -194,8 +197,16 @@ def _configure_database() -> str:
     from sqlalchemy.engine import make_url
 
     url = make_url(raw)
-    if not url.database or not url.database.endswith("_test") or url.database == "selfheal":
-        raise RuntimeError("REAL_BUG_DATABASE_URL database name must end in '_test'")
+    if (
+        url.drivername != "postgresql+asyncpg"
+        or url.host != REAL_BUG_DATABASE_HOST
+        or url.port != REAL_BUG_DATABASE_PORT
+        or url.database != REAL_BUG_DATABASE_NAME
+        or not url.database.endswith("_test")
+    ):
+        raise RuntimeError(
+            "REAL_BUG_DATABASE_URL must target the isolated local PostgreSQL 16 test database"
+        )
     app_raw = os.environ.get("DATABASE_URL", "").strip()
     env_file = ROOT.parents[1] / ".env"
     if not app_raw and env_file.is_file():
@@ -212,6 +223,49 @@ def _configure_database() -> str:
             raise RuntimeError("REAL_BUG_DATABASE_URL must differ from DATABASE_URL")
     os.environ["DATABASE_URL"] = raw
     return raw
+
+
+def _verify_database_connection(database_url: str) -> None:
+    """Verify the exact disposable database identity before running migrations."""
+    from sqlalchemy.engine import make_url
+
+    url = make_url(database_url)
+
+    async def verify() -> None:
+        import asyncpg
+
+        connection = await asyncpg.connect(
+            user=url.username,
+            password=url.password,
+            host=url.host,
+            port=url.port,
+            database=url.database,
+            timeout=5,
+        )
+        try:
+            row = await connection.fetchrow(
+                "SELECT current_database(), current_setting('server_version_num')"
+            )
+        finally:
+            await connection.close()
+
+        database_name, version_number = row
+        if (
+            database_name != REAL_BUG_DATABASE_NAME
+            or int(version_number) // 10_000 != REAL_BUG_DATABASE_MAJOR_VERSION
+        ):
+            raise RuntimeError(
+                "Connected database identity or PostgreSQL major version did not match "
+                "the isolated test target"
+            )
+
+    try:
+        asyncio.run(verify())
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not verify the isolated PostgreSQL 16 test database; refusing "
+            "migrations and provider calls"
+        ) from exc
 
 
 def _migrate_database() -> None:
@@ -420,6 +474,7 @@ async def _run_arm_inner(
 ) -> dict[str, Any]:
     from core.db import session_scope
     from core.models import Error, HealJob, HealJobStatus, OpenResolvedStatus
+    from healer.backend_chain import BackendCooldownError
     from healer.mcp_client import connect_in_memory
     from healer.prompts import build_initial_messages
     from healer.runtime_agent import _run_one_attempt
@@ -870,7 +925,8 @@ def run_benchmark(
 ) -> list[dict[str, Any]]:
     frozen_ids = _frozen_case_ids(case_list)
     cases = _prepared_cases(PREPARED_ROOT, case_ids=frozen_ids)
-    _configure_database()
+    database_url = _configure_database()
+    _verify_database_connection(database_url)
     _migrate_database()
     provider_client, model, attested_free = _provider(provider_name)
     return asyncio.run(
