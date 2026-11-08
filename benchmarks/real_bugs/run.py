@@ -130,12 +130,21 @@ class MeteredClient:
     def __init__(self, client: Any, meter: UsageMeter) -> None:
         self._client = client
         self._meter = meter
+        self._request_deadline: float | None = None
+
+    def set_request_deadline(self, deadline: float | None) -> None:
+        self._request_deadline = deadline
 
     @property
     def messages(self) -> MeteredClient:
         return self
 
     async def create(self, **kwargs: Any) -> Any:
+        if self._request_deadline is not None:
+            remaining = self._request_deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("benchmark case deadline expired before provider request")
+            kwargs["request_timeout_seconds"] = remaining
         try:
             response = await self._client.messages.create(**kwargs)
         except Exception:
@@ -670,7 +679,8 @@ async def _run_arm_inner(
     patch_bytes = 0
     events: list[dict[str, Any]] = []
     try:
-        async with asyncio.timeout(timeout_seconds):
+        async with asyncio.timeout(timeout_seconds) as case_timeout:
+            client.set_request_deadline(case_timeout.when())
             async with connect_in_memory(mcp) as connected_mcp:
                 trace = TracingMCPClient(
                     connected_mcp,

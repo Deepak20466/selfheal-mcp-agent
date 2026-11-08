@@ -202,6 +202,70 @@ def test_exception_group_summary_records_sanitized_nested_cause() -> None:
     assert "do-not-record-this" not in summary
 
 
+async def test_metered_client_propagates_remaining_case_deadline() -> None:
+    from types import SimpleNamespace
+
+    class FakeClient:
+        messages = None
+
+        def __init__(self) -> None:
+            self.messages = self
+            self.request_kwargs: dict[str, Any] | None = None
+
+        async def create(self, **kwargs: Any) -> Any:
+            self.request_kwargs = kwargs
+            return SimpleNamespace(
+                content=[],
+                usage=SimpleNamespace(input_tokens=0, output_tokens=0, cost_usd=0),
+            )
+
+    fake = FakeClient()
+    metered = run_module.MeteredClient(
+        fake,
+        run_module.UsageMeter(
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=True,
+        ),
+    )
+    deadline = asyncio.get_running_loop().time() + 15
+    metered.set_request_deadline(deadline)
+
+    await metered.create(model="offline")
+
+    assert fake.request_kwargs is not None
+    remaining = fake.request_kwargs["request_timeout_seconds"]
+    assert 0 < remaining <= 15
+
+
+async def test_metered_client_does_not_start_provider_call_after_case_deadline() -> None:
+    class FakeClient:
+        messages = None
+
+        def __init__(self) -> None:
+            self.messages = self
+            self.called = False
+
+        async def create(self, **_kwargs: Any) -> Any:
+            self.called = True
+            raise AssertionError("expired case must not reach the provider client")
+
+    fake = FakeClient()
+    metered = run_module.MeteredClient(
+        fake,
+        run_module.UsageMeter(
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=True,
+        ),
+    )
+    metered.set_request_deadline(asyncio.get_running_loop().time() - 1)
+
+    with pytest.raises(TimeoutError, match="deadline expired before provider request"):
+        await metered.create(model="offline")
+    assert fake.called is False
+
+
 def _historical_repo(root: Path) -> tuple[Path, str, str]:
     repository = root / "upstream"
     repository.mkdir()

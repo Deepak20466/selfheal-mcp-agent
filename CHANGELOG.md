@@ -2,6 +2,20 @@
 
 ## Unreleased — 2026-11-07
 
+### Fixed
+- **Gemini benchmark request deadline propagation**: the runner now passes the remaining case
+  deadline to the Gemini HTTP client instead of allowing its fixed 120-second timeout to outlive
+  the runner's case budget. HTTPX timeouts are classified at the provider-request boundary with
+  their cause preserved; no automatic retry was added. Frozen v8 preserves the existing cohort and
+  pilot IDs. Regression coverage checks timeout propagation and prevents requests after expiry.
+
+### Evidence
+- The saved v5 and v7 records contain two attempts for the same case and validation arm; both
+  timed out before patch generation. No repair completed and nine pilot cases remain unattempted.
+  Current operator credentials, attestations, fresh quota, and isolated database authentication
+  are unavailable, so live execution remains blocked. See `docs/benchmark-real-bugs.md` for the
+  measured partial results and limitations.
+
 ### Added
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL

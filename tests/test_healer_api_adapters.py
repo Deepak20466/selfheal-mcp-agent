@@ -262,6 +262,66 @@ async def test_gemini_text_only_response(respx_mock: Any) -> None:
     assert "key" not in route.calls.last.request.url.params
 
 
+async def test_gemini_uses_propagated_case_deadline_for_http_timeout(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import healer.api_adapters as api_adapters
+
+    respx_mock.post(f"{GEMINI_API_BASE}/models/gemini-2.0-flash:generateContent").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [{"content": {"parts": [{"text": "bounded"}]}}],
+                "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+            },
+        )
+    )
+    constructed_timeouts: list[httpx.Timeout | float] = []
+    real_async_client = httpx.AsyncClient
+
+    def capture_timeout(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        constructed_timeouts.append(kwargs["timeout"])
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(api_adapters.httpx, "AsyncClient", capture_timeout)
+
+    response = await GeminiApiClient(api_key="fake-key").messages.create(
+        model=None,
+        max_tokens=10,
+        system=[],
+        tools=[],
+        messages=[{"role": "user", "content": "hi"}],
+        request_timeout_seconds=17.5,
+    )
+
+    assert response.content[0].text == "bounded"
+    assert len(constructed_timeouts) == 1
+    assert isinstance(constructed_timeouts[0], httpx.Timeout)
+    assert constructed_timeouts[0].connect == 17.5
+    assert constructed_timeouts[0].read == 17.5
+    assert constructed_timeouts[0].write == 17.5
+    assert constructed_timeouts[0].pool == 17.5
+
+
+async def test_gemini_read_timeout_names_provider_request_without_retry(respx_mock: Any) -> None:
+    from healer.api_adapters import GeminiAPIRequestTimeout
+
+    route = respx_mock.post(f"{GEMINI_API_BASE}/models/gemini-2.0-flash:generateContent").mock(
+        side_effect=httpx.ReadTimeout("read timeout")
+    )
+
+    with pytest.raises(GeminiAPIRequestTimeout, match="Gemini generateContent HTTP ReadTimeout"):
+        await GeminiApiClient(api_key="fake-key").messages.create(
+            model=None,
+            max_tokens=10,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hi"}],
+        )
+
+    assert route.call_count == 1
+
+
 async def test_gemini_function_call_response(respx_mock: Any) -> None:
     respx_mock.post(f"{GEMINI_API_BASE}/models/gemini-2.0-flash:generateContent").mock(
         return_value=httpx.Response(

@@ -68,11 +68,15 @@ The dated outcomes and evidence links are in [VERIFICATION.md](VERIFICATION.md) 
 
 ## Real-bug benchmark status
 
-Benchmark status: a separate deterministic 10-case pilot is selected, but live Gemini execution
-is blocked in the current environment. No pilot cases have been attempted and no repair metrics
-are measured. The frozen 41-case v4 benchmark remains pending and separate. See
-[the real-bug benchmark report](docs/benchmark-real-bugs.md) for the selected IDs, methodology,
-blocker, and limitations. The historical fixture benchmark remains separate.
+Benchmark status: the frozen 10-case pilot remains incomplete. Two Gemini request attempts were
+recorded for the same selected case and validation arm, across runner v5 and v7; both timed out
+before proposing a repair. No case completed and no repair resolved. Nine selected cases and all
+no-validation arms remain unattempted. New live execution is blocked because required credentials,
+operator attestations, isolated database authentication, and a fresh quota timestamp are not
+available in this environment. The 41-case cohort remains separate and pending; v8 preserves its
+cases and pilot IDs while freezing the timeout correction. See the [real-bug benchmark report](docs/benchmark-real-bugs.md)
+and [saved partial results](benchmarks/real_bugs/results/published/2026-11-08.md). The historical
+fixture benchmark remains separate.
 
 ## Architecture
 
@@ -97,14 +101,21 @@ The PyPDF2 repair did not converge, so no fix to that issue is claimed. ShopCart
 was fixed manually (engineer-directed, Claude-assisted) in PR #2, not by Selfheal's repair loop.
 Earlier seeded trials also include failed AI repair attempts and CI checks; the evidence ledger
 links each result rather than counting only successful attempts.
-No provider attempt has completed for the current real-bug benchmark. Resolve rate, resolve rate
-with the full suite green, false-positive rate, median time, median cost, and failure distribution
-are therefore unknown. The scorer's failure categories are `no_patch`, `invalid_patch`,
+The pilot has two recorded attempts but no completed repair: both provider requests timed out for
+the same case and arm. Across those two records, resolve rate and full-suite-green resolve rate are
+0/2; no target or suite test was reached. False-positive rate is not measurable (zero eligible
+human-fix denominator), and cost is unknown for both attempts. The measured per-run median times
+are 121.046s (v5) and 121.094s (v7). Nine pilot cases, the ablation arm, and the 41-case cohort
+remain unattempted. The scorer's failure categories are `no_patch`, `invalid_patch`,
 `rejected_by_policy`, `tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`,
 `cost_unknown`, and `repair_error`; these are labels in the harness, not measured frequencies.
-The separately selected 10-case pilot is also not run: required Gemini/database credentials and
-free-tier attestations were unavailable to the execution process, so database and provider checks
-were not attempted. Its attempted-case count is zero; all pilot outcome metrics remain unmeasured.
+Both observed failures were nested `ExceptionGroup` errors ending in HTTPX `ReadTimeout` during
+Gemini `generateContent`. MCP setup was in-memory and the only recorded tool call was `get_error`,
+so this was not an MCP network operation. The runner's fixed 120-second HTTP timeout ignored its
+240-second case deadline. v8 propagates remaining case time and reports a sanitized provider
+request timeout. Whether the endpoint or network stalled is unknown. Current live execution is
+blocked until the operator provides valid credentials, attestations, fresh quota, and isolated
+test-database authentication. Regression coverage is in [the adapter tests](tests/test_healer_api_adapters.py).
 
 The no-policy ablation bypasses Selfheal's patch policy but still uses the OS sandbox for untrusted
 repository tests. Pull requests are review artifacts; this evidence does not claim that tests alone

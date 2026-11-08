@@ -41,10 +41,15 @@ from sentinel.scrubber import scrub_text
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+GEMINI_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 _PROVIDER_RETRYABLE_STATUSES = frozenset({502, 503, 504})
 _PROVIDER_MAX_ATTEMPTS = 3
 _PROVIDER_MAX_RETRY_AFTER_SECONDS = 10.0
 logger = structlog.get_logger(__name__)
+
+
+class GeminiAPIRequestTimeout(RuntimeError):
+    """The Gemini generateContent HTTP request exceeded its bounded timeout."""
 
 
 @dataclass
@@ -476,6 +481,17 @@ class _GeminiMessages:
         messages = kwargs["messages"]
         tools = kwargs.get("tools", [])
         max_tokens = kwargs.get("max_tokens", 4096)
+        request_timeout_seconds = kwargs.pop("request_timeout_seconds", None)
+        if request_timeout_seconds is None:
+            request_timeout: float | httpx.Timeout = GEMINI_API_DEFAULT_TIMEOUT_SECONDS
+        elif (
+            isinstance(request_timeout_seconds, bool)
+            or not isinstance(request_timeout_seconds, (int, float))
+            or request_timeout_seconds <= 0
+        ):
+            raise ValueError("request_timeout_seconds must be a positive number")
+        else:
+            request_timeout = httpx.Timeout(float(request_timeout_seconds))
 
         payload: dict[str, Any] = {
             "contents": self._to_gemini_contents(messages),
@@ -487,14 +503,19 @@ class _GeminiMessages:
         if tools:
             payload["tools"] = self._to_gemini_tools(tools)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await _provider_post(
-                client,
-                f"{GEMINI_API_BASE}/models/{settings.gemini_api_model}:generateContent",
-                backend="gemini_api",
-                headers={"x-goog-api-key": self._api_key},
-                payload=payload,
-            )
+        try:
+            async with httpx.AsyncClient(timeout=request_timeout) as client:
+                response = await _provider_post(
+                    client,
+                    f"{GEMINI_API_BASE}/models/{settings.gemini_api_model}:generateContent",
+                    backend="gemini_api",
+                    headers={"x-goog-api-key": self._api_key},
+                    payload=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise GeminiAPIRequestTimeout(
+                f"Gemini generateContent HTTP {type(exc).__name__}"
+            ) from exc
         _raise_for_status_classified(response, backend="gemini_api")
         body = response.json()
 
