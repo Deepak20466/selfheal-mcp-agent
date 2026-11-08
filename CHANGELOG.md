@@ -50,10 +50,12 @@
 
 ### Added
 - **Separate GroqCloud frozen benchmark**: preserves v1/v2 freezes and their two diagnostic
-  failures, and adds v3/v4 with the same 41 cases, original ten pilot IDs, prompts, scoring rules,
+  failures, and adds v3-v5 with the same 41 cases, original ten pilot IDs, prompts, scoring rules,
   and case limits. V3 recorded one failed diagnostic after one successful API response; V4 adds a
-  bounded wait for the exact TPM reset header and passes all three leakage audits. No repair result
-  is claimed. See `docs/groqcloud-repair.md` for the operator-run command and VIMJ evidence.
+  bounded wait for the exact TPM reset header. V5 maps only the observed `repo_browser.list_files`
+  alias to the explicitly allowed `list_files` tool and rejects other namespaces. V5's three
+  leakage audits pass; no v5 provider call or repair result is claimed. See
+  `docs/groqcloud-repair.md` for the operator-run command and VIMJ evidence.
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL
   records, and result scoring. Offline fixture tests cover mining, preparation, and scoring. No

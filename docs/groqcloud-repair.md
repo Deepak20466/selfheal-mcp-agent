@@ -112,32 +112,47 @@ safe bounded attempt rather than a guarantee that the account will accept the re
 41/41, 10/10, and 1/1. V1-v3 freezes and all historical results are unchanged; no v4 provider run
 has occurred.
 
+### Groq v5 tool-name compatibility correction
+
+The v4 diagnostic preserved the model-returned name `repo_browser.list_files`. MCP registers and
+the adapter advertises only the canonical `list_files` schema; the failure was in the benchmark
+wrapper's exact-name authorization check, not an MCP registration mismatch. The wrapper now maps
+only that exact observed alias to `list_files`, then applies the existing allowlist and dispatches
+the canonical name. Tool events retain both the canonical dispatch name and the requested alias.
+Other namespaces and unknown tools remain rejected. Tool arguments, call IDs, result matching, and
+MCP audit behavior are unchanged.
+
+The v5 frozen config keeps all 41 cases, pilot IDs, prompts, arms, scoring, and limits unchanged;
+only frozen source hashes, version references, and the leakage-audit artifacts differ. Its full
+config hash is `2621014dd12c6de1b759f75e9987d8251cc914523522a8ffcbe2af8144d4063b`. Leakage audits
+pass for 41/41, 10/10, and 1/1 cases. No v5 provider call has been made.
+
 Before running, the operator must independently verify the Groq free tier and billing state, set
 the required operator attestations, and provide `GROQ_API_KEY` privately in the external shell.
 `GROQ_API_MODEL` must be `openai/gpt-oss-120b`. `REAL_BUG_DATABASE_URL` must identify the isolated
 PostgreSQL 16 database at `127.0.0.1:5434/selfheal_real_bug_test`; the runner verifies the identity
 and refuses other targets. Do not put a database URL or credentials in this repository.
 
-### Fresh one-case v4 diagnostic
+### Fresh one-case v5 diagnostic
 
 Run only after the operator has confirmed the account's current free quota and disabled paid
 billing. This uses a new results file; do not resume into the already failed v3 results file. It
 records one diagnostic outside the official pilot denominator:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v4-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v4-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v5-diagnostic-1.json --run-file benchmarks/real_bugs/results/runs/groq-v5-diagnostic-1.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 If it records an attempt, preserve the JSONL and score it as a diagnostic only. Do not copy it into
 the pilot file. Before starting the official pilot, review that diagnostic and independently
 reconfirm free quota/billing. The separate ten-case result file is
-`benchmarks/real_bugs/results/runs/groq-v4-pilot-10.jsonl`.
+`benchmarks/real_bugs/results/runs/groq-v5-pilot-10.jsonl`.
 
 After the operator reviews the diagnostic, independently confirms quota/billing again, and
 decides to start the separate official pilot, run:
 
 ```powershell
-$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v4-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v4-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
+$env:GROQ_API_MODEL = "openai/gpt-oss-120b"; python -m benchmarks.real_bugs.run --provider groq_api --case-list benchmarks/real_bugs/frozen/2026-11-09-groq-openai-gpt-oss-120b-v5-pilot-10.json --run-file benchmarks/real_bugs/results/runs/groq-v5-pilot-10.jsonl --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
 ## VIMJ Studio OS SaaS safe workflow

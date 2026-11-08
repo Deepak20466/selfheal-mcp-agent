@@ -985,6 +985,53 @@ def test_model_tool_wrapper_rejects_git_history_tools() -> None:
         asyncio.run(trace.call_tool("get_recent_commits", {}))
 
 
+def test_model_tool_wrapper_maps_only_the_observed_repo_browser_alias() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def list_tool_schemas(self) -> list[dict[str, Any]]:
+            return [
+                {"name": "list_files", "input_schema": {"type": "object"}},
+                {"name": "get_recent_commits", "input_schema": {"type": "object"}},
+            ]
+
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            self.calls.append((name, arguments))
+            return {"paths": ["src/example.py"]}
+
+    client = FakeClient()
+    trace = TracingMCPClient(client, validated=True, error_id=42)
+    schemas = asyncio.run(trace.list_tool_schemas())
+    arguments = {"glob": "src/**/*.py"}
+    result = asyncio.run(trace.call_tool("repo_browser.list_files", arguments))
+
+    assert [schema["name"] for schema in schemas] == ["list_files"]
+    assert result == {"paths": ["src/example.py"]}
+    assert client.calls == [("list_files", arguments)]
+    assert trace.events == [
+        {
+            "tool": "list_files",
+            "requested_tool": "repo_browser.list_files",
+            "ok": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "tool_name",
+    ["other_namespace.list_files", "repo_browser.run_tests", "repo_browser.delete_file"],
+)
+def test_model_tool_wrapper_rejects_unknown_or_malicious_namespaces(tool_name: str) -> None:
+    class FakeClient:
+        async def call_tool(self, _name: str, _arguments: dict[str, Any]) -> Any:
+            raise AssertionError("unauthorized MCP tool reached the server")
+
+    trace = TracingMCPClient(FakeClient(), validated=True, error_id=42)
+    with pytest.raises(ValueError, match="not authorized"):
+        asyncio.run(trace.call_tool(tool_name, {}))
+
+
 def test_model_context_excludes_human_fix_and_post_parent_history(tmp_path: Path) -> None:
     from healer.prompts import build_initial_messages
 

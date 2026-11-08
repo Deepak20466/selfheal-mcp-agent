@@ -38,6 +38,10 @@ from healer.mcp_client import MCPToolClient
 
 ARMS = ("with_validation", "without_validation")
 SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
+# Groq occasionally echoes the MCP server label together with the advertised
+# name. Accept this one observed alias only; all dispatch and authorization
+# continue to use the canonical, explicitly allowlisted MCP tool name.
+SAFE_TOOL_ALIASES = {"repo_browser.list_files": "list_files"}
 RATE_LIMIT_BACKOFF_BASE_SECONDS = 30
 MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS = 300
 REAL_BUG_DATABASE_HOST = "127.0.0.1"
@@ -202,10 +206,17 @@ class TracingMCPClient:
         return [schema for schema in schemas if schema.get("name") in SAFE_TOOL_NAMES]
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        requested_name = name
+        name = SAFE_TOOL_ALIASES.get(name, name)
         if name not in SAFE_TOOL_NAMES and name != "get_error":
-            raise ValueError(f"benchmark model is not authorized to call MCP tool {name!r}")
+            raise ValueError(
+                f"benchmark model is not authorized to call MCP tool {requested_name!r}"
+            )
         if name == "get_error" and arguments.get("error_id") != self.error_id:
             raise ValueError("benchmark model can only read its assigned error record")
+        event = {"tool": name}
+        if requested_name != name:
+            event["requested_tool"] = requested_name
         try:
             if name == "propose_patch":
                 patch = arguments.get("unified_diff")
@@ -218,11 +229,11 @@ class TracingMCPClient:
             else:
                 result = await self.client.call_tool(name, arguments)
         except Exception as exc:
-            self.events.append({"tool": name, "ok": False, "error": str(exc)[:1000]})
+            self.events.append({**event, "ok": False, "error": str(exc)[:1000]})
             if name == "propose_patch":
                 self.patch_error = str(exc)[:1000]
             raise
-        self.events.append({"tool": name, "ok": True})
+        self.events.append({**event, "ok": True})
         return result
 
     async def _apply_without_policy(self, arguments: dict[str, Any]) -> dict[str, Any]:
