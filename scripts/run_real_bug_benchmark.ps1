@@ -2,10 +2,10 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 $Python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
-$FrozenConfig = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v3.json"
-$FrozenHash = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v3.sha256"
-$LeakageAudit = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v3-leakage-check.json"
-$RunId = "2026-11-08-gemini-3.8-flash-v3"
+$FrozenConfig = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4.json"
+$FrozenHash = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4.sha256"
+$LeakageAudit = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4-leakage-check.json"
+$RunId = "2026-11-08-gemini-3.8-flash-v4"
 $Results = "benchmarks/real_bugs/results"
 $Runs = Join-Path $Results "runs"
 $Logs = Join-Path $Results "logs"
@@ -64,6 +64,22 @@ $RunSpecs = @(
 function Invoke-BenchmarkRun {
     param([string]$RunFile, [int]$Limit = 0)
 
+    $ParsedQuotaTimestamp = [DateTimeOffset]::MinValue
+    $TimestampValid = [DateTimeOffset]::TryParseExact(
+        $env:GEMINI_QUOTA_CHECKED_UTC,
+        "yyyy-MM-ddTHH:mm:ssZ",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$ParsedQuotaTimestamp
+    )
+    if (-not $TimestampValid -or $ParsedQuotaTimestamp.Offset -ne [TimeSpan]::Zero) {
+        throw "GEMINI_QUOTA_CHECKED_UTC must be an operator-provided UTC timestamp ending in Z."
+    }
+    $QuotaAge = [DateTimeOffset]::UtcNow - $ParsedQuotaTimestamp.ToUniversalTime()
+    if ($QuotaAge.TotalSeconds -lt 0 -or $QuotaAge.TotalSeconds -gt 900) {
+        throw "Gemini quota timestamp is stale; operator must refresh it before running or resuming."
+    }
+
     $RunArgs = @(
         "-m", "benchmarks.real_bugs.run",
         "--run-file", $RunFile,
@@ -74,9 +90,6 @@ function Invoke-BenchmarkRun {
         "--resume"
     )
     if ($Limit -gt 0) { $RunArgs += @("--limit", "$Limit") }
-    # The operator must verify the live model quota before invoking this script.
-    # This fresh timestamp is generated immediately before each run/resume.
-    $env:GEMINI_QUOTA_CHECKED_UTC = & $Python -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))"
     & $Python @RunArgs | Out-Host
     return $LASTEXITCODE
 }
@@ -108,7 +121,7 @@ try {
     }
 } finally {
     if ($TranscriptStarted) { Stop-Transcript | Out-Null }
-    Remove-Item Env:REAL_BUG_DATABASE_URL, Env:GEMINI_QUOTA_CHECKED_UTC -ErrorAction SilentlyContinue
+    Remove-Item Env:REAL_BUG_DATABASE_URL -ErrorAction SilentlyContinue
     if (-not $HadAppDatabaseUrl) {
         Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
     } else {

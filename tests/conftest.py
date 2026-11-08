@@ -140,8 +140,27 @@ os.environ["GITHUB_ALLOWED_REPOSITORIES"] = ",".join(
 # (e.g. "gemini_api,groq_api,claude_cli") can't make an unmocked test exercise
 # a backend it never set up respx routes for -- tests that want a specific
 # chain set `core.config.settings.ai_chain`/`chat_chain` explicitly.
+for _environment_name in tuple(os.environ):
+    if _environment_name.startswith(("GEMINI_", "REAL_BUG_")) or _environment_name == (
+        "I_CONFIRM_GEMINI_FREE_TIER_AND_NO_BILLING"
+    ):
+        os.environ.pop(_environment_name, None)
 os.environ["GEMINI_API_KEY"] = "test-mock-gemini-key-do-not-use"
+os.environ["GEMINI_API_MODEL"] = "gemini-2.0-flash"
+os.environ["GEMINI_FREE_TIER_CONFIRMED"] = "false"
+for _quota_flag in (
+    "GEMINI_38_FLASH_FREE_QUOTA",
+    "GEMINI_35_FLASH_LITE_FREE_QUOTA",
+    "GEMINI_25_PRO_FREE_QUOTA",
+    "GEMINI_25_FLASH_FREE_QUOTA",
+    "GEMINI_25_FLASH_LITE_FREE_QUOTA",
+):
+    os.environ[_quota_flag] = "false"
 os.environ["GROQ_API_KEY"] = "gsk_test-mock-groq-key-do-not-use"
+os.environ["GROQ_FREE_PLAN_CONFIRMED"] = "false"
+os.environ["GROQ_GPT_OSS_120B_FREE_QUOTA"] = "false"
+os.environ["OPENROUTER_API_KEY"] = ""
+os.environ["OPENROUTER_FREE_MODEL"] = ""
 # Explicit empty string (not `.pop`) so this overrides an env-var AI_CHAIN/
 # CHAT_CHAIN too, not just one from a loaded .env file — an env var normally
 # outranks a dotenv value in pydantic-settings, so a bare pop() could still

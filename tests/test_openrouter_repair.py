@@ -50,6 +50,8 @@ def gemini_has_no_confirmed_quota(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "true")
     monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "false")
+    monkeypatch.setenv("GEMINI_35_FLASH_LITE_FREE_QUOTA", "false")
     monkeypatch.setenv("GEMINI_25_PRO_FREE_QUOTA", "false")
     monkeypatch.setenv("GEMINI_25_FLASH_FREE_QUOTA", "false")
 
