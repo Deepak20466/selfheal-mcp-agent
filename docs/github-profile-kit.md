@@ -10,7 +10,7 @@ An AI-assisted runtime and CI repair agent that verifies candidate patches befor
 
 ## Resume bullets
 
-- Built Selfheal's runtime/CI incident-to-review workflow around FastAPI, PostgreSQL, MCP tools, scoped repository access, patch checks, isolated verification, and a human-reviewed PR boundary. The 41-case cohort and original 10-case selection pass leakage audits. Five Gemini attempts across two selected bugs failed before repair; a separate Groq v3 diagnostic made one successful API call, then stopped locally at the TPM budget. No real-bug repair completed; eight Gemini pilot IDs remain unattempted and no success-rate claim is supported. See the [measured report](benchmark-real-bugs.md).
+- Built Selfheal's runtime/CI incident-to-review workflow around FastAPI, PostgreSQL, MCP tools, scoped repository access, patch checks, isolated verification, and a human-reviewed PR boundary. The 41-case cohort and original 10-case selection pass leakage audits. Five Gemini attempts across two selected bugs failed before repair; Groq diagnostics stopped on provider TPM and prompt-budget limits. A separate frozen VIMJ fee-balance attempt exposed a Selfheal MCP tracer recursion bug, now regression-tested; its next attempt stopped locally at the Groq prompt budget. No real-bug repair completed; eight Gemini pilot IDs remain unattempted and no success-rate claim is supported. See the [measured report](benchmark-real-bugs.md) and [VIMJ run record](unresolved-bug-evaluation.md).
 - Fixed two Selfheal defects found during engineer-directed, Claude-assisted dogfooding: a scanner path dropped dependency findings when stderr corrupted JSON, and a worker path failed to catch a remote-verification exception. Added two scanner tests and one worker regression test in [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6); these were not Selfheal-generated repairs.
 - Ran three controlled synthetic repair-to-PR demonstrations with passing repair CI; as of 2026-11-08, demo-01 PR #16 is merged and demo-02 #13 / demo-03 #10 remain open. VIMJ PR #1 separately contains a Codex-assisted SQLite password-reset fix with passing backend CI; it is not a Selfheal repair. The 31-turn PyPDF2 repair did not converge, and ShopCart's pagination fix was manual. See the [evidence ledger](history/RECOVERED_EVIDENCE.md).
 
@@ -22,8 +22,10 @@ patch policy, then runs verification in an isolated worktree before it can open 
 workflow is backed by CI and controlled synthetic demos. The separate Gemini pilot has five
 recorded attempts across two bugs: two timed out and three were rejected because the adapter did not
 preserve signed function-call Parts. Separately, Groq v1/v2 recorded token/context failures; v3 made
-one successful API call before a local TPM-budget stop. No repair completed. I report those partial
-results and make no successful real-bug repair-rate claim.
+one successful API call before a local TPM-budget stop. A VIMJ fee-balance attempt found a recursive
+Selfheal tracer-construction bug; a later attempt reached the provider but stopped at the local token
+budget. The recursion fix and Groq source-context compaction have offline regression coverage; no
+autonomous real-bug repair completed. I report those partial results and make no success-rate claim.
 
 GroqCloud has an offline-tested adapter path and separate frozen configurations using the same
 41-case cohort and original ten pilot IDs. The preserved v1/v2 diagnostics recorded a TPM 429 and
