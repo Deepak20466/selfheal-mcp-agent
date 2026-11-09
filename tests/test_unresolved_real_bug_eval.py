@@ -571,7 +571,16 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
     test_file = worktree / "tests" / "test_requested_changes.py"
     source.parent.mkdir(parents=True)
     test_file.parent.mkdir(parents=True)
-    source.write_text("def balance(amount, paid):\n    return amount + paid\n", encoding="utf-8")
+    source.write_text(
+        "def balance(amount, paid):\n    return amount + paid\n"
+        + "\n".join(
+            f"# offline MCP payload padding {index}: diagnostic source context"
+            for index in range(500)
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     test_file.write_text(
         "from app.routers.fees import balance\n\n"
         "class TestSyntheticFullSuite:\n"
@@ -603,9 +612,9 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
     snapshot = repo_root / workspace_prefix
     snapshot.parent.mkdir(parents=True)
     shutil.copytree(worktree, snapshot, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setattr(sandbox, "REPO_ROOT", repo_root)
-    monkeypatch.setattr(sandbox, "WORKTREES_ROOT", worktrees)
-    monkeypatch.setattr(code_tools, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(sandbox, "REPO_ROOT", repo_root.resolve())
+    monkeypatch.setattr(sandbox, "WORKTREES_ROOT", worktrees.resolve())
+    monkeypatch.setattr(code_tools, "REPO_ROOT", repo_root.resolve())
 
     app = SimpleNamespace(
         allowed_write_paths=["app/routers/fees.py"],
@@ -656,8 +665,9 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
 
     diff = (
         "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
-        "@@ -1,2 +1,2 @@\n def balance(amount, paid):\n"
+        "@@ -1,3 +1,3 @@\n def balance(amount, paid):\n"
         "-    return amount + paid\n+    return amount - paid\n"
+        " # offline MCP payload padding 0: diagnostic source context\n"
     )
     provider_responses = [
         response(
@@ -668,7 +678,7 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
                     tool_call(
                         "read-1",
                         "read_file",
-                        {"path": "app/routers/fees.py", "start_line": 1, "end_line": 10},
+                        {"path": "app/routers/fees.py"},
                     ),
                     tool_call(
                         "test-before",
@@ -747,7 +757,14 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
 
         assert agent_result.success is True
         assert provider_route.call_count == 3
-        assert source.read_text(encoding="utf-8").endswith("return amount - paid\n")
+        assert source.read_text(encoding="utf-8").splitlines()[1] == "    return amount - paid"
+        second_request = json.loads(provider_route.calls[1].request.content or b"{}")
+        read_result = next(
+            message for message in second_request["messages"] if message["role"] == "tool"
+        )
+        assert len(read_result["content"].encode("utf-8")) <= 8_192
+        assert "omitted source lines" in read_result["content"]
+        assert "def balance(amount, paid)" in read_result["content"]
         assert any(
             event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events
         )

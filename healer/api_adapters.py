@@ -763,7 +763,26 @@ class _GroqMessages:
         # pass on the final HTTP payload, not the only line of defense.
         for m in out:
             if isinstance(m.get("content"), str):
-                m["content"] = scrub_text(m["content"])
+                content = m["content"]
+                # MCP tools commonly return JSON as text. Scrubbing that wire
+                # representation with regexes can match across JSON escapes:
+                # for example, ``\\n@router.post`` contains ``n@router``
+                # which looks like an email address and becomes invalid JSON.
+                # Parse and scrub JSON values instead, then serialize them
+                # again. This preserves source text such as Python decorators
+                # while retaining the same secret and PII redaction policy.
+                if m.get("role") == "tool":
+                    try:
+                        content = json.dumps(
+                            scrub_value(json.loads(content)),
+                            separators=(",", ":"),
+                            ensure_ascii=False,
+                        )
+                    except (TypeError, ValueError):
+                        content = scrub_text(content)
+                else:
+                    content = scrub_text(content)
+                m["content"] = content
         return out
 
     @staticmethod

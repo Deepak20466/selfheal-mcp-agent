@@ -10,6 +10,8 @@ from __future__ import annotations
 # ruff: noqa: I001
 
 import json
+import hashlib
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -1706,6 +1708,110 @@ async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_
     tool_message = next(message for message in payload["messages"] if message["role"] == "tool")
     assert len(tool_message["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
     assert "omitted source lines" in tool_message["content"]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_compacts_actual_mcp_read_file_json_without_corrupting_decorators() -> (
+    None
+):
+    """Keep JSON-aware redaction between MCP serialization and compaction.
+
+    The MCP client returns this structured result as a dictionary, then
+    ``runtime_agent`` serializes it as JSON text. Regex scrubbing that wire
+    text sees ``n@router`` in escaped ``\\n@router`` and corrupts the JSON.
+    """
+    from mcp.server.mcpserver import MCPServer
+    import structlog
+
+    from healer.api_adapters import (
+        OPENROUTER_TOOL_RESULT_MAX_BYTES,
+        _GroqMessages,
+        _compact_openrouter_tool_messages,
+    )
+    from healer.mcp_client import connect_in_memory
+    from sentinel.scrubber import scrub_text
+
+    frozen_read_result = json.loads(
+        (Path(__file__).parent / "fixtures" / "vimj_fees_read_file_payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    server = MCPServer("read-file-compaction-regression")
+
+    @server.tool()
+    async def read_file(path: str) -> dict[str, Any]:
+        assert path == "app/routers/fees.py"
+        return frozen_read_result
+
+    async with connect_in_memory(server) as client:
+        mcp_result = await client.call_tool("read_file", {"path": "app/routers/fees.py"})
+
+    assert isinstance(mcp_result, dict)
+    # This is runtime_agent's MCP structured-result serialization.
+    mcp_payload = json.dumps(mcp_result, default=str)
+    assert len(mcp_payload.encode("utf-8")) == 10_319
+    assert (
+        hashlib.sha256(mcp_payload.encode("utf-8")).hexdigest()
+        == "c151b0f79657fee743d98f1d35620453f36cac4a2d936bd0bffb478c96b8d266"
+    )
+    assert len(mcp_payload.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES
+    # Prove the pre-fix behavior from the actual MCP serialization.
+    old_scrubbed = scrub_text(mcp_payload)
+    assert len(old_scrubbed.encode("utf-8")) == 10_345
+    assert (
+        hashlib.sha256(old_scrubbed.encode("utf-8")).hexdigest()
+        == "8237f2339c158712e8938b9401c7002f500ff649d3f0772a405b20f790077d76"
+    )
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(old_scrubbed)
+    old_messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "mcp-read", "function": {"name": "read_file", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "mcp-read", "content": old_scrubbed},
+    ]
+    with (
+        structlog.testing.capture_logs() as failure_logs,
+        pytest.raises(RuntimeError, match="context_limit_after_compaction"),
+    ):
+        _compact_openrouter_tool_messages(old_messages)
+    failure = next(
+        log for log in failure_logs if log.get("event") == "provider.tool_result_diagnostic"
+    )
+    assert failure["payload_bytes"] == 10_345
+    assert failure["payload_sha256"] == (
+        "8237f2339c158712e8938b9401c7002f500ff649d3f0772a405b20f790077d76"
+    )
+    assert failure["failure_category"] == "context_limit_after_compaction"
+
+    converter = object.__new__(_GroqMessages)
+    converted = converter._to_openai_messages(
+        [],
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "mcp-read", "name": "read_file", "input": {}}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "mcp-read", "content": mcp_payload}
+                ],
+            },
+        ],
+    )
+    compacted = _compact_openrouter_tool_messages(converted)
+    tool_result = next(message for message in compacted if message["role"] == "tool")
+    assert len(tool_result["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
+    result = json.loads(tool_result["content"])
+    assert "@router.get" in result["content"]
+    assert "omitted source lines" in result["content"]
+    assert "owner@example.invalid" not in result["content"]
 
 
 def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -> None:
