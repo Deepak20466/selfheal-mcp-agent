@@ -7,13 +7,10 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from benchmarks.real_bugs import run as benchmark_runner
 from benchmarks.real_bugs import unresolved_eval as evaluation
-from benchmarks.real_bugs.run import _allocate_attempt_workspace, _benchmark_attempt_id
 from healer.mcp_client import MCPToolClient
 from healer.prompts import build_initial_messages
 from healer.runtime_agent import _run_one_attempt
-from healer.worktree import create_worktree_for_connected_app, remove_plain_clone
 from mcp_server.sandbox import SandboxViolation
 
 
@@ -26,6 +23,10 @@ async def test_attempt_worktree_and_branch_fit_deep_windows_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Exercise clone and checkout beneath a path that stresses MAX_PATH."""
+    from benchmarks.real_bugs import run as benchmark_runner
+    from benchmarks.real_bugs.run import _allocate_attempt_workspace, _benchmark_attempt_id
+    from healer.worktree import create_worktree_for_connected_app, remove_plain_clone
+
     project = tmp_path.joinpath(*(f"nested-project-{index:02d}" for index in range(3)))
     project.mkdir(parents=True)
     worktrees_root = project / "worktrees"
