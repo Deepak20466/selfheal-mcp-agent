@@ -33,7 +33,7 @@ _PRICING: dict[str, ModelPricing] = {
     # OpenRouter's VIMJ allowlisted free endpoint has zero input/output
     # pricing. Its API usage report is independently required to confirm the
     # actual per-completion cost before the benchmark accepts a response.
-    "google/gemma-4-26b-a4b-it:free": ModelPricing(
+    "cohere/north-mini-code:free": ModelPricing(
         input_per_mtok=Decimal("0"),
         output_per_mtok=Decimal("0"),
         cache_write_per_mtok=Decimal("0"),

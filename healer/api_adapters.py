@@ -45,7 +45,7 @@ from sentinel.scrubber import scrub_text
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
-OPENROUTER_FREE_MODEL = "google/gemma-4-26b-a4b-it:free"
+OPENROUTER_FREE_MODEL = "cohere/north-mini-code:free"
 GROQ_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST = 4096
 GROQ_MAX_CONTEXT_TOKENS = 131072

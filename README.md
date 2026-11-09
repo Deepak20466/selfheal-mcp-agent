@@ -99,7 +99,7 @@ diagnostic leakage audits pass. No v4 provider run has occurred. See the [Groq r
 The separate frozen VIMJ fee-balance evaluation retains two Groq attempts. The first exposed and
 fixed a Selfheal MCP tracer recursion bug (commit `0c1f8c3`). The second stopped before a second
 request at the local TPM budget; no repair completed. The next route is pinned to OpenRouter's
-`google/gemma-4-26b-a4b-it:free` model. It preflights zero pricing and function calling, disables
+`cohere/north-mini-code:free` model. It preflights zero pricing and function calling, disables
 provider fallback and request retries, and rejects any completion without an exact zero-cost report.
 The VIMJ bug freeze, sandbox controls, and all prior evidence remain unchanged. Offline provider and
 MCP workflow tests use mocked responses; no live OpenRouter call has been made for this change. See

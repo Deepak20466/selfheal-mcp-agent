@@ -240,7 +240,7 @@ def test_openrouter_endpoint_requires_advertised_function_calling(
         "_request",
         lambda *_args, **_kwargs: {
             "data": {
-                "id": "google/gemma-4-26b-a4b-it:free",
+                "id": "cohere/north-mini-code:free",
                 "endpoints": [
                     {
                         "status": 0,
@@ -252,11 +252,11 @@ def test_openrouter_endpoint_requires_advertised_function_calling(
         },
     )
     openrouter_repair.verify_free_endpoint(
-        "google/gemma-4-26b-a4b-it:free", TEST_API_KEY, required_parameter="tools"
+        "cohere/north-mini-code:free", TEST_API_KEY, required_parameter="tools"
     )
 
     with pytest.raises(openrouter_repair.InferenceError, match="required capability"):
-        openrouter_repair.verify_free_endpoint("google/gemma-4-26b-a4b-it:free", TEST_API_KEY)
+        openrouter_repair.verify_free_endpoint("cohere/north-mini-code:free", TEST_API_KEY)
 
 
 def test_documented_free_tier_key_metadata_is_required(
@@ -472,16 +472,16 @@ def test_openrouter_model_context_and_output_limits_are_checked(
     response = {
         "data": [
             {
-                "id": "google/gemma-4-26b-a4b-it:free",
+                "id": "cohere/north-mini-code:free",
                 "pricing": {"prompt": "0", "completion": "0"},
-                "context_length": 262_144,
-                "top_provider": {"context_length": 262_144, "max_completion_tokens": 32_768},
+                "context_length": 256_000,
+                "top_provider": {"context_length": 256_000, "max_completion_tokens": 65_536},
             }
         ]
     }
     monkeypatch.setattr(openrouter_repair, "_request", lambda *_args, **_kwargs: response)
     openrouter_repair.verify_free_model(
-        "google/gemma-4-26b-a4b-it:free",
+        "cohere/north-mini-code:free",
         TEST_API_KEY,
         minimum_context_tokens=32_768,
         minimum_completion_tokens=4_096,
@@ -490,7 +490,7 @@ def test_openrouter_model_context_and_output_limits_are_checked(
     response["data"][0]["top_provider"]["max_completion_tokens"] = 2_048
     with pytest.raises(openrouter_repair.InferenceError, match="output limit"):
         openrouter_repair.verify_free_model(
-            "google/gemma-4-26b-a4b-it:free",
+            "cohere/north-mini-code:free",
             TEST_API_KEY,
             minimum_context_tokens=32_768,
             minimum_completion_tokens=4_096,

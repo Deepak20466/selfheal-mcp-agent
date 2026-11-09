@@ -47,7 +47,7 @@ EXPECTED_MODEL_VISIBLE_FREEZE_SHA256 = (
 EXPECTED_FREEZE_SHA256 = "f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2"
 MAX_CASE_SECONDS = 600
 TOKEN_CAP = 8000
-OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
+OPENROUTER_MODEL = "cohere/north-mini-code:free"
 
 
 class EvaluationSafetyError(RuntimeError):
@@ -543,7 +543,7 @@ def _check_live_attestations() -> None:
         "REAL_BUG_FREE_TIER_CONFIRMED": "true",
         "REAL_BUG_BILLING_DISABLED": "true",
         "OPENROUTER_FREE_TIER_CONFIRMED": "true",
-        "OPENROUTER_GEMMA_4_26B_FREE_QUOTA": "true",
+        "OPENROUTER_COHERE_NORTH_MINI_CODE_FREE_QUOTA": "true",
         "OPENROUTER_QUOTA_CHECKED_UTC": None,
     }
     missing = [name for name, expected in required.items() if not os.environ.get(name)]

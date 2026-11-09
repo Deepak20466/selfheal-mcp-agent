@@ -918,7 +918,7 @@ def test_openrouter_vimj_provider_is_exactly_allowlisted_and_preflighted(
     from healer import api_adapters
     from scripts import openrouter_repair
 
-    expected_model = "google/gemma-4-26b-a4b-it:free"
+    expected_model = "cohere/north-mini-code:free"
     marker = object()
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(settings, "anthropic_model", expected_model)
@@ -971,7 +971,12 @@ def test_openrouter_vimj_provider_is_exactly_allowlisted_and_preflighted(
         ("endpoint", f"{expected_model}:tools:32768:4096"),
     ]
 
-    for disallowed in ("openrouter/free", "google/gemma-4-26b-a4b-it", "vendor/paid-model"):
+    for disallowed in (
+        "openrouter/free",
+        "google/gemma-4-26b-a4b-it:free",
+        "google/gemma-4-26b-a4b-it",
+        "vendor/paid-model",
+    ):
         monkeypatch.setattr(settings, "anthropic_model", disallowed)
         with pytest.raises(RuntimeError, match="only allows"):
             run_module._provider("openrouter_api")

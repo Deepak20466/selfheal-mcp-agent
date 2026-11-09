@@ -256,7 +256,7 @@ python -m benchmarks.real_bugs.run --run-file $runFile --token-cap 40000 --cost-
 ```
 
 The OpenRouter benchmark route is restricted to
-`google/gemma-4-26b-a4b-it:free`. Set `OPENROUTER_API_KEY`,
+`cohere/north-mini-code:free`. Set `OPENROUTER_API_KEY`,
 `ANTHROPIC_MODEL` to that exact ID, and `OPENROUTER_FREE_TIER_CONFIRMED=true`.
 Before inference, it verifies the key's Free-tier status, exact model pricing,
 and an active zero-priced endpoint advertising `tools`. Provider fallbacks and

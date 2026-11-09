@@ -88,9 +88,9 @@ python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-
 ```
 
 Historical Groq attempts above remain unchanged. The next attempt is pinned to
-OpenRouter's `google/gemma-4-26b-a4b-it:free` route. OpenRouter lists zero input
-and output pricing, native function calling, a 262,144-token context, and up to
-32,768 completion tokens for this model. Its `:free` tier is limited to 20
+OpenRouter's `cohere/north-mini-code:free` route. OpenRouter lists zero input
+and output pricing, tool calling, a 256,000-token context, and up to
+65,536 completion tokens for this model. Its `:free` tier is limited to 20
 requests per minute and 50 requests per day; this VIMJ attempt caps aggregate
 reported completion tokens at 8,000. The live preflight checks the exact model,
 all advertised prices, and an active endpoint with `tools` support. Each
@@ -104,14 +104,14 @@ is disabled, and the model has available free quota. Export the key privately as
 operator-set quota timestamp must be current (15-minute maximum):
 
 ```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-gemma-4-26b-a4b-2026-11-09.jsonl" --live
+python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-code-2026-11-09.jsonl" --live
 ```
 
-Before invoking it, set `ANTHROPIC_MODEL=google/gemma-4-26b-a4b-it:free`,
+Before invoking it, set `ANTHROPIC_MODEL=cohere/north-mini-code:free`,
 `I_CONFIRM_OPENROUTER_FREE_TIER_AND_NO_BILLING=yes`,
 `REAL_BUG_FREE_TIER_CONFIRMED=true`, `REAL_BUG_BILLING_DISABLED=true`,
 `OPENROUTER_FREE_TIER_CONFIRMED=true`,
-`OPENROUTER_GEMMA_4_26B_FREE_QUOTA=true`, and a current
+`OPENROUTER_COHERE_NORTH_MINI_CODE_FREE_QUOTA=true`, and a current
 `OPENROUTER_QUOTA_CHECKED_UTC=YYYY-MM-DDTHH:MM:SSZ`. These are operator
 attestations, not values the code infers. The run stops on missing/stale
 attestations, failed API metadata checks, unexpected model configuration,

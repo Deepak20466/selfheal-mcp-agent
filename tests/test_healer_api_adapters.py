@@ -1551,12 +1551,12 @@ async def test_openrouter_text_only_response(
 ) -> None:
     from core.config import settings as core_settings
 
-    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
     respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
-                "model": "google/gemma-4-26b-a4b-it:free",
+                "model": "cohere/north-mini-code:free",
                 "choices": [{"message": {"role": "assistant", "content": "hello there"}}],
                 "usage": {
                     "prompt_tokens": 10,
@@ -1587,12 +1587,12 @@ async def test_openrouter_tool_call_response(
 ) -> None:
     from core.config import settings as core_settings
 
-    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
     route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
-                "model": "google/gemma-4-26b-a4b-it:free",
+                "model": "cohere/north-mini-code:free",
                 "choices": [
                     {
                         "message": {
@@ -1644,9 +1644,10 @@ async def test_openrouter_tool_call_response(
     ("model", "usage"),
     [
         ("some/paid-model", {"cost": 0, "is_byok": False}),
-        ("google/gemma-4-26b-a4b-it:free", {"cost": 0.01, "is_byok": False}),
-        ("google/gemma-4-26b-a4b-it:free", {"is_byok": False}),
-        ("google/gemma-4-26b-a4b-it:free", {"cost": 0, "is_byok": True}),
+        ("google/gemma-4-26b-a4b-it:free", {"cost": 0, "is_byok": False}),
+        ("cohere/north-mini-code:free", {"cost": 0.01, "is_byok": False}),
+        ("cohere/north-mini-code:free", {"is_byok": False}),
+        ("cohere/north-mini-code:free", {"cost": 0, "is_byok": True}),
     ],
 )
 async def test_openrouter_rejects_unverified_or_paid_completions(
@@ -1657,7 +1658,7 @@ async def test_openrouter_rejects_unverified_or_paid_completions(
 ) -> None:
     from core.config import settings as core_settings
 
-    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
     respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
             200,
@@ -1705,7 +1706,7 @@ async def test_openrouter_429_raises_cooldown_with_retry_after(
 ) -> None:
     from core.config import settings as core_settings
 
-    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
     respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(429, headers={"retry-after": "60"}, text="rate limited")
     )
