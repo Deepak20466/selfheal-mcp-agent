@@ -903,9 +903,7 @@ def _patch_proposal_evidence(events: list[dict[str, Any]]) -> list[dict[str, Any
                 "bytes": request.get("diff_bytes", request.get("unified_diff_bytes")),
                 "patch_format": request.get("patch_format"),
                 "paths": (
-                    sorted(set(paths))
-                    if all(isinstance(path, str) for path in paths)
-                    else []
+                    sorted(set(paths)) if all(isinstance(path, str) for path in paths) else []
                 ),
                 "disposition": disposition,
                 "applied_files": (
