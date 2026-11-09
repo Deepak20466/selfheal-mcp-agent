@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Ruff versions disagree about the pytest import grouping in this split test module.
+# ruff: noqa: I001
+
 import asyncio
 import hashlib
 import json
@@ -7,7 +10,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-
 import pytest
 
 # isort: split
