@@ -701,6 +701,7 @@ async def _run_arm_inner(
     cost_limit: Decimal,
     timeout_seconds: float,
     workspace: AttemptWorkspace,
+    request_limit: int | None = None,
 ) -> dict[str, Any]:
     from core.db import session_scope
     from core.models import Error, HealJob, HealJobStatus, OpenResolvedStatus
@@ -754,7 +755,11 @@ async def _run_arm_inner(
         # The documented unaffiliated Free-tier ceiling is 50 requests/day;
         # this single-case attempt is bounded well below it.
         request_limit=(
-            OPENROUTER_BENCHMARK_REQUEST_LIMIT if provider_name == "openrouter_api" else None
+            request_limit
+            if request_limit is not None
+            else OPENROUTER_BENCHMARK_REQUEST_LIMIT
+            if provider_name == "openrouter_api"
+            else None
         ),
     )
     client = MeteredClient(provider_client, meter)

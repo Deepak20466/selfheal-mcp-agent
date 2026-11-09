@@ -1362,6 +1362,68 @@ async def test_gemini_function_call_response(respx_mock: Any) -> None:
     assert block.input == {"error_id": 9}
 
 
+async def test_gemini_compacts_read_file_result_only_on_outgoing_copy(respx_mock: Any) -> None:
+    from healer.api_adapters import OPENROUTER_TOOL_RESULT_MAX_BYTES
+
+    original_result = json.dumps(
+        {
+            "path": "app/routers/fees.py",
+            "start_line": 1,
+            "end_line": 180,
+            "total_lines": 502,
+            "content": "def update_fee():\n" + "\n".join(f"# line {i} padding" for i in range(500)),
+        }
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "read-file-call",
+                    "name": "read_file",
+                    "input": {"path": "app/routers/fees.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "read-file-call",
+                    "content": original_result,
+                }
+            ],
+        },
+    ]
+    route = respx_mock.post(f"{GEMINI_API_BASE}/models/gemini-2.0-flash:generateContent").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "candidates": [{"content": {"parts": [{"text": "Continue."}]}}],
+                "usageMetadata": {"promptTokenCount": 8, "candidatesTokenCount": 2},
+            },
+        )
+    )
+
+    await GeminiApiClient(api_key="fake-key").messages.create(
+        model=None,
+        max_tokens=100,
+        system=[],
+        tools=[],
+        messages=messages,
+    )
+
+    request_contents = json.loads(route.calls.last.request.content)["contents"]
+    outgoing_result = request_contents[1]["parts"][0]["functionResponse"]["response"]["content"]
+    assert len(outgoing_result.encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
+    compacted_value = json.loads(outgoing_result)
+    assert "Selfheal omitted source lines" in compacted_value["content"]
+    assert "def update_fee" in compacted_value["content"]
+    assert messages[1]["content"][0]["content"] == original_result
+
+
 async def test_gemini_preserves_function_parts_signatures_and_response_ids(
     respx_mock: Any,
 ) -> None:

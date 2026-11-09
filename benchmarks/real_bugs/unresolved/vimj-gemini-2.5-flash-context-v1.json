@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "vimj-gemini-2.5-flash-context-v1-2026-11-09",
+  "challenge_id": "vimj-offline-candidate-2026-11-09",
+  "budget_config_sha256": "9d40775aeefad2f694f3412fed56db1ea1ca6fb12fc4f2e3a9c1d8a402dc1a3a",
+  "model": "gemini-2.5-flash",
+  "model_visible_traceback_chars": 4000,
+  "tool_result_max_bytes": 8192,
+  "source_path": "app/routers/fees.py",
+  "regression_sequence": [
+    "fail before patch",
+    "pass after patch",
+    "full suite"
+  ],
+  "regression_test_path": "tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync",
+  "full_suite_test_path": null,
+  "rejected_test_request": "controlled_tool_error"
+}

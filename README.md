@@ -98,12 +98,12 @@ diagnostic leakage audits pass. No v4 provider run has occurred. See the [Groq r
 
 The separate frozen VIMJ fee-balance evaluation retains two Groq attempts. The first exposed and
 fixed a Selfheal MCP tracer recursion bug (commit `0c1f8c3`). The second stopped before a second
-request at the local TPM budget; no repair completed. The next route is pinned to OpenRouter's
-`cohere/north-mini-code:free` model. It preflights zero pricing and function calling, disables
-provider fallback and request retries, and rejects any completion without an exact zero-cost report.
-The VIMJ bug freeze, sandbox controls, and all prior evidence remain unchanged. Offline provider and
-MCP workflow tests use mocked responses; no live OpenRouter call has been made for this change. See
-the [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
+request at the local TPM budget; no repair completed. The separately versioned current route uses
+Gemini 2.5 Flash through the existing `GeminiApiClient`. It preserves the frozen VIMJ baseline and
+regression, exact source allowlist, 32,768-token budget, 10-request cap, 600-second timeout, and $0
+free-only requirement. Historical Cohere/OpenRouter and Groq evidence remains unchanged. Mocked
+offline tests exercise the Gemini MCP patch workflow; no live Gemini attempt or autonomous repair
+result is claimed. See the [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
 
 ## Architecture
 

@@ -350,7 +350,9 @@ def _openrouter_diagnostic_preview(content: str) -> str:
     return prefix.decode("utf-8", errors="ignore") + suffix.decode("ascii")
 
 
-def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _compact_provider_tool_messages(
+    messages: list[dict[str, Any]], *, backend: str, provider_label: str
+) -> list[dict[str, Any]]:
     """Bound rediscoverable MCP results on an outgoing copy of chat history."""
     compacted = copy.deepcopy(messages)
     # MCP tool results belong to the immediately preceding assistant tool-call
@@ -425,7 +427,7 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
         result_bytes = len(content.encode("utf-8")) if isinstance(content, str) else None
         logger.info(
             "provider.tool_result_diagnostic",
-            backend="openrouter_api",
+            backend=backend,
             tool=tool_name,
             call_id=_openrouter_safe_call_id(call_id),
             call_key=call_key,
@@ -441,15 +443,103 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
         if outcome == "failed":
             if failure_category == "test_evidence_not_safely_compactable":
                 raise RuntimeError(
-                    "OpenRouter tool output could not be compacted without losing test evidence"
+                    f"{provider_label} tool output could not be compacted without losing "
+                    "test evidence"
                 )
             raise RuntimeError(
-                "OpenRouter tool output exceeds the safe context limit "
+                f"{provider_label} tool output exceeds the safe context limit "
                 f"(tool={tool_name}, bytes={original_bytes}, category={failure_category})"
             )
         message["content"] = content
         if isinstance(call_id, str):
             call_names.pop(call_id, None)
+    return compacted
+
+
+def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compatibility wrapper for OpenRouter-specific tests and call sites."""
+    return _compact_provider_tool_messages(
+        messages, backend="openrouter_api", provider_label="OpenRouter"
+    )
+
+
+def _compact_gemini_tool_contents(contents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bound Gemini function results without changing the agent's local history."""
+    compacted = copy.deepcopy(contents)
+    allowed_tools = {"get_error", "read_file", "list_files", "run_tests", "propose_patch"}
+    for message_index, message in enumerate(compacted):
+        if message.get("role") != "user":
+            continue
+        for part_index, part in enumerate(message.get("parts", [])):
+            function_response = part.get("functionResponse")
+            if not isinstance(function_response, dict):
+                continue
+            response = function_response.get("response")
+            if not isinstance(response, dict) or not isinstance(response.get("content"), str):
+                continue
+            original_content = response["content"]
+            original_bytes = len(original_content.encode("utf-8"))
+            raw_tool_name = function_response.get("name")
+            tool_name = raw_tool_name if raw_tool_name in allowed_tools else "unknown"
+            content = original_content
+            outcome = (
+                "not_needed" if original_bytes <= OPENROUTER_TOOL_RESULT_MAX_BYTES else "compacted"
+            )
+            failure_category: str | None = None
+            if original_bytes > OPENROUTER_TOOL_RESULT_MAX_BYTES:
+                if tool_name == "list_files":
+                    content = _groq_compact_json(original_content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+                elif tool_name == "read_file":
+                    content = _groq_compact_read_file(
+                        original_content, OPENROUTER_TOOL_RESULT_MAX_BYTES
+                    )
+                elif tool_name == "get_error":
+                    content = _groq_compact_error(
+                        original_content, OPENROUTER_TOOL_RESULT_MAX_BYTES
+                    )
+                    content = content or original_content
+                elif tool_name == "run_tests":
+                    content = _groq_compact_test_output(
+                        original_content, OPENROUTER_TOOL_RESULT_MAX_BYTES
+                    )
+                    if content is None:
+                        outcome = "failed"
+                        failure_category = "test_evidence_not_safely_compactable"
+                else:
+                    outcome = "failed"
+                    failure_category = "unsupported_tool"
+
+                if (
+                    outcome != "failed"
+                    and isinstance(content, str)
+                    and len(content.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES
+                ):
+                    outcome = "failed"
+                    failure_category = "context_limit_after_compaction"
+
+            logger.info(
+                "provider.tool_result_diagnostic",
+                backend="gemini_api",
+                tool=tool_name,
+                message_index=message_index,
+                part_index=part_index,
+                payload_bytes=original_bytes,
+                outgoing_bytes=(len(content.encode("utf-8")) if isinstance(content, str) else None),
+                compaction_outcome=outcome,
+                failure_category=failure_category,
+                payload_sha256=hashlib.sha256(original_content.encode("utf-8")).hexdigest(),
+                payload_preview=_openrouter_diagnostic_preview(original_content),
+            )
+            if outcome == "failed":
+                if failure_category == "test_evidence_not_safely_compactable":
+                    raise RuntimeError(
+                        "Gemini tool output could not be compacted without losing test evidence"
+                    )
+                raise RuntimeError(
+                    "Gemini tool output exceeds the safe context limit "
+                    f"(tool={tool_name}, bytes={original_bytes}, category={failure_category})"
+                )
+            response["content"] = content
     return compacted
 
 
@@ -1298,7 +1388,7 @@ class _GeminiMessages:
             request_timeout = httpx.Timeout(float(request_timeout_seconds))
 
         payload: dict[str, Any] = {
-            "contents": self._to_gemini_contents(messages),
+            "contents": _compact_gemini_tool_contents(self._to_gemini_contents(messages)),
             "generationConfig": {"maxOutputTokens": max_tokens},
         }
         system_text = scrub_text(_system_text(system))

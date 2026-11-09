@@ -138,6 +138,8 @@ def test_new_budget_is_versioned_and_keeps_the_frozen_challenge_unchanged() -> N
     assert budget["per_case_request_cap"] == 10
     assert budget["per_case_request_cap"] == benchmark_runner.OPENROUTER_BENCHMARK_REQUEST_LIMIT
     assert budget["per_case_cost_cap_usd"] == "0"
+    assert budget["provider"] == "gemini_api"
+    assert budget["model"] == "gemini-2.5-flash"
     assert (
         evaluation.sha256_file(evaluation.BUDGET_CONFIG_PATH)
         == evaluation.EXPECTED_BUDGET_CONFIG_SHA256
@@ -146,6 +148,43 @@ def test_new_budget_is_versioned_and_keeps_the_frozen_challenge_unchanged() -> N
         evaluation.sha256_file(evaluation.CONTEXT_POLICY_PATH)
         == evaluation.EXPECTED_CONTEXT_POLICY_SHA256
     )
+
+
+def test_gemini_live_gate_requires_fresh_free_only_attestations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    for name in (
+        "GEMINI_API_KEY",
+        "I_CONFIRM_GEMINI_FREE_TIER_AND_NO_BILLING",
+        "REAL_BUG_FREE_TIER_CONFIRMED",
+        "REAL_BUG_BILLING_DISABLED",
+        "GEMINI_FREE_TIER_CONFIRMED",
+        "GEMINI_25_FLASH_FREE_QUOTA",
+        "GEMINI_QUOTA_CHECKED_UTC",
+        "GEMINI_API_MODEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(evaluation.EvaluationSafetyError, match="GEMINI_25_FLASH_FREE_QUOTA"):
+        evaluation._check_live_attestations()
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-mock-gemini-key-do-not-use")
+    monkeypatch.setenv("I_CONFIRM_GEMINI_FREE_TIER_AND_NO_BILLING", "yes")
+    monkeypatch.setenv("REAL_BUG_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("REAL_BUG_BILLING_DISABLED", "true")
+    monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("GEMINI_25_FLASH_FREE_QUOTA", "true")
+    monkeypatch.setenv("GEMINI_API_MODEL", evaluation.GEMINI_MODEL)
+    monkeypatch.setenv(
+        "GEMINI_QUOTA_CHECKED_UTC",
+        (datetime.now(UTC) - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    evaluation._check_live_attestations()
+
+    monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", "2000-01-01T00:00:00Z")
+    with pytest.raises(evaluation.EvaluationSafetyError, match="quota confirmation is stale"):
+        evaluation._check_live_attestations()
 
 
 @pytest.mark.asyncio
@@ -743,7 +782,7 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
     from benchmarks.real_bugs import run as runner
     from core.config import settings
     from core.models import HealJob, HealJobType, MonitoredApp
-    from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
+    from healer.api_adapters import GEMINI_API_BASE, GeminiApiClient
     from healer.mcp_client import connect_in_memory
     from mcp_server.instance import mcp
 
@@ -828,32 +867,22 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
     )
     assert baseline_result["passed"] is False
 
-    def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "id": call_id,
-            "type": "function",
-            "function": {"name": name, "arguments": json.dumps(arguments)},
-        }
+    def function_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {"functionCall": {"name": name, "args": arguments}}
 
-    def response(message: dict[str, Any]) -> httpx.Response:
+    def response(part: dict[str, Any]) -> httpx.Response:
         return httpx.Response(
             200,
             json={
-                "model": evaluation.OPENROUTER_MODEL,
-                "choices": [{"message": message}],
-                "usage": {
-                    "prompt_tokens": 20,
-                    "completion_tokens": 10,
-                    "cost": 0,
-                    "is_byok": False,
-                },
+                "candidates": [{"content": {"role": "model", "parts": [part]}}],
+                "usageMetadata": {"promptTokenCount": 20, "candidatesTokenCount": 10},
             },
         )
 
     # This decision stub makes each tool choice from prior tool output. It is
     # an offline loop contract test, not evidence of autonomous benchmark success.
-    def patch_from_observation(tool_results: list[dict[str, Any]]) -> str:
-        read_result = json.loads(tool_results[0]["content"])
+    def patch_from_observation(tool_results: list[str]) -> str:
+        read_result = json.loads(tool_results[0])
         observed = read_result["content"].splitlines()
         function_line = next(i for i, line in enumerate(observed) if line.startswith("def balance"))
         old_return = observed[function_line + 1]
@@ -868,78 +897,47 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
 
     def decide(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
-        tool_results = [message for message in payload["messages"] if message["role"] == "tool"]
+        tool_results = [
+            part["functionResponse"]["response"]["content"]
+            for message in payload["contents"]
+            for part in message["parts"]
+            if "functionResponse" in part
+        ]
         if not tool_results:
-            choice = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    tool_call(
-                        "read-1",
-                        "read_file",
-                        {"path": "app/routers/fees.py"},
-                    )
-                ],
-            }
+            part = function_call("read_file", {"path": "app/routers/fees.py"})
         elif len(tool_results) == 1:
-            assert "def balance(amount, paid)" in json.loads(tool_results[0]["content"])["content"]
+            assert "def balance(amount, paid)" in json.loads(tool_results[0])["content"]
             diff = patch_from_observation(tool_results)
             rejected_diff = diff.replace(
                 "a/app/routers/fees.py", "a/tests/test_requested_changes.py"
             ).replace("b/app/routers/fees.py", "b/tests/test_requested_changes.py")
-            choice = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    tool_call(
-                        "patch-rejected",
-                        "propose_patch",
-                        {"worktree": "mock-repair", "unified_diff": rejected_diff},
-                    )
-                ],
-            }
+            part = function_call(
+                "propose_patch", {"worktree": "mock-repair", "unified_diff": rejected_diff}
+            )
         elif len(tool_results) == 2:
-            assert "Patch rejected" in tool_results[-1]["content"]
-            assert "no files were changed" in tool_results[-1]["content"]
-            choice = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    tool_call(
-                        "patch-corrected",
-                        "propose_patch",
-                        {
-                            "worktree": "mock-repair",
-                            "unified_diff": patch_from_observation(tool_results),
-                        },
-                    )
-                ],
-            }
+            assert "Patch rejected" in tool_results[-1]
+            assert "no files were changed" in tool_results[-1]
+            part = function_call(
+                "propose_patch",
+                {"worktree": "mock-repair", "unified_diff": patch_from_observation(tool_results)},
+            )
         elif len(tool_results) == 3:
-            patch_result = json.loads(tool_results[-1]["content"])
+            patch_result = json.loads(tool_results[-1])
             assert patch_result["applied"] is True
-            choice = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    tool_call(
-                        "test-after",
-                        "run_tests",
-                        {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
-                    )
-                ],
-            }
+            part = function_call(
+                "run_tests", {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH}
+            )
         elif len(tool_results) == 4:
-            assert json.loads(tool_results[-1]["content"])["passed"] is True
-            choice = {"role": "assistant", "content": "Offline workflow verified."}
+            assert json.loads(tool_results[-1])["passed"] is True
+            part = {"text": "Offline workflow verified."}
         else:
             raise AssertionError("unexpected repeated tool history in offline loop")
-        return response(choice)
+        return response(part)
 
-    provider_route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
-        side_effect=decide
-    )
-    monkeypatch.setattr(settings, "anthropic_model", evaluation.OPENROUTER_MODEL)
+    provider_route = respx_mock.post(
+        f"{GEMINI_API_BASE}/models/{evaluation.GEMINI_MODEL}:generateContent"
+    ).mock(side_effect=decide)
+    monkeypatch.setattr(settings, "gemini_api_model", evaluation.GEMINI_MODEL)
 
     async with connect_in_memory(mcp) as mcp_client:
         original_tracer = runner.TracingMCPClient
@@ -953,7 +951,7 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
             tracer_factory=original_tracer,
         )
         agent_result = await _run_one_attempt(
-            anthropic_client=OpenRouterClient(api_key="sk-or-fake"),
+            anthropic_client=GeminiApiClient(api_key="test-mock-gemini-key-do-not-use"),
             mcp=cast(MCPToolClient, scoped),
             job_id=7,
             worktree_name="mock-repair",
@@ -973,7 +971,7 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
             tool_schemas=await scoped.list_tool_schemas(),
             system_prompt=evaluation.build_model_prompt(),
             max_total_tokens=10_000,
-            model_name=evaluation.OPENROUTER_MODEL,
+            model_name=evaluation.GEMINI_MODEL,
         )
 
         # The general runtime loop requires an in-conversation failing run
@@ -985,10 +983,13 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
         assert source.read_text(encoding="utf-8").splitlines()[1] == "    return amount - paid"
         second_request = json.loads(provider_route.calls[1].request.content or b"{}")
         read_result = next(
-            message for message in second_request["messages"] if message["role"] == "tool"
+            part["functionResponse"]["response"]["content"]
+            for message in second_request["contents"]
+            for part in message["parts"]
+            if "functionResponse" in part
         )
-        assert len(read_result["content"].encode("utf-8")) <= 8_192
-        assert "def balance(amount, paid)" in read_result["content"]
+        assert len(read_result.encode("utf-8")) <= 8_192
+        assert "def balance(amount, paid)" in read_result
         assert len([event for event in scoped.events if event.get("tool") == "read_file"]) == 1
         assert any(
             event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events

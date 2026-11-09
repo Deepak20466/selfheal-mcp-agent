@@ -1,7 +1,9 @@
 # Unresolved bug evaluation: VIMJ fee balance
 
-This is a separate, one-defect evaluation path. It does not alter the historical
-real-bug cohorts, their scoring, or their saved provider results.
+This is a separate, one-defect evaluation path. Its current route is separately
+versioned for Gemini 2.5 Flash. It does not alter the historical real-bug
+cohorts, the frozen VIMJ challenge, or the saved Cohere/OpenRouter and Groq
+provider results.
 
 ## Frozen challenge
 
@@ -52,8 +54,11 @@ Evidence aligned with it is saved in
 Earlier draft preflight records remain preserved but are not the authoritative
 preflight evidence.
 The unresolved-context guard tests exercise the actual Selfheal agent loop
-using mocked provider and MCP responses. This is harness verification only; it
-is not an autonomous repair result.
+using mocked provider and MCP responses. The Gemini workflow test also exercises
+the existing `GeminiApiClient`, a mocked tool-call conversation, exact-path
+patch rejection, the permitted source patch, regression verification, and the
+full-suite tool path. This is offline harness verification only; it is not an
+autonomous repair result.
 
 ## Saved provider attempts
 
@@ -79,7 +84,49 @@ The existing complete frozen-cohort blinding audit also passed for 41 cases,
 with 41 retained and zero dropped:
 `benchmarks/real_bugs/results/audits/2026-11-09-unresolved-harness-context-audit.json`.
 
-## Reproduction
+## Current Gemini 2.5 Flash route
+
+The current files are `vimj-gemini-2.5-flash-budget-v1.json` and
+`vimj-gemini-2.5-flash-context-v1.json`. Their hashes are checked by the
+evaluator, and they preserve the original baseline, regression, exact source
+allowlist, 32,768 aggregate-token cap, 10-request cap, 600-second timeout, and
+$0 cost cap. The previous Cohere/OpenRouter budget-v2 and context-v4 files and
+their evidence remain unchanged as historical records.
+
+The evaluator selects `gemini_api` and requires the exact model ID
+`gemini-2.5-flash`. Before a live attempt, independently verify the Google AI
+Studio project's free quota and that billing is disabled. The provider does
+not return a billed-cost field in this adapter, so the $0 requirement depends
+on the verified free-only account and fail-closed operator attestations. No
+automatic provider fallback is used.
+
+PostgreSQL diagnosis: localhost:5432 has no listener, while the local PostgreSQL
+16 service listens on 127.0.0.1:5434. The repository's app/test defaults point
+to 5432; do not use those defaults for this VIMJ evaluation. It requires the
+separate `selfheal_real_bug_test` database on 5434, which is identity-checked
+before migrations. Full Selfheal backend tests use a newly created disposable
+PostgreSQL cluster via `python scripts/test_with_ephemeral_postgres.py`; this
+does not connect to the 5434 service or a production database.
+
+The command below is for a later, separately authorized run only. Supply the
+candidate checkout and private database/API credentials through the environment;
+never commit them. Set `REAL_BUG_DATABASE_URL` to the isolated PostgreSQL 16
+target at `127.0.0.1:5434/selfheal_real_bug_test` and verify it first. The live
+evaluator also requires fresh model quota, free-tier, and disabled-billing
+attestations. Without all checks it stops before constructing the Gemini client.
+
+```powershell
+$env:GEMINI_API_MODEL = "gemini-2.5-flash"
+python -m benchmarks.real_bugs.unresolved_eval `
+  --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" `
+  --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-gemini-2.5-flash-v1.jsonl" `
+  --live
+```
+
+`--live` must only be used after separate authorization. It makes at most one
+Selfheal attempt and does not resume a previous evidence file.
+
+## Offline preflight and historical Cohere/OpenRouter attempts
 
 Offline baseline and isolation check (no provider request):
 
@@ -87,8 +134,9 @@ Offline baseline and isolation check (no provider request):
 python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-offline-next.jsonl"
 ```
 
-Historical Groq attempts above remain unchanged. The next attempt is pinned to
-OpenRouter's `cohere/north-mini-code:free` route. OpenRouter lists zero input
+Historical Groq attempts above remain unchanged. The following Cohere/OpenRouter
+attempts predate the active Gemini route and remain preserved as historical
+evidence. That route was pinned to `cohere/north-mini-code:free`. OpenRouter lists zero input
 and output pricing, tool calling, a 256,000-token context, and up to
 65,536 completion tokens for this model. Its `:free` tier is limited to 20
 requests per minute and 50 requests per day. The previous attempt used an
@@ -114,7 +162,7 @@ submitted `test_path` therefore cannot be recovered from this evidence. The
 guard proves it was not `None` or the complete frozen selector
 `tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync`.
 
-The next run uses a separately pinned context policy in
+The historical OpenRouter v4 run used a separately pinned context policy in
 `vimj-cohere-north-mini-context-v4.json`, evaluation ID
 `vimj-cohere-north-mini-context-v4-2026-11-09`, and the unchanged budget-v2
 config. The prompt gives the exact approved `run_tests.test_path`; omitting
@@ -125,7 +173,7 @@ remains 32,768 aggregate tokens, at most 10 provider
 requests, $0 reported cost, and 600 seconds. The context policy presents the
 source as the exact repo-relative `app/routers/fees.py` path, strips one exact
 snapshot prefix if it is echoed, and returns a short correction for failed
-reads without exposing the internal workspace path. OpenRouter now sends a
+reads without exposing the internal workspace path. The v4 OpenRouter adapter sent a
 bounded copy of previous `read_file`, `list_files`, and `run_tests` results;
 source omissions are marked with line ranges that remain retrievable. Tool
 history used for local evidence is not rewritten. The prompt requires the
@@ -135,31 +183,27 @@ source write allowlist, zero-cost check, no-fallback rule, request limit, and
 sandbox remain unchanged. The context-policy version is distinct so results
 can be compared without treating the unproductive v2 trace as equivalent.
 
-Run this only after confirming the OpenRouter account is Free Tier, paid billing
-is disabled, and the model has available free quota. Export the key privately as
-`OPENROUTER_API_KEY`; never put it in source control or command arguments. The
-operator-set quota timestamp must be current (15-minute maximum):
-
-```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-context-v3-2026-11-09.jsonl" --live
-```
-
-Before invoking it, set `ANTHROPIC_MODEL=cohere/north-mini-code:free`,
-`I_CONFIRM_OPENROUTER_FREE_TIER_AND_NO_BILLING=yes`,
-`REAL_BUG_FREE_TIER_CONFIRMED=true`, `REAL_BUG_BILLING_DISABLED=true`,
-`OPENROUTER_FREE_TIER_CONFIRMED=true`,
-`OPENROUTER_COHERE_NORTH_MINI_CODE_FREE_QUOTA=true`, and a current
-`OPENROUTER_QUOTA_CHECKED_UTC=YYYY-MM-DDTHH:MM:SSZ`. These are operator
-attestations, not values the code infers. The run stops on missing/stale
-attestations, failed API metadata checks, unexpected model configuration,
-database isolation failure, changed frozen hashes, or unavailable OS sandboxing.
-It makes one Selfheal attempt, never falls back to another model, and uses a new
-evidence filename. Earlier Groq and offline evidence remains preserved.
+The old OpenRouter invocation and its account attestations are retired. The
+active evaluator accepts only the separately versioned Gemini configuration
+and uses the command and fresh free-only checks in the current route section
+above. The historical OpenRouter files and attempt evidence remain unchanged.
 
 ## Limitations
 
-The target full backend suite has not been run by the harness yet. The local
-Selfheal full test suite could not start because its configured PostgreSQL test
-endpoint refused the connection. A symlink-specific test is present but was
-skipped on this Windows host because symlink creation was unavailable. GitHub
-CI is required to provide the final independent suite result.
+No Gemini request has been made. The frozen baseline was verified to fail and
+the deterministic mocked Gemini workflow passed, but a genuine model-generated
+patch and post-patch frozen regression result do not exist. The live gate is
+blocked until the operator separately authorizes one attempt, verifies the
+Google AI Studio free quota and disabled billing, provides the fresh attestation
+and API key, and supplies valid credentials for the isolated
+`selfheal_real_bug_test` database on port 5434. The read-only connection check
+against the app's `selfheal_test` credentials on 5434 returned an invalid
+password; no database was modified. Port 5432 has no listener.
+
+The complete Selfheal backend suite was run against a newly created disposable
+PostgreSQL 16.2 cluster on a random loopback port using
+`python scripts/test_with_ephemeral_postgres.py`: 922 passed, 12 skipped. The
+symlink-specific skips are platform-dependent on this Windows host. This suite
+result does not substitute for the VIMJ frozen regression after a genuine
+repair. Offline run details and the honest NO-GO statuses are recorded in
+`results/unresolved/vimj-gemini-offline-readiness-2026-11-09.json`.

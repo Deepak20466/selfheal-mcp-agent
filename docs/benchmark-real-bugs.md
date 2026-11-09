@@ -255,7 +255,7 @@ $runFile = "benchmarks/real_bugs/results/runs/groq-free.jsonl"
 python -m benchmarks.real_bugs.run --run-file $runFile --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
-The OpenRouter benchmark route is restricted to
+The historical OpenRouter benchmark route was restricted to
 `cohere/north-mini-code:free`. Set `OPENROUTER_API_KEY`,
 `ANTHROPIC_MODEL` to that exact ID, and `OPENROUTER_FREE_TIER_CONFIRMED=true`.
 Before inference, it verifies the key's Free-tier status, exact model pricing,
@@ -265,7 +265,10 @@ model, `is_byok=false`, and zero cost; missing or positive cost stops the case.
 The VIMJ budget-v2 one-case harness caps aggregate input plus output tokens at
 32,768 and provider requests at 10, below OpenRouter's documented unaffiliated Free-tier
 limit of 50 requests/day. See the VIMJ runbook for its full attestation and
-evidence procedure.
+evidence procedure. The current separately versioned VIMJ route uses Gemini 2.5 Flash through
+`GeminiApiClient`; its exact budget and account-level free-tier gates are documented in the
+[VIMJ evaluation record](docs/unresolved-bug-evaluation.md). The preserved Cohere/OpenRouter files
+and attempt evidence remain historical and unchanged.
 
 Score one or more JSONL files with:
 

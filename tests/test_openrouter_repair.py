@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from scripts import openrouter_repair
 from scripts.repair_patch_policy import PatchRejected, validate_patch
 
@@ -70,7 +69,7 @@ def _repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
     (repository / "src").mkdir(parents=True)
     (repository / "tests").mkdir()
-    (repository / "src" / "app.py").write_text("return 1\n", encoding="utf-8")
+    (repository / "src" / "app.py").write_text("return 1\n", encoding="utf-8", newline="\n")
     return repository
 
 

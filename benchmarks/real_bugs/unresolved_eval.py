@@ -29,11 +29,11 @@ ROOT = Path(__file__).resolve().parent
 FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1.json"
 MODEL_VISIBLE_FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-model-visible-freeze.json"
 PATCH_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-test.patch"
-BUDGET_CONFIG_PATH = ROOT / "unresolved" / "vimj-cohere-north-mini-code-budget-v2.json"
-CONTEXT_POLICY_PATH = ROOT / "unresolved" / "vimj-cohere-north-mini-context-v4.json"
+BUDGET_CONFIG_PATH = ROOT / "unresolved" / "vimj-gemini-2.5-flash-budget-v1.json"
+CONTEXT_POLICY_PATH = ROOT / "unresolved" / "vimj-gemini-2.5-flash-context-v1.json"
 CHALLENGE_ID = "vimj-offline-candidate-2026-11-09"
-BUDGET_EVALUATION_ID = "vimj-cohere-north-mini-code-budget-v2-2026-11-09"
-EVALUATION_ID = "vimj-cohere-north-mini-context-v4-2026-11-09"
+BUDGET_EVALUATION_ID = "vimj-gemini-2.5-flash-budget-v1-2026-11-09"
+EVALUATION_ID = "vimj-gemini-2.5-flash-context-v1-2026-11-09"
 CASE_ID = "vimj-studio-os-saas-unresolved-fee-balance"
 ARM = "with_validation"
 SOURCE_PATH = "app/routers/fees.py"
@@ -50,16 +50,19 @@ EXPECTED_MODEL_VISIBLE_FREEZE_SHA256 = (
     "9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6"
 )
 EXPECTED_FREEZE_SHA256 = "f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2"
-EXPECTED_BUDGET_CONFIG_SHA256 = "0a87e9d2793e38d6bd0cb7666f40c2acbf3cf35de24ae1a981b52c3af3cd6d74"
-EXPECTED_CONTEXT_POLICY_SHA256 = "027bca619efd6cfbce07b8d1693db629841c77da3f04a38b1446441884a53d56"
+EXPECTED_BUDGET_CONFIG_SHA256 = "9d40775aeefad2f694f3412fed56db1ea1ca6fb12fc4f2e3a9c1d8a402dc1a3a"
+EXPECTED_CONTEXT_POLICY_SHA256 = "e4156ca62c14c76f17f6ca37aece111ae4dd01b4ee6272b18ca1d41e400e6a06"
 MAX_CASE_SECONDS = 600
 TOKEN_CAP = 32_768
-OPENROUTER_REQUEST_CAP = 10
+PROVIDER_REQUEST_CAP = 10
+OPENROUTER_REQUEST_CAP = PROVIDER_REQUEST_CAP  # Retained for historical OpenRouter tests.
 CASE_COST_CAP_USD = Decimal("0")
 MODEL_VISIBLE_TRACEBACK_CHARS = 4_000
-OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
+TOOL_RESULT_MAX_BYTES = 8_192
+OPENROUTER_TOOL_RESULT_MAX_BYTES = TOOL_RESULT_MAX_BYTES  # Historical policy/test name.
 MAX_READ_FILE_LINES_PER_CALL = 180
 OPENROUTER_MODEL = "cohere/north-mini-code:free"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 class EvaluationSafetyError(RuntimeError):
@@ -139,10 +142,10 @@ def validate_budget_config(document: Any) -> None:
         "baseline_commit": EXPECTED_BASELINE,
         "challenge_freeze_sha256": EXPECTED_FREEZE_SHA256,
         "model_visible_freeze_sha256": EXPECTED_MODEL_VISIBLE_FREEZE_SHA256,
-        "provider": "openrouter_api",
-        "model": OPENROUTER_MODEL,
+        "provider": "gemini_api",
+        "model": GEMINI_MODEL,
         "per_case_token_cap": TOKEN_CAP,
-        "per_case_request_cap": OPENROUTER_REQUEST_CAP,
+        "per_case_request_cap": PROVIDER_REQUEST_CAP,
         "per_case_cost_cap_usd": "0",
         "max_case_seconds": MAX_CASE_SECONDS,
     }
@@ -157,9 +160,9 @@ def validate_context_policy(document: Any) -> None:
         "evaluation_id": EVALUATION_ID,
         "challenge_id": CHALLENGE_ID,
         "budget_config_sha256": EXPECTED_BUDGET_CONFIG_SHA256,
-        "model": OPENROUTER_MODEL,
+        "model": GEMINI_MODEL,
         "model_visible_traceback_chars": MODEL_VISIBLE_TRACEBACK_CHARS,
-        "tool_result_max_bytes": OPENROUTER_TOOL_RESULT_MAX_BYTES,
+        "tool_result_max_bytes": TOOL_RESULT_MAX_BYTES,
         "source_path": SOURCE_PATH,
         "regression_sequence": ["fail before patch", "pass after patch", "full suite"],
         "regression_test_path": TEST_PATH,
@@ -976,12 +979,13 @@ async def _execute(
             prepared_record=prepared_record,
             provider_client=provider,
             model=model,
-            provider_name="openrouter_api",
+            provider_name="gemini_api",
             arm=ARM,
             token_limit=TOKEN_CAP,
             cost_limit=CASE_COST_CAP_USD,
             timeout_seconds=MAX_CASE_SECONDS,
             workspace=workspace,
+            request_limit=PROVIDER_REQUEST_CAP,
         )
         return result | {
             "provider_free_attested": free_attested,
@@ -1011,13 +1015,14 @@ def extract_paths(diff: str) -> set[str]:
 
 def _check_live_attestations() -> None:
     required = {
-        "OPENROUTER_API_KEY": None,
-        "I_CONFIRM_OPENROUTER_FREE_TIER_AND_NO_BILLING": "yes",
+        "GEMINI_API_KEY": None,
+        "I_CONFIRM_GEMINI_FREE_TIER_AND_NO_BILLING": "yes",
         "REAL_BUG_FREE_TIER_CONFIRMED": "true",
         "REAL_BUG_BILLING_DISABLED": "true",
-        "OPENROUTER_FREE_TIER_CONFIRMED": "true",
-        "OPENROUTER_COHERE_NORTH_MINI_CODE_FREE_QUOTA": "true",
-        "OPENROUTER_QUOTA_CHECKED_UTC": None,
+        "GEMINI_FREE_TIER_CONFIRMED": "true",
+        "GEMINI_25_FLASH_FREE_QUOTA": "true",
+        "GEMINI_QUOTA_CHECKED_UTC": None,
+        "GEMINI_API_MODEL": GEMINI_MODEL,
     }
     missing = [name for name, expected in required.items() if not os.environ.get(name)]
     mismatched = [
@@ -1030,16 +1035,16 @@ def _check_live_attestations() -> None:
             "required operator attestations are missing or invalid: "
             + ", ".join(sorted(set(missing + mismatched)))
         )
-    checked = os.environ["OPENROUTER_QUOTA_CHECKED_UTC"]
+    checked = os.environ["GEMINI_QUOTA_CHECKED_UTC"]
     try:
         timestamp = datetime.strptime(checked, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise EvaluationSafetyError(
-            "OPENROUTER_QUOTA_CHECKED_UTC must be an operator-set UTC timestamp"
+            "GEMINI_QUOTA_CHECKED_UTC must be an operator-set UTC timestamp"
         ) from exc
     age = (datetime.now(UTC) - timestamp).total_seconds()
     if age < 0 or age > 15 * 60:
-        raise EvaluationSafetyError("operator quota confirmation is stale")
+        raise EvaluationSafetyError("operator Gemini quota confirmation is stale")
 
 
 def main() -> int:
@@ -1047,7 +1052,7 @@ def main() -> int:
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument(
-        "--live", action="store_true", help="make one authorized OpenRouter attempt"
+        "--live", action="store_true", help="make one separately authorized Gemini attempt"
     )
     args = parser.parse_args()
     evidence_path: Path | None = None
@@ -1077,7 +1082,9 @@ def main() -> int:
             "budget_config_sha256": EXPECTED_BUDGET_CONFIG_SHA256,
             "context_policy_sha256": EXPECTED_CONTEXT_POLICY_SHA256,
             "per_case_token_cap": TOKEN_CAP,
-            "per_case_request_cap": OPENROUTER_REQUEST_CAP,
+            "provider": "gemini_api",
+            "model": GEMINI_MODEL,
+            "per_case_request_cap": PROVIDER_REQUEST_CAP,
             "per_case_cost_cap_usd": str(CASE_COST_CAP_USD),
             "max_case_seconds": MAX_CASE_SECONDS,
             "baseline_commit": EXPECTED_BASELINE,
@@ -1116,7 +1123,7 @@ def main() -> int:
         database_url = runner._configure_database()
         runner._verify_database_connection(database_url)
         runner._migrate_database()
-        provider, model, free_attested = runner._provider("openrouter_api")
+        provider, model, free_attested = runner._provider("gemini_api")
         base.update(status="provider_attempt_start", provider_calls=1)
         _write_evidence(evidence_path, base)
         result = asyncio.run(_execute(staged, python, provider, model, free_attested))
