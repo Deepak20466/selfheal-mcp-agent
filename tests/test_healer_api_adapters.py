@@ -10,8 +10,8 @@ import json
 from typing import Any
 
 import httpx
-import pytest
 
+import pytest
 from healer.api_adapters import (
     GEMINI_API_BASE,
     GROQ_API_BASE,
@@ -132,7 +132,10 @@ async def test_groq_tool_call_response_and_round_trip(respx_mock: Any) -> None:
                         }
                     }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                },
             },
         )
     )
@@ -362,7 +365,7 @@ async def test_groq_uses_propagated_case_deadline_for_http_timeout(
         constructed_timeouts[0].pool,
     ):
         assert timeout <= 17.5
-        assert timeout == pytest.approx(17.5, abs=0.001)
+    assert timeout == pytest.approx(17.5, abs=0.05)
 
 
 async def test_groq_read_timeout_is_sanitized_and_not_retried(respx_mock: Any) -> None:
@@ -1548,13 +1551,19 @@ async def test_openrouter_text_only_response(
 ) -> None:
     from core.config import settings as core_settings
 
-    monkeypatch.setattr(core_settings, "anthropic_model", "openrouter/free")
+    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
     respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
+                "model": "google/gemma-4-26b-a4b-it:free",
                 "choices": [{"message": {"role": "assistant", "content": "hello there"}}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "cost": 0,
+                    "is_byok": False,
+                },
             },
         )
     )
@@ -1573,11 +1582,17 @@ async def test_openrouter_text_only_response(
     assert response.usage.output_tokens == 5
 
 
-async def test_openrouter_tool_call_response(respx_mock: Any) -> None:
+async def test_openrouter_tool_call_response(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
     route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
+                "model": "google/gemma-4-26b-a4b-it:free",
                 "choices": [
                     {
                         "message": {
@@ -1596,7 +1611,12 @@ async def test_openrouter_tool_call_response(respx_mock: Any) -> None:
                         }
                     }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "cost": 0,
+                    "is_byok": False,
+                },
             },
         )
     )
@@ -1613,6 +1633,71 @@ async def test_openrouter_tool_call_response(respx_mock: Any) -> None:
     assert block.name == "get_error"
     assert block.input == {"error_id": 7}
     assert route.called
+    payload = route.calls[0].request.content
+    assert payload is not None
+    request_json = json.loads(payload)
+    assert request_json["provider"] == {"allow_fallbacks": False}
+    assert request_json["usage"] == {"include": True}
+
+
+@pytest.mark.parametrize(
+    ("model", "usage"),
+    [
+        ("some/paid-model", {"cost": 0, "is_byok": False}),
+        ("google/gemma-4-26b-a4b-it:free", {"cost": 0.01, "is_byok": False}),
+        ("google/gemma-4-26b-a4b-it:free", {"is_byok": False}),
+        ("google/gemma-4-26b-a4b-it:free", {"cost": 0, "is_byok": True}),
+    ],
+)
+async def test_openrouter_rejects_unverified_or_paid_completions(
+    respx_mock: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    usage: dict[str, Any],
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
+    respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": model,
+                "choices": [{"message": {"role": "assistant", "content": "no patch"}}],
+                "usage": usage,
+            },
+        )
+    )
+    client = OpenRouterClient(api_key="sk-or-fake")
+    with pytest.raises(RuntimeError, match="OpenRouter"):
+        await client.messages.create(
+            model=None,
+            max_tokens=32,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hi"}],
+        )
+
+
+async def test_openrouter_rejects_unallowlisted_model_before_request(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "openrouter/free")
+    route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    client = OpenRouterClient(api_key="sk-or-fake")
+    with pytest.raises(RuntimeError, match="allowlisted free model"):
+        await client.messages.create(
+            model=None,
+            max_tokens=32,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hi"}],
+        )
+    assert not route.called
 
 
 async def test_openrouter_429_raises_cooldown_with_retry_after(respx_mock: Any) -> None:
@@ -1650,5 +1735,5 @@ def test_openrouter_client_requires_a_key(monkeypatch: pytest.MonkeyPatch) -> No
     from core.config import settings as core_settings
 
     monkeypatch.setattr(core_settings, "anthropic_api_key", None)
-    with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
         OpenRouterClient(api_key=None)

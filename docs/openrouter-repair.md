@@ -1,5 +1,21 @@
 # Provider-independent repair workflow
 
+## VIMJ MCP benchmark route
+
+The separate frozen VIMJ fee-balance attempt pins
+`google/gemma-4-26b-a4b-it:free`. Its model and currently active endpoint are
+checked before inference for zero pricing and `tools` support. The provider
+request sets `provider.allow_fallbacks=false`; every response must report the
+same model, `usage.cost=0`, and `usage.is_byok=false`. An absent or nonzero cost
+stops the run. OpenRouter's current [model page](https://openrouter.ai/google/gemma-4-26b-a4b-it%3Afree)
+lists native function calling, a 262,144-token context and up to 32,768 output
+tokens. Its [free model limits](https://openrouter.ai/collections/free-models)
+are 20 requests per minute and 50 per day. The VIMJ harness has an 8,000-token
+aggregate completion cap. This path makes no provider retry or model fallback.
+The unchanged bug freeze, source/test hashes, exact source allowlist, sandbox,
+security checks, and prior attempt evidence are documented in
+[`unresolved-bug-evaluation.md`](unresolved-bug-evaluation.md).
+
 The controller in [`scripts/openrouter_repair.py`](../scripts/openrouter_repair.py)
 uses a shared prompt, structured response parser, strict patch policy, and
 `RepairProvider` adapter contract. The workflow in

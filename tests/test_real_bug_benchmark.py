@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from benchmarks.real_bugs import mine as mine_module
 from benchmarks.real_bugs import prepare as prepare_module
 from benchmarks.real_bugs import run as run_module
@@ -236,6 +235,66 @@ async def test_metered_client_propagates_remaining_case_deadline() -> None:
     assert fake.request_kwargs is not None
     remaining = fake.request_kwargs["request_timeout_seconds"]
     assert 0 < remaining <= 15
+
+
+async def test_zero_cost_provider_requires_cost_on_every_response() -> None:
+    from types import SimpleNamespace
+
+    class MissingCostClient:
+        messages = None
+
+        def __init__(self) -> None:
+            self.messages = self
+
+        async def create(self, **_kwargs: Any) -> Any:
+            return SimpleNamespace(
+                content=[],
+                usage=SimpleNamespace(input_tokens=1, output_tokens=1, cost_usd=None),
+            )
+
+    metered = run_module.MeteredClient(
+        MissingCostClient(),
+        run_module.UsageMeter(
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=False,
+        ),
+    )
+    with pytest.raises(run_module.BenchmarkStop, match="no free-tier attestation"):
+        await metered.create(model="pinned-free-model")
+
+
+async def test_provider_request_cap_prevents_a_second_call() -> None:
+    from types import SimpleNamespace
+
+    class CountingClient:
+        messages = None
+
+        def __init__(self) -> None:
+            self.messages = self
+            self.calls = 0
+
+        async def create(self, **_kwargs: Any) -> Any:
+            self.calls += 1
+            return SimpleNamespace(
+                content=[],
+                usage=SimpleNamespace(input_tokens=1, output_tokens=1, cost_usd=0),
+            )
+
+    client = CountingClient()
+    metered = run_module.MeteredClient(
+        client,
+        run_module.UsageMeter(
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=False,
+            request_limit=1,
+        ),
+    )
+    await metered.create(model="pinned-free-model")
+    with pytest.raises(run_module.BenchmarkStop, match="request cap"):
+        await metered.create(model="pinned-free-model")
+    assert client.calls == 1
 
 
 async def test_metered_client_does_not_start_provider_call_after_case_deadline() -> None:
@@ -849,6 +908,72 @@ def test_groq_provider_fails_closed_on_unconfirmed_or_changed_model(
     monkeypatch.setattr(settings, "groq_api_model", "another-model")
     with pytest.raises(RuntimeError, match="frozen Groq benchmark requires"):
         run_module._provider("groq_api")
+
+
+def test_openrouter_vimj_provider_is_exactly_allowlisted_and_preflighted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.config import settings
+    from healer import api_adapters
+    from scripts import openrouter_repair
+
+    expected_model = "google/gemma-4-26b-a4b-it:free"
+    marker = object()
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(settings, "anthropic_model", expected_model)
+    monkeypatch.setattr(api_adapters, "OpenRouterClient", lambda *, api_key: marker)
+    monkeypatch.setattr(
+        openrouter_repair,
+        "verify_free_tier_key",
+        lambda key: calls.append(("key", key)),
+    )
+    monkeypatch.setattr(
+        openrouter_repair,
+        "verify_free_model",
+        lambda model, _key, **limits: calls.append(
+            (
+                "model",
+                f"{model}:{limits['minimum_context_tokens']}:{limits['minimum_completion_tokens']}",
+            )
+        ),
+    )
+
+    def verify_endpoint(
+        model: str,
+        _key: str,
+        *,
+        required_parameter: str,
+        minimum_context_tokens: int,
+        minimum_completion_tokens: int,
+    ) -> None:
+        calls.append(
+            (
+                "endpoint",
+                f"{model}:{required_parameter}:{minimum_context_tokens}:{minimum_completion_tokens}",
+            )
+        )
+
+    monkeypatch.setattr(openrouter_repair, "verify_free_endpoint", verify_endpoint)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-v1-" + "x" * 32)
+    monkeypatch.setenv("REAL_BUG_FREE_TIER_CONFIRMED", "true")
+    monkeypatch.setenv("REAL_BUG_BILLING_DISABLED", "true")
+    monkeypatch.setenv("OPENROUTER_FREE_TIER_CONFIRMED", "true")
+
+    client, model, free_attested = run_module._provider("openrouter_api")
+
+    assert client is marker
+    assert model == expected_model
+    assert free_attested is True
+    assert calls == [
+        ("key", "sk-or-v1-" + "x" * 32),
+        ("model", f"{expected_model}:32768:4096"),
+        ("endpoint", f"{expected_model}:tools:32768:4096"),
+    ]
+
+    for disallowed in ("openrouter/free", "google/gemma-4-26b-a4b-it", "vendor/paid-model"):
+        monkeypatch.setattr(settings, "anthropic_model", disallowed)
+        with pytest.raises(RuntimeError, match="only allows"):
+            run_module._provider("openrouter_api")
 
 
 def test_daily_provider_quota_is_not_marked_resumable() -> None:

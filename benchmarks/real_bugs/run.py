@@ -133,6 +133,8 @@ class UsageMeter:
     token_limit: int
     cost_limit: Decimal
     allow_attested_free_cost: bool
+    request_limit: int | None = None
+    request_count: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
     reported_cost_usd: Decimal = Decimal("0")
@@ -153,11 +155,17 @@ class MeteredClient:
         return self
 
     async def create(self, **kwargs: Any) -> Any:
+        if (
+            self._meter.request_limit is not None
+            and self._meter.request_count >= self._meter.request_limit
+        ):
+            raise BenchmarkStop("request_cap", "provider request cap reached before another call")
         if self._request_deadline is not None:
             remaining = self._request_deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
                 raise TimeoutError("benchmark case deadline expired before provider request")
             kwargs["request_timeout_seconds"] = remaining
+        self._meter.request_count += 1
         try:
             response = await self._client.messages.create(**kwargs)
         except Exception:
@@ -404,13 +412,42 @@ def _provider(provider_name: str) -> tuple[Any, str, bool]:
         return GroqClient(), settings.groq_api_model, True
     if provider_name == "openrouter_api":
         model = settings.anthropic_model
-        if model != "openrouter/free" and not model.endswith(":free"):
-            raise RuntimeError("OpenRouter model must be openrouter/free or have a :free suffix")
+        from healer.api_adapters import OPENROUTER_FREE_MODEL
+
+        expected_model = OPENROUTER_FREE_MODEL
+        if model != expected_model:
+            raise RuntimeError(
+                f"VIMJ OpenRouter benchmark only allows {expected_model}; paid and auto-routed "
+                "models are rejected"
+            )
         if os.environ.get("OPENROUTER_FREE_TIER_CONFIRMED") != "true":
             raise RuntimeError("OpenRouter Free-tier account confirmation is required")
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required for the VIMJ benchmark")
+        from scripts.openrouter_repair import (
+            verify_free_endpoint,
+            verify_free_model,
+            verify_free_tier_key,
+        )
+
+        verify_free_tier_key(api_key)
+        verify_free_model(
+            expected_model,
+            api_key,
+            minimum_context_tokens=32_768,
+            minimum_completion_tokens=4_096,
+        )
+        verify_free_endpoint(
+            expected_model,
+            api_key,
+            required_parameter="tools",
+            minimum_context_tokens=32_768,
+            minimum_completion_tokens=4_096,
+        )
         from healer.api_adapters import OpenRouterClient
 
-        return OpenRouterClient(), model, True
+        return OpenRouterClient(api_key=api_key), model, True
     raise RuntimeError("REAL_BUG_PROVIDER supports only gemini_api, groq_api, or openrouter_api")
 
 
@@ -698,7 +735,13 @@ async def _run_arm_inner(
     meter = UsageMeter(
         token_limit=token_limit,
         cost_limit=cost_limit,
-        allow_attested_free_cost=True,
+        # OpenRouter returns an exact per-completion cost. Missing usage data
+        # is unknown cost and must stop the VIMJ run even with a free-tier
+        # account attestation.
+        allow_attested_free_cost=provider_name != "openrouter_api",
+        # The documented unaffiliated Free-tier ceiling is 50 requests/day;
+        # this single-case attempt is bounded well below it.
+        request_limit=10 if provider_name == "openrouter_api" else None,
     )
     client = MeteredClient(provider_client, meter)
     trace: TracingMCPClient | None = None
@@ -836,6 +879,7 @@ async def _run_arm_inner(
         "duration_seconds": round(duration, 3),
         "input_tokens": meter.input_tokens,
         "output_tokens": meter.output_tokens,
+        "provider_request_count": meter.request_count,
         "total_tokens": meter.input_tokens + meter.output_tokens,
         "cost_usd": str(meter.reported_cost_usd) if meter.cost_report_complete else None,
         "cost_basis": "provider reported"

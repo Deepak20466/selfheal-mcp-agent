@@ -47,6 +47,7 @@ EXPECTED_MODEL_VISIBLE_FREEZE_SHA256 = (
 EXPECTED_FREEZE_SHA256 = "f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2"
 MAX_CASE_SECONDS = 600
 TOKEN_CAP = 8000
+OPENROUTER_MODEL = "google/gemma-4-26b-a4b-it:free"
 
 
 class EvaluationSafetyError(RuntimeError):
@@ -503,7 +504,7 @@ async def _execute(
             prepared_record=prepared_record,
             provider_client=provider,
             model=model,
-            provider_name="groq_api",
+            provider_name="openrouter_api",
             arm=ARM,
             token_limit=TOKEN_CAP,
             cost_limit=Decimal("0"),
@@ -537,13 +538,13 @@ def extract_paths(diff: str) -> set[str]:
 
 def _check_live_attestations() -> None:
     required = {
-        "GROQ_API_KEY": None,
-        "I_CONFIRM_GROQ_FREE_TIER_AND_NO_BILLING": "yes",
+        "OPENROUTER_API_KEY": None,
+        "I_CONFIRM_OPENROUTER_FREE_TIER_AND_NO_BILLING": "yes",
         "REAL_BUG_FREE_TIER_CONFIRMED": "true",
         "REAL_BUG_BILLING_DISABLED": "true",
-        "GROQ_FREE_PLAN_CONFIRMED": "true",
-        "GROQ_GPT_OSS_120B_FREE_QUOTA": "true",
-        "GROQ_QUOTA_CHECKED_UTC": None,
+        "OPENROUTER_FREE_TIER_CONFIRMED": "true",
+        "OPENROUTER_GEMMA_4_26B_FREE_QUOTA": "true",
+        "OPENROUTER_QUOTA_CHECKED_UTC": None,
     }
     missing = [name for name, expected in required.items() if not os.environ.get(name)]
     mismatched = [
@@ -556,12 +557,12 @@ def _check_live_attestations() -> None:
             "required operator attestations are missing or invalid: "
             + ", ".join(sorted(set(missing + mismatched)))
         )
-    checked = os.environ["GROQ_QUOTA_CHECKED_UTC"]
+    checked = os.environ["OPENROUTER_QUOTA_CHECKED_UTC"]
     try:
         timestamp = datetime.strptime(checked, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError as exc:
         raise EvaluationSafetyError(
-            "GROQ_QUOTA_CHECKED_UTC must be an operator-set UTC timestamp"
+            "OPENROUTER_QUOTA_CHECKED_UTC must be an operator-set UTC timestamp"
         ) from exc
     age = (datetime.now(UTC) - timestamp).total_seconds()
     if age < 0 or age > 15 * 60:
@@ -572,7 +573,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
-    parser.add_argument("--live", action="store_true", help="make one authorized Groq attempt")
+    parser.add_argument(
+        "--live", action="store_true", help="make one authorized OpenRouter attempt"
+    )
     args = parser.parse_args()
     evidence_path: Path | None = None
     base: dict[str, Any] = {}
@@ -625,7 +628,7 @@ def main() -> int:
         database_url = runner._configure_database()
         runner._verify_database_connection(database_url)
         runner._migrate_database()
-        provider, model, free_attested = runner._provider("groq_api")
+        provider, model, free_attested = runner._provider("openrouter_api")
         base.update(status="provider_attempt_start", provider_calls=1)
         _write_evidence(evidence_path, base)
         result = asyncio.run(_execute(staged, python, provider, model, free_attested))

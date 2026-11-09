@@ -255,15 +255,17 @@ $runFile = "benchmarks/real_bugs/results/runs/groq-free.jsonl"
 python -m benchmarks.real_bugs.run --run-file $runFile --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
 ```
 
-For OpenRouter, choose `REAL_BUG_PROVIDER=openrouter_api`, set `ANTHROPIC_MODEL` to
-`openrouter/free` or a model name ending in `:free`, and set
-`OPENROUTER_FREE_TIER_CONFIRMED=true`. The runner uses no provider fallback. A provider-reported
-cost above the configured cap stops that case. If cost is not reported, a positive cost cap cannot
-be enforced and the case stops; zero-cost operation requires the explicit free-tier attestations.
-Each case also has a hard timeout and token cap. `--resume` skips terminal results and retries only
-provider errors, timeouts, and rate limits from the same JSONL file. A 429 is recorded and stops the
-current run; resuming honors `Retry-After` or bounded exponential backoff before another provider
-call.
+The OpenRouter benchmark route is restricted to
+`google/gemma-4-26b-a4b-it:free`. Set `OPENROUTER_API_KEY`,
+`ANTHROPIC_MODEL` to that exact ID, and `OPENROUTER_FREE_TIER_CONFIRMED=true`.
+Before inference, it verifies the key's Free-tier status, exact model pricing,
+and an active zero-priced endpoint advertising `tools`. Provider fallbacks and
+automatic completion retries are disabled. Each response must report the exact
+model, `is_byok=false`, and zero cost; missing or positive cost stops the case.
+The VIMJ one-case harness also caps total completion tokens at 8,000 and
+provider requests at 10, below OpenRouter's documented unaffiliated Free-tier
+limit of 50 requests/day. See the VIMJ runbook for its full attestation and
+evidence procedure.
 
 Score one or more JSONL files with:
 

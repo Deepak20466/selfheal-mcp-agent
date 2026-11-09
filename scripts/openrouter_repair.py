@@ -143,7 +143,13 @@ def verify_free_tier_key(api_key: str) -> None:
         raise InferenceError("API key is not verified as an OpenRouter Free-tier key")
 
 
-def verify_free_model(model_id: str, api_key: str) -> None:
+def verify_free_model(
+    model_id: str,
+    api_key: str,
+    *,
+    minimum_context_tokens: int = 0,
+    minimum_completion_tokens: int = 0,
+) -> None:
     if not _VALID_OPENROUTER_KEY.fullmatch(api_key):
         raise InferenceError("OPENROUTER_API_KEY is missing or has an unexpected format")
     if not model_id or not model_id.endswith(":free"):
@@ -174,9 +180,28 @@ def verify_free_model(model_id: str, api_key: str) -> None:
         raise InferenceError(
             "configured model does not advertise zero prompt and completion prices"
         )
+    if minimum_context_tokens or minimum_completion_tokens:
+        top_provider = match.get("top_provider")
+        try:
+            context_length = int(match.get("context_length", 0))
+            provider_context = int(top_provider.get("context_length", 0))
+            max_completion = int(top_provider.get("max_completion_tokens", 0))
+        except (AttributeError, TypeError, ValueError):
+            raise InferenceError("configured model token limits are missing or malformed") from None
+        if min(context_length, provider_context) < minimum_context_tokens:
+            raise InferenceError("configured model context is below the required token limit")
+        if max_completion < minimum_completion_tokens:
+            raise InferenceError("configured model output limit is below the required token limit")
 
 
-def verify_free_endpoint(model_id: str, api_key: str) -> None:
+def verify_free_endpoint(
+    model_id: str,
+    api_key: str,
+    *,
+    required_parameter: str = "structured_outputs",
+    minimum_context_tokens: int = 0,
+    minimum_completion_tokens: int = 0,
+) -> None:
     """Require a live, zero-priced endpoint for the exact configured :free model."""
     if not _VALID_OPENROUTER_KEY.fullmatch(api_key):
         raise InferenceError("OPENROUTER_API_KEY is missing or has an unexpected format")
@@ -200,14 +225,18 @@ def verify_free_endpoint(model_id: str, api_key: str) -> None:
                 isinstance(pricing, dict)
                 and Decimal(str(pricing.get("prompt"))) == 0
                 and Decimal(str(pricing.get("completion"))) == 0
+                and all(Decimal(str(price)) == 0 for price in pricing.values())
                 and isinstance(supported, list)
-                and "structured_outputs" in supported
+                and required_parameter in supported
+                and int(endpoint.get("context_length", 0)) >= minimum_context_tokens
+                and int(endpoint.get("max_completion_tokens", 0)) >= minimum_completion_tokens
             ):
                 return
-        except InvalidOperation:
+        except (InvalidOperation, TypeError, ValueError):
             continue
     raise InferenceError(
-        "no currently available zero-priced endpoint exists for the configured :free model"
+        "no currently available zero-priced endpoint with the required capability exists "
+        "for the configured :free model"
     )
 
 

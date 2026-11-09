@@ -87,21 +87,37 @@ Offline baseline and isolation check (no provider request):
 python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-offline-next.jsonl"
 ```
 
-One genuine attempt uses a new evidence file and requires the operator to
-authorize the live command only after confirming the configured Groq free-tier
-quota, disabled billing, and the freshness of the operator-set quota timestamp:
+Historical Groq attempts above remain unchanged. The next attempt is pinned to
+OpenRouter's `google/gemma-4-26b-a4b-it:free` route. OpenRouter lists zero input
+and output pricing, native function calling, a 262,144-token context, and up to
+32,768 completion tokens for this model. Its `:free` tier is limited to 20
+requests per minute and 50 requests per day; this VIMJ attempt caps aggregate
+reported completion tokens at 8,000. The live preflight checks the exact model,
+all advertised prices, and an active endpoint with `tools` support. Each
+completion must report the pinned model, `is_byok=false`, and cost `0`; missing
+cost stops the run. Provider fallback is disabled and completions are not
+automatically replayed.
+
+Run this only after confirming the OpenRouter account is Free Tier, paid billing
+is disabled, and the model has available free quota. Export the key privately as
+`OPENROUTER_API_KEY`; never put it in source control or command arguments. The
+operator-set quota timestamp must be current (15-minute maximum):
 
 ```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-fee-balance-live-token-compaction-2026-11-09.jsonl" --live
+python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-gemma-4-26b-a4b-2026-11-09.jsonl" --live
 ```
 
-The command above is a template for a later explicitly authorized attempt; it
-must not be run without confirming the configured model's free quota, disabled
-paid billing, and the freshness of the operator-set quota timestamp. The runner
-fails closed on missing or stale attestations, unexpected model configuration,
-database isolation failure, changed source/test/freeze hashes, or unavailable
-OS sandboxing. It makes one attempt and does not retry. The earlier failed
-attempt files remain preserved; use a new evidence filename for every run.
+Before invoking it, set `ANTHROPIC_MODEL=google/gemma-4-26b-a4b-it:free`,
+`I_CONFIRM_OPENROUTER_FREE_TIER_AND_NO_BILLING=yes`,
+`REAL_BUG_FREE_TIER_CONFIRMED=true`, `REAL_BUG_BILLING_DISABLED=true`,
+`OPENROUTER_FREE_TIER_CONFIRMED=true`,
+`OPENROUTER_GEMMA_4_26B_FREE_QUOTA=true`, and a current
+`OPENROUTER_QUOTA_CHECKED_UTC=YYYY-MM-DDTHH:MM:SSZ`. These are operator
+attestations, not values the code infers. The run stops on missing/stale
+attestations, failed API metadata checks, unexpected model configuration,
+database isolation failure, changed frozen hashes, or unavailable OS sandboxing.
+It makes one Selfheal attempt, never falls back to another model, and uses a new
+evidence filename. Earlier Groq and offline evidence remains preserved.
 
 ## Limitations
 

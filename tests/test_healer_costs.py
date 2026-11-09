@@ -38,6 +38,13 @@ def test_unknown_model_falls_back_to_sonnet5_pricing() -> None:
     )
 
 
+def test_allowlisted_openrouter_free_model_has_zero_estimated_cost() -> None:
+    assert compute_cost_usd(
+        "google/gemma-4-26b-a4b-it:free",
+        TokenUsage(input_tokens=10_000, output_tokens=5_000),
+    ) == Decimal("0.000000")
+
+
 def test_zero_usage_is_zero_cost() -> None:
     usage = TokenUsage(input_tokens=0, output_tokens=0)
     assert compute_cost_usd("claude-sonnet-5", usage) == Decimal("0")

@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from scripts import openrouter_repair
 from scripts.repair_patch_policy import PatchRejected, validate_patch
 
@@ -232,6 +231,33 @@ def test_free_endpoint_check_requires_live_zero_price_for_exact_variant(
         openrouter_repair.verify_free_endpoint("vendor/model:free", TEST_API_KEY)
 
 
+def test_openrouter_endpoint_requires_advertised_function_calling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        openrouter_repair,
+        "_request",
+        lambda *_args, **_kwargs: {
+            "data": {
+                "id": "google/gemma-4-26b-a4b-it:free",
+                "endpoints": [
+                    {
+                        "status": 0,
+                        "pricing": {"prompt": "0", "completion": "0"},
+                        "supported_parameters": ["tools"],
+                    }
+                ],
+            }
+        },
+    )
+    openrouter_repair.verify_free_endpoint(
+        "google/gemma-4-26b-a4b-it:free", TEST_API_KEY, required_parameter="tools"
+    )
+
+    with pytest.raises(openrouter_repair.InferenceError, match="required capability"):
+        openrouter_repair.verify_free_endpoint("google/gemma-4-26b-a4b-it:free", TEST_API_KEY)
+
+
 def test_documented_free_tier_key_metadata_is_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -437,6 +463,37 @@ def test_nonzero_model_price_fails_before_completion(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(openrouter_repair.InferenceError, match="zero prompt and completion"):
         openrouter_repair.verify_free_model("vendor/model:free", TEST_API_KEY)
+
+
+def test_openrouter_model_context_and_output_limits_are_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = {
+        "data": [
+            {
+                "id": "google/gemma-4-26b-a4b-it:free",
+                "pricing": {"prompt": "0", "completion": "0"},
+                "context_length": 262_144,
+                "top_provider": {"context_length": 262_144, "max_completion_tokens": 32_768},
+            }
+        ]
+    }
+    monkeypatch.setattr(openrouter_repair, "_request", lambda *_args, **_kwargs: response)
+    openrouter_repair.verify_free_model(
+        "google/gemma-4-26b-a4b-it:free",
+        TEST_API_KEY,
+        minimum_context_tokens=32_768,
+        minimum_completion_tokens=4_096,
+    )
+
+    response["data"][0]["top_provider"]["max_completion_tokens"] = 2_048
+    with pytest.raises(openrouter_repair.InferenceError, match="output limit"):
+        openrouter_repair.verify_free_model(
+            "google/gemma-4-26b-a4b-it:free",
+            TEST_API_KEY,
+            minimum_context_tokens=32_768,
+            minimum_completion_tokens=4_096,
+        )
 
     monkeypatch.setattr(
         openrouter_repair,

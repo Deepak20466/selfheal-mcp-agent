@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import os
 import random
 import re
 import time
@@ -44,6 +45,7 @@ from sentinel.scrubber import scrub_text
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+OPENROUTER_FREE_MODEL = "google/gemma-4-26b-a4b-it:free"
 GROQ_API_DEFAULT_TIMEOUT_SECONDS = 120.0
 GROQ_MAX_OUTPUT_TOKENS_PER_REQUEST = 4096
 GROQ_MAX_CONTEXT_TOKENS = 131072
@@ -580,7 +582,7 @@ class _GroqMessages:
                         out.append({"role": "user", "content": item.get("text", "")})
         # Privacy guard, defense-in-depth (terminal-only v1.0 Step 5): scrub
         # every plain-text message content field right before it goes out
-        # over the wire to Groq. Tool RESULTS are already scrubbed once at
+        # over the wire to the compatible provider. Tool RESULTS are already scrubbed once at
         # the MCP layer (mcp_server/audit.py) -- this is a second, cheap
         # pass on the final HTTP payload, not the only line of defense.
         for m in out:
@@ -851,6 +853,10 @@ class _OpenRouterMessages(_GroqMessages):
     """
 
     async def create(self, **kwargs: Any) -> _Response:
+        if settings.anthropic_model != OPENROUTER_FREE_MODEL:
+            raise RuntimeError(
+                f"OpenRouter is restricted to the allowlisted free model {OPENROUTER_FREE_MODEL}"
+            )
         system = kwargs.get("system")
         messages = kwargs["messages"]
         tools = kwargs.get("tools", [])
@@ -870,21 +876,30 @@ class _OpenRouterMessages(_GroqMessages):
             # tool-calling agent loop; OpenRouter passes it through to
             # whichever underlying model supports it, ignored otherwise.
             "reasoning_effort": "low",
+            # VIMJ's free-model route must not move to a paid model if the
+            # selected free endpoint is unavailable. The benchmark pins the
+            # model ID and verifies its live zero-price metadata before use.
+            "provider": {"allow_fallbacks": False},
+            "usage": {"include": True},
         }
         if tools:
             payload["tools"] = self._to_openai_tools(tools)
             payload["tool_choice"] = "auto"
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await _provider_post(
-                client,
+            # Do not replay a completion: a gateway timeout can occur after
+            # inference was accepted, and the OpenRouter free daily allowance
+            # counts failed attempts too.
+            response = await client.post(
                 f"{OPENROUTER_API_BASE}/chat/completions",
-                backend="openrouter_api",
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                payload=payload,
+                json=payload,
             )
         _raise_for_status_classified(response, backend="openrouter_api")
         body = response.json()
+
+        if body.get("model") != settings.anthropic_model:
+            raise RuntimeError("OpenRouter returned a model other than the configured free model")
 
         message = body["choices"][0]["message"]
         blocks: list[_Block] = []
@@ -900,6 +915,12 @@ class _OpenRouterMessages(_GroqMessages):
             )
 
         usage = body.get("usage", {})
+        if (
+            not isinstance(usage, dict)
+            or usage.get("is_byok") is not False
+            or _usage_cost(usage) != Decimal("0")
+        ):
+            raise RuntimeError("OpenRouter did not verify a zero-cost, non-BYOK completion")
         return _Response(
             content=blocks,
             usage=_Usage(
@@ -912,20 +933,16 @@ class _OpenRouterMessages(_GroqMessages):
 
 class OpenRouterClient:
     """`AnthropicClientLike` adapter over OpenRouter's OpenAI-compatible
-    `/chat/completions` API. Verified live this session against the real
-    `openrouter/free` model (OpenRouter's own free-tier auto-router): it
-    declares `"tools"`/`"tool_choice"` in `supported_parameters` and a real
-    call with a tool definition returned a genuine `tool_calls` response
-    (queried https://openrouter.ai/api/v1/models live, and made a real
-    tool-calling round trip, before trusting it -- not guessed from
-    training data, per this project's own standing "don't guess a model
-    slug" lesson). No need to pick a different model.
+    `/chat/completions` API. It pins the exact VIMJ allowlisted :free model,
+    verifies live endpoint pricing and function-calling metadata,
+    disables provider fallback, and requires every response to report zero
+    cost for that exact model.
     """
 
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or settings.anthropic_api_key
+        key = api_key or os.environ.get("OPENROUTER_API_KEY") or settings.anthropic_api_key
         if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY is not configured (used as the OpenRouter key)")
+            raise RuntimeError("OPENROUTER_API_KEY or ANTHROPIC_API_KEY is not configured")
         self._messages = _OpenRouterMessages(key)
 
     @property

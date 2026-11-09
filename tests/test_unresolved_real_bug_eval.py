@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
+
+import httpx
 
 import pytest
 
@@ -226,20 +227,28 @@ def test_mock_execution_environment_contains_no_provider_or_database_secrets(
     from mcp_server.execution_sandbox import _safe_child_environment
 
     monkeypatch.setenv("GROQ_API_KEY", "mock-only-value")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "mock-only-openrouter-value")
     monkeypatch.setenv("REAL_BUG_DATABASE_URL", "mock-only-database-url")
     monkeypatch.setenv("PGPASSWORD", "mock-only-password")
     monkeypatch.setenv("GROQ_QUOTA_CHECKED_UTC", "operator-only-timestamp")
     child = _safe_child_environment(tmp_path, "python -m pytest")
-    assert not {"GROQ_API_KEY", "REAL_BUG_DATABASE_URL", "PGPASSWORD"}.intersection(child)
+    assert not {
+        "GROQ_API_KEY",
+        "OPENROUTER_API_KEY",
+        "REAL_BUG_DATABASE_URL",
+        "PGPASSWORD",
+    }.intersection(child)
     assert "GROQ_QUOTA_CHECKED_UTC" not in child
 
 
 @pytest.mark.asyncio
 async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, respx_mock: Any
 ) -> None:
     import mcp_server.sandbox as sandbox
     from benchmarks.real_bugs import run as runner
+    from core.config import settings
+    from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
 
     worktrees = tmp_path / "worktrees"
     worktree = worktrees / "mock-run"
@@ -273,42 +282,68 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
                 return ["connected_apps/mock/s/app.py"]
             return {"applied": True, "diff_stat": "1 file changed"}
 
-    class Block:
-        def __init__(self, name: str, arguments: dict[str, Any], call_id: str) -> None:
-            self.type = "tool_use"
-            self.name = name
-            self.input = arguments
-            self.id = call_id
+    def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": call_id,
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(arguments)},
+        }
 
-    class FakeMessages:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, Any]] = []
-            self.responses = [
-                [
-                    Block(
-                        "run_tests",
-                        {"test_path": evaluation.TEST_PATH, "worktree": "mock-run"},
+    def provider_response(message: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "model": evaluation.OPENROUTER_MODEL,
+            "choices": [{"message": message}],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 3,
+                "cost": 0,
+                "is_byok": False,
+            },
+        }
+
+    monkeypatch.setattr(settings, "anthropic_model", evaluation.OPENROUTER_MODEL)
+    response_queue = [
+        provider_response(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(
+                        "r1",
+                        "read_file",
+                        {"path": "app/routers/fees.py", "worktree": "mock-run"},
+                    ),
+                    tool_call(
                         "t1",
-                    )
-                ],
-                [
-                    Block("propose_patch", {"unified_diff": _diff(), "worktree": "mock-run"}, "p1"),
-                    Block(
                         "run_tests",
                         {"test_path": evaluation.TEST_PATH, "worktree": "mock-run"},
-                        "t2",
                     ),
                 ],
-                [SimpleNamespace(type="text", text="Mock repair complete.")],
-            ]
-
-        async def create(self, **kwargs: Any) -> Any:
-            self.calls.append(kwargs)
-            blocks = self.responses.pop(0)
-            return SimpleNamespace(
-                content=blocks,
-                usage=SimpleNamespace(input_tokens=5, output_tokens=3),
-            )
+            }
+        ),
+        provider_response(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(
+                        "p1",
+                        "propose_patch",
+                        {"unified_diff": _diff(), "worktree": "mock-run"},
+                    ),
+                    tool_call(
+                        "t2",
+                        "run_tests",
+                        {"test_path": evaluation.TEST_PATH, "worktree": "mock-run"},
+                    ),
+                ],
+            }
+        ),
+        provider_response({"role": "assistant", "content": "Mock repair complete."}),
+    ]
+    provider_routes = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        side_effect=lambda _request: httpx.Response(200, json=response_queue.pop(0))
+    )
 
     fake_mcp = FakeMCP()
     original_tracer_factory = runner.TracingMCPClient
@@ -335,7 +370,7 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         "run_tests",
         "propose_patch",
     ]
-    fake_provider = SimpleNamespace(messages=FakeMessages())
+    fake_provider = OpenRouterClient(api_key="sk-or-fake")
     result = await _run_one_attempt(
         anthropic_client=fake_provider,
         mcp=cast(MCPToolClient, tracer),
@@ -357,9 +392,10 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     )
     assert result.success is True
     assert isinstance(tracer._tracer, original_tracer_factory)
-    assert len(fake_provider.messages.calls) == 3
+    assert provider_routes.call_count == 3
     called_tools = [name for name, _ in fake_mcp.calls]
     assert fake_mcp.tests >= 2
+    assert called_tools.count("read_file") >= 1
     assert called_tools.count("propose_patch") == 1
     assert called_tools.count("run_tests") >= 2
     assert set(called_tools).issubset({"read_file", "list_files", "run_tests", "propose_patch"})
@@ -392,8 +428,11 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
             {"unified_diff": _diff(), "worktree": "mock-run"},
         )
     assert len(fake_mcp.calls) == before_rejected_calls
-    system_text = fake_provider.messages.calls[0]["system"][0]["text"]
-    user_text = repr(fake_provider.messages.calls[0]["messages"])
+    first_payload = json.loads(provider_routes.calls[0].request.content or b"{}")
+    system_text = " ".join(
+        message["content"] for message in first_payload["messages"] if message["role"] == "system"
+    )
+    user_text = repr(first_payload["messages"])
     model_context = system_text + user_text
     assert "invoice update leaves balance stale" not in model_context.lower()
     assert "expected fix" not in model_context.lower()
