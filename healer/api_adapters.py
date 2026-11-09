@@ -231,6 +231,45 @@ def _groq_compact_test_output(content: str, max_bytes: int) -> str | None:
     return compacted if len(compacted.encode("utf-8")) <= max_bytes else None
 
 
+def _groq_compact_read_file(content: str, max_bytes: int) -> str:
+    """Compact oversized source reads with explicit, line-addressable omissions.
+
+    `read_file` supports start_line/end_line, so omitted source remains
+    retrievable by the model. The original tool history is never modified;
+    this only shapes a copy of the outgoing provider request.
+    """
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return content
+    if not isinstance(value, dict) or not isinstance(value.get("content"), str):
+        return content
+    if len(content.encode("utf-8")) <= max_bytes:
+        return content
+
+    lines = value["content"].splitlines()
+    start_line = value.get("start_line", 1)
+    if isinstance(start_line, bool) or not isinstance(start_line, int) or start_line < 1:
+        start_line = 1
+    for keep_per_side in (64, 32, 16, 8, 4, 2, 1, 0):
+        if len(lines) <= keep_per_side * 2:
+            continue
+        omitted_start = start_line + keep_per_side
+        omitted_end = start_line + len(lines) - keep_per_side - 1
+        selected = lines[:keep_per_side] + [
+            f"[Selfheal omitted source lines {omitted_start}-{omitted_end}; "
+            "retrieve them with read_file start_line/end_line]"
+        ]
+        if keep_per_side:
+            selected.extend(lines[-keep_per_side:])
+        compacted_value = dict(value)
+        compacted_value["content"] = "\n".join(selected)
+        compacted = json.dumps(compacted_value, separators=(",", ":"), ensure_ascii=False)
+        if len(compacted.encode("utf-8")) <= max_bytes:
+            return compacted
+    return content
+
+
 @dataclass
 class _Block:
     type: str
@@ -448,6 +487,10 @@ class _GroqMessages:
                 tool_name = call_names.get(message.get("tool_call_id"))
                 if tool_name == "list_files":
                     message["content"] = _groq_compact_json(
+                        str(message.get("content", "")), output_limit
+                    )
+                elif tool_name == "read_file":
+                    message["content"] = _groq_compact_read_file(
                         str(message.get("content", "")), output_limit
                     )
                 elif tool_name == "run_tests":

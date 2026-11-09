@@ -670,7 +670,6 @@ async def test_groq_v2_context_growth_compacts_list_files_without_breaking_tool_
             ],
         },
     ]
-
     second = await client.messages.create(
         model=None, max_tokens=4096, system=[], tools=list_tools, messages=history
     )
@@ -697,6 +696,119 @@ async def test_groq_v2_context_growth_compacts_list_files_without_breaking_tool_
         + _groq_prompt_token_estimate(second_payload["messages"], second_payload["tools"])
         <= 5000
     )
+
+
+async def test_groq_compacts_large_read_file_context_and_keeps_line_ranges_retrievable(
+    respx_mock: Any,
+) -> None:
+    from healer.api_adapters import _groq_prompt_token_estimate
+
+    read_tools = [
+        {
+            "name": "read_file",
+            "description": "Read a file or a 1-indexed line range",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "end_line": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+        }
+    ]
+    route = respx_mock.post(f"{GROQ_API_BASE}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                headers={"x-ratelimit-remaining-tokens": "4889"},
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_read_source",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "read_file",
+                                            "arguments": json.dumps(
+                                                {
+                                                    "path": "app/routers/fees.py",
+                                                    "start_line": 1,
+                                                    "end_line": 1000,
+                                                }
+                                            ),
+                                        },
+                                    }
+                                ],
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 2718, "completion_tokens": 56},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "continue"}}],
+                    "usage": {"prompt_tokens": 2000, "completion_tokens": 100},
+                },
+            ),
+        ]
+    )
+    client = GroqClient(api_key="offline-test-key")
+    initial = [{"role": "user", "content": "Inspect the failing source."}]
+    first = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=read_tools, messages=initial
+    )
+    original_file_result = {
+        "path": "app/routers/fees.py",
+        "start_line": 1,
+        "end_line": 1000,
+        "total_lines": 1000,
+        "content": "\n".join(f"source line {line:04d} = {line}" for line in range(1, 1001)),
+    }
+    history = initial + [
+        {"role": "assistant", "content": first.content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_read_source",
+                    "content": json.dumps(original_file_result),
+                }
+            ],
+        },
+    ]
+    uncompact_messages = client.messages._to_openai_messages([], history)
+    uncompact_tools = client.messages._to_openai_tools(read_tools)
+    assert _groq_prompt_token_estimate(uncompact_messages, uncompact_tools) > 8000
+
+    second = await client.messages.create(
+        model=None, max_tokens=4096, system=[], tools=read_tools, messages=history
+    )
+
+    assert second.content[0].text == "continue"
+    assert route.call_count == 2
+    first_payload, second_payload = [json.loads(call.request.content) for call in route.calls]
+    compact_result = second_payload["messages"][-1]["content"]
+    assert "Selfheal omitted source lines" in compact_result
+    assert "retrieve them with read_file start_line/end_line" in compact_result
+    assert "source line 0001 = 1" in compact_result
+    assert "source line 1000 = 1000" in compact_result
+    assert (
+        _groq_prompt_token_estimate(second_payload["messages"], second_payload["tools"])
+        + second_payload["max_tokens"]
+        <= 4889
+    )
+    assert len(history[-1]["content"][0]["content"]) > len(compact_result)
+    assert first_payload["max_tokens"] <= 4096
 
 
 async def test_groq_v3_budget_waits_for_reset_when_history_fits_fresh_tpm(

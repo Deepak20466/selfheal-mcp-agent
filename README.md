@@ -96,6 +96,14 @@ completed no repair. Frozen v4 can wait once for the server's token-reset header
 history can fit a fresh 8,000-token window and the request deadline allows it; its full, pilot, and
 diagnostic leakage audits pass. No v4 provider run has occurred. See the [Groq repair runbook](docs/groqcloud-repair.md).
 
+The separate frozen VIMJ fee-balance evaluation has two preserved Groq attempts. The first exposed
+and fixed a Selfheal MCP tracer recursion bug (commit `0c1f8c3`). The next reached the provider once,
+then stopped before another request when an 11,354-token prompt estimate exceeded the 4,889 TPM
+remaining. It made no patch and completed no repair; cost is unknown. The current adapter change
+compacts oversized `read_file` context in the outgoing request while retaining line-range retrieval
+markers and the original evidence. It is covered offline and awaits CI; no post-compaction provider
+run has been authorized. See the [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
+
 ## Architecture
 
 ```mermaid

@@ -55,6 +55,26 @@ The unresolved-context guard tests exercise the actual Selfheal agent loop
 using mocked provider and MCP responses. This is harness verification only; it
 is not an autonomous repair result.
 
+## Saved provider attempts
+
+Two authorized Groq attempts are preserved separately from the frozen
+benchmark cohorts. The first failed before any tool call with a `RecursionError`
+in Selfheal's scoped MCP tracer wrapper; the wrapper recursively constructed
+itself after replacing the runner's global tracer. Commit `0c1f8c3` fixes this
+by injecting the original tracer factory, and an offline loop regression test
+covers the fix.
+
+The later record
+`vimj-fee-balance-live-post-recursion-fix-2026-11-09.jsonl` reached Groq and
+received one response (2,718 input and 56 output tokens), then stopped locally
+before a second request. The byte-based prompt estimate was 11,354 tokens,
+above the 4,889 remaining TPM. No patch was generated, the frozen regression
+still failed on baseline, and billed cost is unknown. The current change
+compacts oversized `read_file` results only in a copied outgoing request and
+marks omitted 1-indexed ranges for retrieval; the original MCP history and
+evidence remain unchanged. This behavior has offline adapter coverage but has
+not been verified with a live provider call.
+
 The existing complete frozen-cohort blinding audit also passed for 41 cases,
 with 41 retained and zero dropped:
 `benchmarks/real_bugs/results/audits/2026-11-09-unresolved-harness-context-audit.json`.
@@ -72,13 +92,16 @@ authorize the live command only after confirming the configured Groq free-tier
 quota, disabled billing, and the freshness of the operator-set quota timestamp:
 
 ```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-fee-balance-live.jsonl" --live
+python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-fee-balance-live-token-compaction-2026-11-09.jsonl" --live
 ```
 
-The runner itself fails closed on missing or stale attestations, unexpected
-model configuration, database isolation failure, changed source/test/freeze
-hashes, or unavailable OS sandboxing. It makes one attempt and does not retry.
-No live provider call has been made as part of this harness work.
+The command above is a template for a later explicitly authorized attempt; it
+must not be run without confirming the configured model's free quota, disabled
+paid billing, and the freshness of the operator-set quota timestamp. The runner
+fails closed on missing or stale attestations, unexpected model configuration,
+database isolation failure, changed source/test/freeze hashes, or unavailable
+OS sandboxing. It makes one attempt and does not retry. The earlier failed
+attempt files remain preserved; use a new evidence filename for every run.
 
 ## Limitations
 

@@ -41,7 +41,10 @@ offline-tested but has not been exercised against Groq.
 For VIMJ, point to [PR #1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1) as a
 Codex-assisted SQLite password-reset fix with 30 passing backend tests and passing PR CI. Be clear
 that Selfheal did not produce it and that the SQLite-specific reproduction was not confirmed against
-the live PostgreSQL deployment.
+the live PostgreSQL deployment. A separate Selfheal fee-balance evaluation is preserved as two
+failed attempts: the first exposed an MCP tracer recursion bug, and after that fix the second stopped
+at a local Groq token-budget check. Neither produced a patch; the latest `read_file` context compaction
+has offline coverage only and has not had live verification.
 
 ## Close
 
