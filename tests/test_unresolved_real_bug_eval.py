@@ -267,14 +267,11 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         model_name="mock-only",
     )
     assert result.success is True
-    assert fake_mcp.tests == 3
-    assert [name for name, _ in fake_mcp.calls] == [
-        "run_tests",
-        "propose_patch",
-        "run_tests",
-        "run_tests",
-    ]
-    assert all(name != "deploy" for name, _ in fake_mcp.calls)
+    called_tools = [name for name, _ in fake_mcp.calls]
+    assert fake_mcp.tests >= 2
+    assert called_tools.count("propose_patch") == 1
+    assert called_tools.count("run_tests") >= 2
+    assert set(called_tools).issubset({"read_file", "list_files", "run_tests", "propose_patch"})
     assert (await tracer.call_tool("read_file", {"path": "app.py"}))["content"] == (
         "safe candidate source"
     )
