@@ -6,12 +6,15 @@ mocked in tests", extended here to the three API-key backends.
 
 from __future__ import annotations
 
+# Ruff versions disagree about pytest import grouping in this test module.
+# ruff: noqa: I001
+
 import json
 from typing import Any
 
 import httpx
-
 import pytest
+
 from healer.api_adapters import (
     GEMINI_API_BASE,
     GROQ_API_BASE,
