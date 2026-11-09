@@ -382,7 +382,8 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
         # diagnostic fields. Unknown names are represented by a fixed label.
         tool_name = (
             raw_tool_name
-            if raw_tool_name in {"get_error", "read_file", "list_files", "run_tests"}
+            if raw_tool_name
+            in {"get_error", "read_file", "list_files", "run_tests", "propose_patch"}
             else "unknown"
         )
         outcome = (
