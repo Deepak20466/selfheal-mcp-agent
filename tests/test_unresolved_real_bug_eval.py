@@ -21,11 +21,14 @@ def _diff(path: str = "app/routers/fees.py") -> str:
 def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
     config = json.loads(evaluation.FREEZE_PATH.read_text(encoding="utf-8"))
     evaluation.validate_model_config(config)
+    model_freeze = json.loads(evaluation.MODEL_VISIBLE_FREEZE_PATH.read_text(encoding="utf-8"))
     prompt = evaluation.build_model_prompt()
     assert "invoice update leaves balance stale" not in prompt.lower()
     assert "expected fix" not in prompt.lower()
     assert "root_cause" not in json.dumps(config).lower()
     assert "human_fix" not in json.dumps(config).lower()
+    assert "root_cause" not in json.dumps(model_freeze).lower()
+    assert "human_fix" not in json.dumps(model_freeze).lower()
 
 
 def test_exact_source_path_is_accepted(tmp_path: Path) -> None:

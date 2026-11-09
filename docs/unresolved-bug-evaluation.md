@@ -11,7 +11,14 @@ real-bug cohorts, their scoring, or their saved provider results.
 - Source SHA256: `6d131b6b91d079f61af2d78b1e80e54ab9512093951b8caae0ff5a4735d09d28`
 - Regression: `backend/tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync`
 - Test overlay SHA256: `c77b210cef093b15370493e96daf76219f5f16c3f13224a26b955a40e70c61d4`
-- Frozen config SHA256: `1498dc35e62128428936bec657178c9bf96047dc30653735a1389e4c1a39b13f`
+- Operator's frozen regression file SHA256 (original Windows bytes):
+  `1bd8dcbec1edfa404723df1ecbfc496dc14eabfcbbcd37a814e90733f447a007`
+- Canonical regression content SHA256 (line endings normalized):
+  `c5dd62175204e73a82cd3741178debf0d71a340080e17187a371d3986242e67a`
+- Model-visible freeze file SHA256:
+  `9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6`
+- Harness config SHA256:
+  `f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2`
 - Exact patch allowlist: `app/routers/fees.py`
 
 The frozen regression failed on the unmodified baseline with the observed
@@ -37,8 +44,13 @@ tools, evidence, or model workspace.
 ## Offline verification
 
 The baseline preflight completed with the expected failure and zero provider
-calls. Evidence is saved in
-`benchmarks/real_bugs/results/unresolved/vimj-harness-offline-final-2026-11-09.jsonl`.
+calls. The canonical test hash matches the operator's frozen Windows-byte hash
+after line-ending normalization. The operator's model-visible freeze is saved
+as `benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-model-visible-freeze.json`.
+Evidence aligned with it is saved in
+`benchmarks/real_bugs/results/unresolved/vimj-official-offline-preflight-2026-11-09.jsonl`.
+Earlier draft preflight records remain preserved but are not the authoritative
+preflight evidence.
 The unresolved-context guard tests exercise the actual Selfheal agent loop
 using mocked provider and MCP responses. This is harness verification only; it
 is not an autonomous repair result.

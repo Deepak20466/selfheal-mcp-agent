@@ -26,8 +26,9 @@ from benchmarks.real_bugs.common import run as run_command
 
 ROOT = Path(__file__).resolve().parent
 FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1.json"
+MODEL_VISIBLE_FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-model-visible-freeze.json"
 PATCH_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-test.patch"
-EVALUATION_ID = "vimj-fee-balance-v1"
+EVALUATION_ID = "vimj-offline-candidate-2026-11-09"
 CASE_ID = "vimj-studio-os-saas-unresolved-fee-balance"
 ARM = "with_validation"
 SOURCE_PATH = "app/routers/fees.py"
@@ -38,8 +39,12 @@ TEST_PATH = (
 EXPECTED_BASELINE = "6490833d178b71624d024b16046240a20a3f78a6"
 EXPECTED_SOURCE_SHA256 = "6d131b6b91d079f61af2d78b1e80e54ab9512093951b8caae0ff5a4735d09d28"
 EXPECTED_TEST_SHA256 = "c5dd62175204e73a82cd3741178debf0d71a340080e17187a371d3986242e67a"
+EXPECTED_FROZEN_TEST_RAW_SHA256 = "1bd8dcbec1edfa404723df1ecbfc496dc14eabfcbbcd37a814e90733f447a007"
 EXPECTED_PATCH_SHA256 = "c77b210cef093b15370493e96daf76219f5f16c3f13224a26b955a40e70c61d4"
-EXPECTED_FREEZE_SHA256 = "1498dc35e62128428936bec657178c9bf96047dc30653735a1389e4c1a39b13f"
+EXPECTED_MODEL_VISIBLE_FREEZE_SHA256 = (
+    "9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6"
+)
+EXPECTED_FREEZE_SHA256 = "f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2"
 MAX_CASE_SECONDS = 600
 TOKEN_CAP = 8000
 
@@ -70,11 +75,39 @@ def validate_model_config(document: Any) -> None:
         raise EvaluationSafetyError("frozen baseline commit mismatch")
     if document.get("permitted_source_paths") != [SOURCE_PATH]:
         raise EvaluationSafetyError("frozen source allowlist mismatch")
+    if document.get("evaluation_id") != EVALUATION_ID:
+        raise EvaluationSafetyError("evaluation identity mismatch")
+    if document.get("regression_test_sha256") != EXPECTED_FROZEN_TEST_RAW_SHA256:
+        raise EvaluationSafetyError("operator-frozen regression test hash mismatch")
+    if document.get("regression_test_canonical_sha256") != EXPECTED_TEST_SHA256:
+        raise EvaluationSafetyError("canonical regression test hash mismatch")
+    if document.get("model_visible_freeze_sha256") != EXPECTED_MODEL_VISIBLE_FREEZE_SHA256:
+        raise EvaluationSafetyError("model-visible freeze hash mismatch")
+    frozen = json.loads(MODEL_VISIBLE_FREEZE_PATH.read_text(encoding="utf-8"))
+    frozen_text = json.dumps(frozen).lower()
+    forbidden_terms = ("root_cause", "diagnosis", "suggested_fix", "human_fix")
+    if any(term in frozen_text for term in forbidden_terms):
+        raise EvaluationSafetyError("operator freeze includes evaluator-only fields")
+    inputs = frozen.get("model_visible_inputs", {})
+    criteria = frozen.get("evaluation_criteria", {})
+    if (
+        frozen.get("evaluation_id") != EVALUATION_ID
+        or frozen.get("baseline_commit") != EXPECTED_BASELINE
+        or inputs.get("root") != "backend"
+        or inputs.get("regression_test_path") != "tests/test_requested_changes.py"
+        or inputs.get("regression_test_sha256") != EXPECTED_FROZEN_TEST_RAW_SHA256
+        or inputs.get("regression_test_command") != f"python -m pytest -q {TEST_PATH}"
+        or inputs.get("allowed_source_paths") != [SOURCE_PATH]
+        or criteria.get("baseline_test_must_fail") is not True
+        or criteria.get("repair_must_leave_frozen_test_unchanged") is not True
+        or criteria.get("repair_must_touch_only_allowed_source_paths") is not True
+        or criteria.get("verification") != "frozen regression test and full backend test suite pass"
+    ):
+        raise EvaluationSafetyError("evaluation config differs from the operator freeze")
     if document.get("provider") != "groq_api" or document.get("model") != "openai/gpt-oss-120b":
         raise EvaluationSafetyError("frozen provider/model mismatch")
     if document.get("test_overlay_sha256") != EXPECTED_PATCH_SHA256:
         raise EvaluationSafetyError("frozen test overlay hash mismatch")
-    forbidden_terms = ("root_cause", "diagnosis", "suggested_fix", "human_fix")
     serialized = json.dumps(document).lower()
     if any(term in serialized for term in forbidden_terms):
         raise EvaluationSafetyError("model config contains evaluator-only fields")
@@ -473,7 +506,8 @@ async def _execute(
             "provider_free_attested": free_attested,
             "model_patch": _safe_patch(tracers[-1].last_patch) if tracers else None,
             "baseline_commit": EXPECTED_BASELINE,
-            "regression_test_sha256": EXPECTED_TEST_SHA256,
+            "regression_test_sha256": EXPECTED_FROZEN_TEST_RAW_SHA256,
+            "regression_test_canonical_sha256": EXPECTED_TEST_SHA256,
         }
     finally:
         runner_dynamic._allowed_paths = originals[0]
@@ -537,6 +571,8 @@ def main() -> int:
     try:
         document = json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
         validate_model_config(document)
+        if sha256_file(MODEL_VISIBLE_FREEZE_PATH) != EXPECTED_MODEL_VISIBLE_FREEZE_SHA256:
+            raise EvaluationSafetyError("operator-provided model-visible freeze hash mismatch")
         if sha256_file(FREEZE_PATH) != EXPECTED_FREEZE_SHA256:
             raise EvaluationSafetyError("frozen challenge config hash mismatch")
         if sha256_file(PATCH_PATH) != EXPECTED_PATCH_SHA256:
@@ -565,7 +601,9 @@ def main() -> int:
             status="baseline_failed_as_expected",
             provider_calls=0,
             staged_source_sha256=sha256_text_file(staged / SOURCE_PATH),
-            failing_test_sha256=sha256_text_file(staged / "tests" / "test_requested_changes.py"),
+            failing_test_canonical_sha256=sha256_text_file(
+                staged / "tests" / "test_requested_changes.py"
+            ),
             baseline_failure_output=failure_output[-4000:],
         )
         _write_evidence(evidence_path, base)
