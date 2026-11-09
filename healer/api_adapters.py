@@ -336,7 +336,12 @@ def _openrouter_diagnostic_preview(content: str) -> str:
         value = scrub_value(json.loads(content))
         rendered = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
     except (TypeError, ValueError):
-        rendered = scrub_text(content)
+        rendered = json.dumps(scrub_text(content), ensure_ascii=False)
+    # This serialized preview passes through the global log scrubber a second
+    # time as free text. Escaping @ keeps an escaped JSON newline before a
+    # decorator (``\\n@router.put``) from looking like an email address there.
+    # The JSON value decodes to the same already-scrubbed preview.
+    rendered = rendered.replace("@", "\\u0040")
     encoded = rendered.encode("utf-8")
     if len(encoded) <= OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES:
         return rendered

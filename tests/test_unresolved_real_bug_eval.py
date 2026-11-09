@@ -110,6 +110,7 @@ def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
     assert "invoice update leaves balance stale" not in prompt.lower()
     assert "expected fix" not in prompt.lower()
     assert "do not reread ranges already returned" in prompt.lower()
+    assert "do not read test files" in prompt.lower()
     assert str(evaluation.MAX_READ_FILE_LINES_PER_CALL) in prompt
     assert "root_cause" not in json.dumps(config).lower()
     assert "human_fix" not in json.dumps(config).lower()
@@ -196,6 +197,49 @@ async def test_exact_scope_normalizes_error_paths_and_deduplicates_snapshot_pref
     with pytest.raises(evaluation.EvaluationSafetyError, match="repeated the workspace prefix"):
         await tracer.call_tool("read_file", {"path": f"{prefix}/{prefix}/{evaluation.SOURCE_PATH}"})
     assert len(client.calls) == before
+
+
+@pytest.mark.asyncio
+async def test_vimj_read_scope_rejects_regression_test_context() -> None:
+    from healer.mcp_client import MCPToolError
+
+    prefix = "connected_apps/mock/s"
+
+    class ReadScopeMCP:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def list_tool_schemas(self) -> list[dict[str, Any]]:
+            return []
+
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            self.calls.append((name, dict(arguments)))
+            return {"path": arguments["path"], "content": "permitted source"}
+
+    client = ReadScopeMCP()
+    tracer = evaluation.ExactScopeTracingMCPClient(
+        client,
+        validated=True,
+        error_id=3,
+        allowed_paths={evaluation.SOURCE_PATH},
+        readable_paths={evaluation.SOURCE_PATH},
+        workspace_prefix=prefix,
+        worktree_name="mock-run",
+    )
+
+    with pytest.raises(MCPToolError, match="Source reads are restricted"):
+        await tracer.call_tool("read_file", {"path": evaluation.TEST_PATH.split("::")[0]})
+    assert client.calls == []
+    assert tracer.events[-1] == {
+        "tool": "read_file",
+        "ok": False,
+        "request": {"path": "tests/test_requested_changes.py"},
+        "error": f"Source reads are restricted to {evaluation.SOURCE_PATH!r} for this repair.",
+    }
+
+    result = await tracer.call_tool("read_file", {"path": evaluation.SOURCE_PATH})
+    assert result["content"] == "permitted source"
+    assert client.calls[-1][1]["path"] == f"{prefix}/{evaluation.SOURCE_PATH}"
 
 
 @pytest.mark.asyncio

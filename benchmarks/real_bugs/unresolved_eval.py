@@ -183,6 +183,8 @@ The worktree name belongs only in tool `worktree` arguments. `read_file` accepts
 regression test and confirm it fails. Call `run_tests` with `test_path` set
 exactly to `{TEST_PATH}` for that test; omit `test_path` for the approved full
 suite. Do not pass a shell command or another test selector as `test_path`.
+Do not read test files; the failing regression result is already supplied.
+Read only the permitted source file `{SOURCE_PATH}`.
 If a test request is rejected, use the returned tool error to correct the
 arguments and continue. Then propose a minimal change only to {SOURCE_PATH},
 rerun that test, and let the harness verify the backend suite.
@@ -369,6 +371,7 @@ class ExactScopeTracingMCPClient:
         validated: bool,
         error_id: int,
         allowed_paths: set[str] | None = None,
+        readable_paths: set[str] | None = None,
         workspace_prefix: str,
         worktree_name: str,
         tracer_factory: Any | None = None,
@@ -379,6 +382,7 @@ class ExactScopeTracingMCPClient:
             tracer_factory = TracingMCPClient
         self._tracer = tracer_factory(client, validated=validated, error_id=error_id)
         self.allowed_paths = allowed_paths or {SOURCE_PATH}
+        self.readable_paths = readable_paths
         self.workspace_prefix = workspace_prefix.strip("/")
         self.worktree_name = worktree_name
         self._read_ranges: dict[str, list[tuple[int, int]]] = {}
@@ -467,6 +471,17 @@ class ExactScopeTracingMCPClient:
             requested_path = arguments.get("path")
             scoped_arguments["path"] = self._snapshot_path(requested_path)
             model_relative_path = scoped_arguments["path"][len(self.workspace_prefix) + 1 :]
+            if self.readable_paths is not None and model_relative_path not in self.readable_paths:
+                message = f"Source reads are restricted to {SOURCE_PATH!r} for this repair."
+                self._tracer.events.append(
+                    {
+                        "tool": "read_file",
+                        "ok": False,
+                        "request": {"path": model_relative_path},
+                        "error": message,
+                    }
+                )
+                raise MCPToolError(message)
             requested_read_range = (arguments.get("start_line"), arguments.get("end_line"))
             requested_start, requested_end = requested_read_range
             valid_read_range = (
@@ -767,6 +782,7 @@ async def _execute(
             validated=validated,
             error_id=error_id,
             allowed_paths={SOURCE_PATH},
+            readable_paths={SOURCE_PATH},
             workspace_prefix=workspace_prefix[0],
             worktree_name=worktree_name[0],
             tracer_factory=originals[1],

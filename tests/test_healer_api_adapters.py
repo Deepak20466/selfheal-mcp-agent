@@ -1711,6 +1711,120 @@ async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_
 
 
 @pytest.mark.asyncio
+async def test_openrouter_preserves_put_decorator_in_wire_payload_and_log_preview(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import structlog
+
+    from core.config import settings as core_settings
+    from core.logging import _scrub_event_dict
+    from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
+    from healer.mcp_client import connect_in_memory
+    from mcp.server.mcpserver import MCPServer
+
+    frozen_read = json.loads(
+        (Path(__file__).parent / "fixtures" / "vimj_fees_read_file_payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    lines = frozen_read["content"].splitlines()
+    decorator_index = next(index for index, line in enumerate(lines) if "@router.put" in line)
+    start_line = decorator_index - 1
+    end_line = decorator_index + 7
+    source_excerpt = "\n".join(lines[start_line:end_line])
+    read_result = {
+        "path": frozen_read["path"],
+        "start_line": start_line + 1,
+        "end_line": end_line,
+        "total_lines": frozen_read["total_lines"],
+        "content": source_excerpt,
+        "diagnostic_label": "private@example.invalid",
+    }
+
+    server = MCPServer("put-decorator-preview-regression")
+
+    @server.tool()
+    async def read_file(path: str, start_line: int, end_line: int) -> dict[str, Any]:
+        assert path == "app/routers/fees.py"
+        assert (start_line, end_line) == (read_result["start_line"], read_result["end_line"])
+        return read_result
+
+    async with connect_in_memory(server) as mcp:
+        mcp_result = await mcp.call_tool(
+            "read_file",
+            {
+                "path": "app/routers/fees.py",
+                "start_line": read_result["start_line"],
+                "end_line": read_result["end_line"],
+            },
+        )
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
+    route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": "cohere/north-mini-code:free",
+                "choices": [{"message": {"role": "assistant", "content": "received"}}],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "cost": 0,
+                    "is_byok": False,
+                },
+            },
+        )
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "put-read-1",
+                    "name": "read_file",
+                    "input": {
+                        "path": "app/routers/fees.py",
+                        "start_line": read_result["start_line"],
+                        "end_line": read_result["end_line"],
+                    },
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "put-read-1",
+                    "content": json.dumps(mcp_result),
+                }
+            ],
+        },
+    ]
+    with structlog.testing.capture_logs() as logs:
+        await OpenRouterClient(api_key="sk-or-fake").messages.create(
+            model=None,
+            max_tokens=32,
+            system=[],
+            tools=[],
+            messages=messages,
+        )
+
+    request = json.loads(route.calls[0].request.content or b"{}")
+    wire_tool_result = next(message for message in request["messages"] if message["role"] == "tool")
+    wire_result = json.loads(wire_tool_result["content"])
+    assert "@router.put" in wire_result["content"]
+    assert "[REDACTED_EMAIL]" in wire_result["diagnostic_label"]
+
+    diagnostic = next(log for log in logs if log.get("event") == "provider.tool_result_diagnostic")
+    scrubbed_log = _scrub_event_dict(None, "info", dict(diagnostic))
+    preview = json.loads(scrubbed_log["payload_preview"])
+    assert "@router.put" in preview["content"]
+    assert "[REDACTED_EMAIL]" in preview["diagnostic_label"]
+
+
+@pytest.mark.asyncio
 async def test_openrouter_compacts_actual_mcp_read_file_json_without_corrupting_decorators() -> (
     None
 ):
