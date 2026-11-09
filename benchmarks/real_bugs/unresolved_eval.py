@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -361,6 +362,59 @@ def validate_exact_patch(diff: str, *, allowed_paths: set[str], worktree: Path) 
     return check_diff_paths_writable(diff, workspace_root=worktree)
 
 
+def _patch_request_diagnostic(diff: str, *, worktree_matches_attempt: bool) -> dict[str, Any]:
+    """Retain bounded, redacted patch metadata without persisting source hunks."""
+    from sentinel.scrubber import scrub_text
+
+    lines = diff.splitlines()
+    has_git_header = any(line.startswith("diff --git ") for line in lines)
+    has_old_header = any(line.startswith("--- ") for line in lines)
+    has_new_header = any(line.startswith("+++ ") for line in lines)
+    has_hunk = any(line.startswith("@@ ") for line in lines)
+    if has_git_header and has_old_header and has_new_header and has_hunk:
+        patch_format = "git_unified"
+    elif has_old_header and has_new_header and has_hunk:
+        patch_format = "unified"
+    elif has_git_header and not (has_old_header and has_new_header):
+        patch_format = "git_header_only"
+    elif has_old_header or has_new_header:
+        patch_format = "incomplete_unified"
+    else:
+        patch_format = "unknown"
+
+    header_paths: list[dict[str, str]] = []
+    for line in lines:
+        if not line.startswith(("--- ", "+++ ")):
+            continue
+        raw_path = line[4:].split("\t", 1)[0]
+        if raw_path == "/dev/null":
+            continue
+        quoted = raw_path.startswith('"')
+        path = raw_path
+        if not quoted and path.startswith(("a/", "b/")):
+            path = path[2:]
+        absolute = path.startswith("/") or bool(re.match(r"^[A-Za-z]:[\\/]", path))
+        header_paths.append(
+            {
+                "path_form": "quoted" if quoted else "absolute" if absolute else "relative",
+                "path": "<absolute-path-redacted>" if absolute else scrub_text(path)[:256],
+                "path_sha256": hashlib.sha256(
+                    raw_path.encode("utf-8", errors="replace")
+                ).hexdigest(),
+            }
+        )
+        if len(header_paths) == 8:
+            break
+    encoded = diff.encode("utf-8", errors="replace")
+    return {
+        "worktree_matches_attempt": worktree_matches_attempt,
+        "unified_diff_bytes": len(encoded),
+        "unified_diff_sha256": hashlib.sha256(encoded).hexdigest(),
+        "patch_format": patch_format,
+        "header_paths": header_paths,
+    }
+
+
 class ExactScopeTracingMCPClient:
     """Narrow the benchmark tracer to exact, frozen source paths."""
 
@@ -611,7 +665,7 @@ class ExactScopeTracingMCPClient:
             diff = arguments.get("unified_diff")
             if not isinstance(diff, str):
                 raise EvaluationSafetyError("patch payload must be text")
-            from mcp_server.sandbox import resolve_worktree_dir
+            from mcp_server.sandbox import SandboxViolation, resolve_worktree_dir
 
             try:
                 worktree = resolve_worktree_dir(str(arguments.get("worktree", "")))
@@ -620,12 +674,33 @@ class ExactScopeTracingMCPClient:
                 )
                 if changed != extract_paths(diff):
                     raise EvaluationSafetyError("patch path parsing was inconsistent")
-            except Exception as exc:
-                self._tracer.events.append(
-                    {"tool": "propose_patch", "ok": False, "error": str(exc)[:1000]}
+            except (EvaluationSafetyError, SandboxViolation) as exc:
+                failure_category = (
+                    "patch_path_not_allowlisted"
+                    if isinstance(exc, EvaluationSafetyError)
+                    and "exact source allowlist" in str(exc)
+                    else "patch_safety_rejected"
                 )
-                self._tracer.patch_error = str(exc)[:1000]
-                raise
+                safe_error = (
+                    f"Patch rejected ({failure_category}); no files were changed. Submit a "
+                    f"standard unified diff that changes only {SOURCE_PATH!r}; traversal, "
+                    "absolute paths, and filesystem escapes remain prohibited."
+                )
+                self._tracer.events.append(
+                    {
+                        "tool": "propose_patch",
+                        "ok": False,
+                        "request": _patch_request_diagnostic(
+                            diff,
+                            worktree_matches_attempt=arguments.get("worktree")
+                            == self.worktree_name,
+                        ),
+                        "failure_category": failure_category,
+                        "error": safe_error,
+                    }
+                )
+                self._tracer.patch_error = safe_error
+                raise MCPToolError(safe_error) from None
         event_start = len(self._tracer.events)
         try:
             result = await self._tracer.call_tool(name, scoped_arguments)

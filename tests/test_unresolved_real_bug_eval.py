@@ -701,11 +701,16 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     assert rejected_event["tool"] == "run_tests"
     assert rejected_event["ok"] is False
     assert rejected_event["request"]["test_path"] == "python -m pytest -q tests/test_secret.py"
-    with pytest.raises(evaluation.EvaluationSafetyError, match="exact source allowlist"):
+    with pytest.raises(MCPToolError, match="Patch rejected.*no files were changed"):
         await tracer.call_tool(
             "propose_patch",
             {"unified_diff": _diff("tests/test_fee.py"), "worktree": "mock-run"},
         )
+    rejected_patch = tracer.events[-1]
+    assert rejected_patch["failure_category"] == "patch_path_not_allowlisted"
+    assert rejected_patch["request"]["patch_format"] == "unified"
+    assert rejected_patch["request"]["header_paths"][0]["path"] == "tests/test_fee.py"
+    assert "unified_diff" not in rejected_patch["request"]
     with pytest.raises(ValueError, match="not authorized"):
         await tracer.call_tool(
             "attacker.propose_patch",
@@ -842,6 +847,22 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
 
     # This decision stub makes each tool choice from prior tool output. It is
     # an offline loop contract test, not evidence of autonomous benchmark success.
+    def patch_from_observation(tool_results: list[dict[str, Any]]) -> str:
+        read_result = json.loads(tool_results[0]["content"])
+        baseline = json.loads(tool_results[1]["content"])
+        assert baseline["passed"] is False
+        observed = read_result["content"].splitlines()
+        function_line = next(i for i, line in enumerate(observed) if line.startswith("def balance"))
+        old_return = observed[function_line + 1]
+        assert "+ paid" in old_return
+        updated = old_return.replace("+ paid", "- paid", 1)
+        context = observed[function_line : function_line + 3]
+        return (
+            "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            f" {context[0]}\n-{context[1]}\n+{updated}\n {context[2]}\n"
+        )
+
     def decide(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         tool_results = [message for message in payload["messages"] if message["role"] == "tool"]
@@ -872,34 +893,39 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
                 ],
             }
         elif len(tool_results) == 2:
-            read_result = json.loads(tool_results[0]["content"])
-            baseline = json.loads(tool_results[1]["content"])
-            assert baseline["passed"] is False
-            observed = read_result["content"].splitlines()
-            function_line = next(
-                i for i, line in enumerate(observed) if line.startswith("def balance")
-            )
-            old_return = observed[function_line + 1]
-            assert "+ paid" in old_return
-            updated = old_return.replace("+ paid", "- paid", 1)
-            context = observed[function_line : function_line + 3]
-            diff = (
-                "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
-                "@@ -1,3 +1,3 @@\n"
-                f" {context[0]}\n-{context[1]}\n+{updated}\n {context[2]}\n"
-            )
+            diff = patch_from_observation(tool_results)
+            rejected_diff = diff.replace(
+                "a/app/routers/fees.py", "a/tests/test_requested_changes.py"
+            ).replace("b/app/routers/fees.py", "b/tests/test_requested_changes.py")
             choice = {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [
                     tool_call(
-                        "patch-1",
+                        "patch-rejected",
                         "propose_patch",
-                        {"worktree": "mock-repair", "unified_diff": diff},
+                        {"worktree": "mock-repair", "unified_diff": rejected_diff},
                     )
                 ],
             }
         elif len(tool_results) == 3:
+            assert "Patch rejected" in tool_results[-1]["content"]
+            assert "no files were changed" in tool_results[-1]["content"]
+            choice = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(
+                        "patch-corrected",
+                        "propose_patch",
+                        {
+                            "worktree": "mock-repair",
+                            "unified_diff": patch_from_observation(tool_results),
+                        },
+                    )
+                ],
+            }
+        elif len(tool_results) == 4:
             patch_result = json.loads(tool_results[-1]["content"])
             assert patch_result["applied"] is True
             choice = {
@@ -913,7 +939,7 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
                     )
                 ],
             }
-        elif len(tool_results) == 4:
+        elif len(tool_results) == 5:
             assert json.loads(tool_results[-1]["content"])["passed"] is True
             choice = {"role": "assistant", "content": "Offline workflow verified."}
         else:
@@ -960,7 +986,7 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
         )
 
         assert agent_result.success is True
-        assert provider_route.call_count == 5
+        assert provider_route.call_count == 6
         assert source.read_text(encoding="utf-8").splitlines()[1] == "    return amount - paid"
         second_request = json.loads(provider_route.calls[1].request.content or b"{}")
         read_result = next(
@@ -971,6 +997,16 @@ async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_ver
         assert len([event for event in scoped.events if event.get("tool") == "read_file"]) == 1
         assert any(
             event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events
+        )
+        rejected_patches = [
+            event
+            for event in scoped.events
+            if event.get("tool") == "propose_patch" and event.get("ok") is False
+        ]
+        assert len(rejected_patches) == 1
+        assert rejected_patches[0]["failure_category"] == "patch_path_not_allowlisted"
+        assert rejected_patches[0]["request"]["header_paths"][0]["path"] == (
+            "tests/test_requested_changes.py"
         )
         assert any(
             event.get("tool") == "run_tests"
