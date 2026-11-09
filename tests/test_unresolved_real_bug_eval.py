@@ -194,9 +194,10 @@ async def test_exact_scope_normalizes_error_paths_and_deduplicates_snapshot_pref
     assert prefix not in tracer.events[-1]["error"]
 
     before = len(client.calls)
-    with pytest.raises(evaluation.EvaluationSafetyError, match="repeated the workspace prefix"):
+    with pytest.raises(MCPToolError, match="workspace-relative path"):
         await tracer.call_tool("read_file", {"path": f"{prefix}/{prefix}/{evaluation.SOURCE_PATH}"})
     assert len(client.calls) == before
+    assert tracer.events[-1]["failure_category"] == "invalid_workspace_path"
 
 
 @pytest.mark.asyncio
@@ -240,6 +241,52 @@ async def test_vimj_read_scope_rejects_regression_test_context() -> None:
     result = await tracer.call_tool("read_file", {"path": evaluation.SOURCE_PATH})
     assert result["content"] == "permitted source"
     assert client.calls[-1][1]["path"] == f"{prefix}/{evaluation.SOURCE_PATH}"
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_repository_paths_are_recoverable_and_traceable() -> None:
+    from healer.mcp_client import MCPToolError
+
+    class PathMCP:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def list_tool_schemas(self) -> list[dict[str, Any]]:
+            return []
+
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            self.calls.append((name, dict(arguments)))
+            return {}
+
+    client = PathMCP()
+    tracer = evaluation.ExactScopeTracingMCPClient(
+        client,
+        validated=True,
+        error_id=3,
+        allowed_paths={evaluation.SOURCE_PATH},
+        readable_paths={evaluation.SOURCE_PATH},
+        workspace_prefix="connected_apps/mock/s",
+        worktree_name="mock-run",
+    )
+    rejected = (
+        ("read_file", {"path": "/workspace/app/routers/fees.py"}, "absolute"),
+        ("read_file", {"path": r"C:\workspace\app\routers\fees.py"}, "backslash"),
+        ("list_files", {"glob": "../**/*.py"}, "not_normalized"),
+    )
+    for tool_name, arguments, _expected_form in rejected:
+        with pytest.raises(MCPToolError, match="workspace-relative path"):
+            await tracer.call_tool(tool_name, arguments)
+
+    assert client.calls == []
+    assert [event["tool"] for event in tracer.events] == [name for name, _, _ in rejected]
+    assert [event["request"]["path_form"] for event in tracer.events] == [
+        form for _, _, form in rejected
+    ]
+    assert all(event["failure_category"] == "invalid_workspace_path" for event in tracer.events)
+    assert all(len(event["request"]["path_sha256"]) == 64 for event in tracer.events)
+    assert all(
+        "path" not in event["request"] and "glob" not in event["request"] for event in tracer.events
+    )
 
 
 @pytest.mark.asyncio
@@ -642,7 +689,7 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         ("list_files", {"glob": "../**/*.py"}),
         ("list_files", {"glob": "app/../**/*.py"}),
     ):
-        with pytest.raises(evaluation.EvaluationSafetyError):
+        with pytest.raises(MCPToolError, match="workspace-relative path"):
             await tracer.call_tool(tool_name, arguments)
     with pytest.raises(MCPToolError, match="frozen regression and full-suite"):
         await tracer.call_tool(

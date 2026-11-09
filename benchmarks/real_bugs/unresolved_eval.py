@@ -439,6 +439,46 @@ class ExactScopeTracingMCPClient:
             raise EvaluationSafetyError("repository access path is not normalized")
         return f"{self.workspace_prefix}/{value}"
 
+    def _model_workspace_path(self, tool_name: str, value: Any, *, glob: bool = False) -> str:
+        """Reject malformed model paths as recoverable tool errors, never as host errors."""
+        from healer.mcp_client import MCPToolError
+
+        try:
+            return self._snapshot_path(value, glob=glob)
+        except EvaluationSafetyError:
+            if not isinstance(value, str):
+                path_form = "non_string"
+                encoded = type(value).__name__.encode("utf-8")
+            elif "\\" in value:
+                path_form = "backslash"
+                encoded = value.encode("utf-8", errors="replace")
+            elif value.startswith("/"):
+                path_form = "absolute"
+                encoded = value.encode("utf-8", errors="replace")
+            elif value.startswith(self.workspace_prefix + "/" + self.workspace_prefix + "/"):
+                path_form = "repeated_workspace_prefix"
+                encoded = value.encode("utf-8", errors="replace")
+            else:
+                path_form = "not_normalized"
+                encoded = value.encode("utf-8", errors="replace")
+            self._tracer.events.append(
+                {
+                    "tool": tool_name,
+                    "ok": False,
+                    "request": {
+                        "path_form": path_form,
+                        "path_bytes": len(encoded),
+                        "path_sha256": hashlib.sha256(encoded).hexdigest(),
+                    },
+                    "failure_category": "invalid_workspace_path",
+                }
+            )
+            raise MCPToolError(
+                "Repository access must use a normalized workspace-relative path with "
+                "forward slashes; use the exact repository-relative source path "
+                f"{SOURCE_PATH!r}."
+            ) from None
+
     @property
     def events(self) -> list[dict[str, Any]]:
         return self._tracer.events
@@ -469,7 +509,7 @@ class ExactScopeTracingMCPClient:
         effective_read_range: tuple[int, int] | None = None
         if tool_name == "read_file":
             requested_path = arguments.get("path")
-            scoped_arguments["path"] = self._snapshot_path(requested_path)
+            scoped_arguments["path"] = self._model_workspace_path(tool_name, requested_path)
             model_relative_path = scoped_arguments["path"][len(self.workspace_prefix) + 1 :]
             if self.readable_paths is not None and model_relative_path not in self.readable_paths:
                 message = f"Source reads are restricted to {SOURCE_PATH!r} for this repair."
@@ -533,7 +573,9 @@ class ExactScopeTracingMCPClient:
                 scoped_arguments["start_line"], scoped_arguments["end_line"] = effective_read_range
         elif tool_name == "list_files":
             requested_glob = arguments.get("glob", "**/*")
-            scoped_arguments["glob"] = self._snapshot_path(requested_glob, glob=True)
+            scoped_arguments["glob"] = self._model_workspace_path(
+                tool_name, requested_glob, glob=True
+            )
         elif tool_name == "run_tests":
             rejection: str | None = None
             if arguments.get("worktree") != self.worktree_name:
