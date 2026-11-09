@@ -262,8 +262,8 @@ Before inference, it verifies the key's Free-tier status, exact model pricing,
 and an active zero-priced endpoint advertising `tools`. Provider fallbacks and
 automatic completion retries are disabled. Each response must report the exact
 model, `is_byok=false`, and zero cost; missing or positive cost stops the case.
-The VIMJ one-case harness also caps total completion tokens at 8,000 and
-provider requests at 10, below OpenRouter's documented unaffiliated Free-tier
+The VIMJ budget-v2 one-case harness caps aggregate input plus output tokens at
+32,768 and provider requests at 10, below OpenRouter's documented unaffiliated Free-tier
 limit of 50 requests/day. See the VIMJ runbook for its full attestation and
 evidence procedure.
 

@@ -111,6 +111,24 @@ def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
     assert "human_fix" not in json.dumps(model_freeze).lower()
 
 
+def test_new_budget_is_versioned_and_keeps_the_frozen_challenge_unchanged() -> None:
+    budget = json.loads(evaluation.BUDGET_CONFIG_PATH.read_text(encoding="utf-8"))
+    evaluation.validate_budget_config(budget)
+    from benchmarks.real_bugs import run as benchmark_runner
+
+    challenge = json.loads(evaluation.FREEZE_PATH.read_text(encoding="utf-8"))
+    evaluation.validate_model_config(challenge)
+    assert evaluation.EVALUATION_ID != evaluation.CHALLENGE_ID
+    assert budget["per_case_token_cap"] == 32_768
+    assert budget["per_case_request_cap"] == 10
+    assert budget["per_case_request_cap"] == benchmark_runner.OPENROUTER_BENCHMARK_REQUEST_LIMIT
+    assert budget["per_case_cost_cap_usd"] == "0"
+    assert (
+        evaluation.sha256_file(evaluation.BUDGET_CONFIG_PATH)
+        == evaluation.EXPECTED_BUDGET_CONFIG_SHA256
+    )
+
+
 def test_exact_source_path_is_accepted(tmp_path: Path) -> None:
     from mcp_server.sandbox import check_diff_paths_writable
 

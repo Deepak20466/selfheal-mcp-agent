@@ -298,6 +298,56 @@ async def test_provider_request_cap_prevents_a_second_call() -> None:
     assert client.calls == 1
 
 
+async def test_case_token_meter_sums_usage_across_provider_responses() -> None:
+    from types import SimpleNamespace
+
+    class SequenceClient:
+        messages = None
+
+        def __init__(self) -> None:
+            self.messages = self
+            self.responses = iter(((3_000, 100), (2_500, 100), (2_485, 223)))
+
+        async def create(self, **_kwargs: Any) -> Any:
+            input_tokens, output_tokens = next(self.responses)
+            return SimpleNamespace(
+                content=[],
+                usage=SimpleNamespace(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=0,
+                ),
+            )
+
+    old_budget_meter = run_module.MeteredClient(
+        SequenceClient(),
+        run_module.UsageMeter(
+            token_limit=8_000,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=False,
+        ),
+    )
+    await old_budget_meter.create(model="mock-free")
+    await old_budget_meter.create(model="mock-free")
+    with pytest.raises(run_module.BenchmarkStop, match="per-case token cap"):
+        await old_budget_meter.create(model="mock-free")
+    assert old_budget_meter._meter.input_tokens + old_budget_meter._meter.output_tokens == 8_408
+
+    proposed_budget_meter = run_module.MeteredClient(
+        SequenceClient(),
+        run_module.UsageMeter(
+            token_limit=32_768,
+            cost_limit=run_module.Decimal("0"),
+            allow_attested_free_cost=False,
+        ),
+    )
+    await proposed_budget_meter.create(model="mock-free")
+    await proposed_budget_meter.create(model="mock-free")
+    await proposed_budget_meter.create(model="mock-free")
+    assert proposed_budget_meter._meter.input_tokens == 7_985
+    assert proposed_budget_meter._meter.output_tokens == 423
+
+
 async def test_metered_client_does_not_start_provider_call_after_case_deadline() -> None:
     class FakeClient:
         messages = None

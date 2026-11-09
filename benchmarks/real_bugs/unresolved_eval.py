@@ -28,7 +28,9 @@ ROOT = Path(__file__).resolve().parent
 FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1.json"
 MODEL_VISIBLE_FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-model-visible-freeze.json"
 PATCH_PATH = ROOT / "unresolved" / "vimj-fee-balance-v1-test.patch"
-EVALUATION_ID = "vimj-offline-candidate-2026-11-09"
+BUDGET_CONFIG_PATH = ROOT / "unresolved" / "vimj-cohere-north-mini-code-budget-v2.json"
+CHALLENGE_ID = "vimj-offline-candidate-2026-11-09"
+EVALUATION_ID = "vimj-cohere-north-mini-code-budget-v2-2026-11-09"
 CASE_ID = "vimj-studio-os-saas-unresolved-fee-balance"
 ARM = "with_validation"
 SOURCE_PATH = "app/routers/fees.py"
@@ -45,8 +47,11 @@ EXPECTED_MODEL_VISIBLE_FREEZE_SHA256 = (
     "9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6"
 )
 EXPECTED_FREEZE_SHA256 = "f586130a223d2ba4df0dd3762c10894327277a344701b90e92030308da8ab1c2"
+EXPECTED_BUDGET_CONFIG_SHA256 = "0a87e9d2793e38d6bd0cb7666f40c2acbf3cf35de24ae1a981b52c3af3cd6d74"
 MAX_CASE_SECONDS = 600
-TOKEN_CAP = 8000
+TOKEN_CAP = 32_768
+OPENROUTER_REQUEST_CAP = 10
+CASE_COST_CAP_USD = Decimal("0")
 OPENROUTER_MODEL = "cohere/north-mini-code:free"
 
 
@@ -76,8 +81,8 @@ def validate_model_config(document: Any) -> None:
         raise EvaluationSafetyError("frozen baseline commit mismatch")
     if document.get("permitted_source_paths") != [SOURCE_PATH]:
         raise EvaluationSafetyError("frozen source allowlist mismatch")
-    if document.get("evaluation_id") != EVALUATION_ID:
-        raise EvaluationSafetyError("evaluation identity mismatch")
+    if document.get("evaluation_id") != CHALLENGE_ID:
+        raise EvaluationSafetyError("frozen challenge identity mismatch")
     if document.get("regression_test_sha256") != EXPECTED_FROZEN_TEST_RAW_SHA256:
         raise EvaluationSafetyError("operator-frozen regression test hash mismatch")
     if document.get("regression_test_canonical_sha256") != EXPECTED_TEST_SHA256:
@@ -92,7 +97,7 @@ def validate_model_config(document: Any) -> None:
     inputs = frozen.get("model_visible_inputs", {})
     criteria = frozen.get("evaluation_criteria", {})
     if (
-        frozen.get("evaluation_id") != EVALUATION_ID
+        frozen.get("evaluation_id") != CHALLENGE_ID
         or frozen.get("baseline_commit") != EXPECTED_BASELINE
         or frozen.get("repair_attempts") != 0
         or frozen.get("provider_calls") != 0
@@ -114,6 +119,28 @@ def validate_model_config(document: Any) -> None:
     serialized = json.dumps(document).lower()
     if any(term in serialized for term in forbidden_terms):
         raise EvaluationSafetyError("model config contains evaluator-only fields")
+
+
+def validate_budget_config(document: Any) -> None:
+    """Require the versioned run budget to match this evaluator exactly."""
+    if not isinstance(document, dict):
+        raise EvaluationSafetyError("benchmark budget config must be an object")
+    expected = {
+        "schema_version": 1,
+        "evaluation_id": EVALUATION_ID,
+        "challenge_id": CHALLENGE_ID,
+        "baseline_commit": EXPECTED_BASELINE,
+        "challenge_freeze_sha256": EXPECTED_FREEZE_SHA256,
+        "model_visible_freeze_sha256": EXPECTED_MODEL_VISIBLE_FREEZE_SHA256,
+        "provider": "openrouter_api",
+        "model": OPENROUTER_MODEL,
+        "per_case_token_cap": TOKEN_CAP,
+        "per_case_request_cap": OPENROUTER_REQUEST_CAP,
+        "per_case_cost_cap_usd": "0",
+        "max_case_seconds": MAX_CASE_SECONDS,
+    }
+    if document != expected:
+        raise EvaluationSafetyError("versioned benchmark budget differs from its frozen policy")
 
 
 def build_model_prompt() -> str:
@@ -507,7 +534,7 @@ async def _execute(
             provider_name="openrouter_api",
             arm=ARM,
             token_limit=TOKEN_CAP,
-            cost_limit=Decimal("0"),
+            cost_limit=CASE_COST_CAP_USD,
             timeout_seconds=MAX_CASE_SECONDS,
             workspace=workspace,
         )
@@ -582,6 +609,10 @@ def main() -> int:
     try:
         document = json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
         validate_model_config(document)
+        budget_config = json.loads(BUDGET_CONFIG_PATH.read_text(encoding="utf-8"))
+        validate_budget_config(budget_config)
+        if sha256_file(BUDGET_CONFIG_PATH) != EXPECTED_BUDGET_CONFIG_SHA256:
+            raise EvaluationSafetyError("versioned benchmark budget hash mismatch")
         if sha256_file(MODEL_VISIBLE_FREEZE_PATH) != EXPECTED_MODEL_VISIBLE_FREEZE_SHA256:
             raise EvaluationSafetyError("operator-provided model-visible freeze hash mismatch")
         if sha256_file(FREEZE_PATH) != EXPECTED_FREEZE_SHA256:
@@ -592,6 +623,12 @@ def main() -> int:
         evidence_path = _ensure_private_evidence_path(args.evidence)
         base = {
             "evaluation_id": EVALUATION_ID,
+            "challenge_id": CHALLENGE_ID,
+            "budget_config_sha256": EXPECTED_BUDGET_CONFIG_SHA256,
+            "per_case_token_cap": TOKEN_CAP,
+            "per_case_request_cap": OPENROUTER_REQUEST_CAP,
+            "per_case_cost_cap_usd": str(CASE_COST_CAP_USD),
+            "max_case_seconds": MAX_CASE_SECONDS,
             "baseline_commit": EXPECTED_BASELINE,
             "freeze_sha256": EXPECTED_FREEZE_SHA256,
             "regression_test_command": f"python -m pytest -q {TEST_PATH}",

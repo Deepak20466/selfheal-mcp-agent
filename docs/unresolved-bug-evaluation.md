@@ -91,12 +91,29 @@ Historical Groq attempts above remain unchanged. The next attempt is pinned to
 OpenRouter's `cohere/north-mini-code:free` route. OpenRouter lists zero input
 and output pricing, tool calling, a 256,000-token context, and up to
 65,536 completion tokens for this model. Its `:free` tier is limited to 20
-requests per minute and 50 requests per day; this VIMJ attempt caps aggregate
-reported completion tokens at 8,000. The live preflight checks the exact model,
+requests per minute and 50 requests per day. The previous attempt used an
+8,000-token per-case cap and stopped as designed after three successful
+responses totaled 7,985 input plus 423 output tokens (8,408 total). The meter
+sums input and output usage from each completion, including prompt tokens
+repeated in follow-up calls. The stop is expected, not a usage-counting defect;
+the failed result and all prior evidence remain unchanged.
+
+The next run uses the separately pinned budget in
+`vimj-cohere-north-mini-code-budget-v2.json`, with evaluation ID
+`vimj-cohere-north-mini-code-budget-v2-2026-11-09`. It allows 32,768 aggregate
+tokens, at most 10 provider requests, $0 reported cost, and 600 seconds. The
+32,768 budget is based on the observed 2,803 tokens per successful request:
+ten requests at that rate would use about 28,027 tokens, leaving about 4,741
+tokens of headroom. It stays below the model's 256K context, while the request
+limit stays below OpenRouter's 20-per-minute and 50-per-day free-tier limits.
+Each completion must still report the pinned model, `is_byok=false`, and cost
+`0`; missing or nonzero cost stops the run. The live preflight checks the exact model,
 all advertised prices, and an active endpoint with `tools` support. Each
-completion must report the pinned model, `is_byok=false`, and cost `0`; missing
-cost stops the run. Provider fallback is disabled and completions are not
-automatically replayed.
+Provider fallback is disabled and completions are not automatically replayed.
+This budget change has a distinct evaluation ID so its result is not conflated
+with attempts made under the 8,000-token policy. The v1 challenge freeze, model
+visible input, frozen test, source allowlist, and sandbox restrictions are
+unchanged.
 
 Run this only after confirming the OpenRouter account is Free Tier, paid billing
 is disabled, and the model has available free quota. Export the key privately as
@@ -104,7 +121,7 @@ is disabled, and the model has available free quota. Export the key privately as
 operator-set quota timestamp must be current (15-minute maximum):
 
 ```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-code-2026-11-09.jsonl" --live
+python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-budget-v2-2026-11-09.jsonl" --live
 ```
 
 Before invoking it, set `ANTHROPIC_MODEL=cohere/north-mini-code:free`,

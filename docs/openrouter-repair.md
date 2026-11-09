@@ -10,8 +10,10 @@ same model, `usage.cost=0`, and `usage.is_byok=false`. An absent or nonzero cost
 stops the run. OpenRouter's current [model page](https://openrouter.ai/cohere/north-mini-code%3Afree)
 lists tool calling, a 256,000-token context and up to 65,536 output
 tokens. Its [free model limits](https://openrouter.ai/collections/free-models)
-are 20 requests per minute and 50 per day. The VIMJ harness has an 8,000-token
-aggregate completion cap. This path makes no provider retry or model fallback.
+are 20 requests per minute and 50 per day. VIMJ budget v2 caps aggregate
+reported tokens at 32,768 and provider requests at 10 per case, with a $0 cost
+cap and a 600-second time limit. This path makes no provider retry or model
+fallback.
 The unchanged bug freeze, source/test hashes, exact source allowlist, sandbox,
 security checks, and prior attempt evidence are documented in
 [`unresolved-bug-evaluation.md`](unresolved-bug-evaluation.md).

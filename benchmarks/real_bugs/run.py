@@ -42,6 +42,7 @@ SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
 # name. Accept this one observed alias only; all dispatch and authorization
 # continue to use the canonical, explicitly allowlisted MCP tool name.
 SAFE_TOOL_ALIASES = {"repo_browser.list_files": "list_files"}
+OPENROUTER_BENCHMARK_REQUEST_LIMIT = 10
 RATE_LIMIT_BACKOFF_BASE_SECONDS = 30
 MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS = 300
 REAL_BUG_DATABASE_HOST = "127.0.0.1"
@@ -741,7 +742,9 @@ async def _run_arm_inner(
         allow_attested_free_cost=provider_name != "openrouter_api",
         # The documented unaffiliated Free-tier ceiling is 50 requests/day;
         # this single-case attempt is bounded well below it.
-        request_limit=10 if provider_name == "openrouter_api" else None,
+        request_limit=(
+            OPENROUTER_BENCHMARK_REQUEST_LIMIT if provider_name == "openrouter_api" else None
+        ),
     )
     client = MeteredClient(provider_client, meter)
     trace: TracingMCPClient | None = None
