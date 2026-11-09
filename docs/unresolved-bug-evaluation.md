@@ -98,22 +98,29 @@ sums input and output usage from each completion, including prompt tokens
 repeated in follow-up calls. The stop is expected, not a usage-counting defect;
 the failed result and all prior evidence remain unchanged.
 
-The next run uses the separately pinned budget in
-`vimj-cohere-north-mini-code-budget-v2.json`, with evaluation ID
-`vimj-cohere-north-mini-code-budget-v2-2026-11-09`. It allows 32,768 aggregate
-tokens, at most 10 provider requests, $0 reported cost, and 600 seconds. The
-32,768 budget is based on the observed 2,803 tokens per successful request:
-ten requests at that rate would use about 28,027 tokens, leaving about 4,741
-tokens of headroom. It stays below the model's 256K context, while the request
-limit stays below OpenRouter's 20-per-minute and 50-per-day free-tier limits.
-Each completion must still report the pinned model, `is_byok=false`, and cost
-`0`; missing or nonzero cost stops the run. The live preflight checks the exact model,
-all advertised prices, and an active endpoint with `tools` support. Each
-Provider fallback is disabled and completions are not automatically replayed.
-This budget change has a distinct evaluation ID so its result is not conflated
-with attempts made under the 8,000-token policy. The v1 challenge freeze, model
-visible input, frozen test, source allowlist, and sandbox restrictions are
-unchanged.
+The v2 attempt then made nine successful completions, but its trace shows six
+failed `read_file` calls, two `list_files` calls, and no `propose_patch` or
+`run_tests` call. The captured error path already included the snapshot prefix;
+the scope wrapper prepended that prefix again. Subsequent model responses
+repeated and compounded the internal path from prior tool errors. This loop
+spent 35,140 input tokens and 661 output tokens without reaching repair.
+
+The next run uses the separately pinned context policy in
+`vimj-cohere-north-mini-context-v3.json`, evaluation ID
+`vimj-cohere-north-mini-context-v3-2026-11-09`, and the unchanged budget-v2
+config. The budget remains 32,768 aggregate tokens, at most 10 provider
+requests, $0 reported cost, and 600 seconds. The context policy presents the
+source as the exact repo-relative `app/routers/fees.py` path, strips one exact
+snapshot prefix if it is echoed, and returns a short correction for failed
+reads without exposing the internal workspace path. OpenRouter now sends a
+bounded copy of previous `read_file`, `list_files`, and `run_tests` results;
+source omissions are marked with line ranges that remain retrievable. Tool
+history used for local evidence is not rewritten. The prompt requires the
+fail-before-patch, patch, regression-pass sequence; the harness still runs the
+full suite after that proof. The challenge freeze, test and source hashes,
+source write allowlist, zero-cost check, no-fallback rule, request limit, and
+sandbox remain unchanged. The context-policy version is distinct so results
+can be compared without treating the unproductive v2 trace as equivalent.
 
 Run this only after confirming the OpenRouter account is Free Tier, paid billing
 is disabled, and the model has available free quota. Export the key privately as
@@ -121,7 +128,7 @@ is disabled, and the model has available free quota. Export the key privately as
 operator-set quota timestamp must be current (15-minute maximum):
 
 ```powershell
-python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-budget-v2-2026-11-09.jsonl" --live
+python -m benchmarks.real_bugs.unresolved_eval --candidate-root "$env:TEMP\vimj-baseline-clean-6490833" --evidence ".\benchmarks\real_bugs\results\unresolved\vimj-openrouter-cohere-north-mini-context-v3-2026-11-09.jsonl" --live
 ```
 
 Before invoking it, set `ANTHROPIC_MODEL=cohere/north-mini-code:free`,

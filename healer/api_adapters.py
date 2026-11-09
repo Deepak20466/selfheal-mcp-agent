@@ -272,6 +272,46 @@ def _groq_compact_read_file(content: str, max_bytes: int) -> str:
     return content
 
 
+OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
+
+
+def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bound rediscoverable MCP results on an outgoing copy of chat history."""
+    compacted = copy.deepcopy(messages)
+    call_names = {
+        call["id"]: call["function"]["name"]
+        for message in compacted
+        if message.get("role") == "assistant"
+        for call in message.get("tool_calls", [])
+    }
+    for message in compacted:
+        if message.get("role") != "tool":
+            continue
+        content = message.get("content")
+        if (
+            not isinstance(content, str)
+            or len(content.encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
+        ):
+            continue
+        tool_name = call_names.get(message.get("tool_call_id"))
+        if tool_name == "list_files":
+            content = _groq_compact_json(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+        elif tool_name == "read_file":
+            content = _groq_compact_read_file(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+        elif tool_name == "run_tests":
+            content = _groq_compact_test_output(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+            if content is None:
+                raise RuntimeError(
+                    "OpenRouter tool output could not be compacted without losing test evidence"
+                )
+        else:
+            raise RuntimeError("OpenRouter tool output exceeds the safe context limit")
+        if len(content.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES:
+            raise RuntimeError("OpenRouter tool output remains over the safe context limit")
+        message["content"] = content
+    return compacted
+
+
 @dataclass
 class _Block:
     type: str
@@ -864,7 +904,9 @@ class _OpenRouterMessages(_GroqMessages):
 
         payload: dict[str, Any] = {
             "model": settings.anthropic_model,
-            "messages": self._to_openai_messages(system, messages),
+            "messages": _compact_openrouter_tool_messages(
+                self._to_openai_messages(system, messages)
+            ),
             "max_tokens": max_tokens,
             # `openrouter/free` (and other free OpenRouter models) are often
             # reasoning models -- verified live this session that a small

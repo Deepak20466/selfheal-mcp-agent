@@ -1640,6 +1640,71 @@ async def test_openrouter_tool_call_response(
     assert request_json["usage"] == {"include": True}
 
 
+async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_history(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+    from healer.api_adapters import OPENROUTER_TOOL_RESULT_MAX_BYTES
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
+    route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": "cohere/north-mini-code:free",
+                "choices": [{"message": {"role": "assistant", "content": "done"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 0, "is_byok": False},
+            },
+        )
+    )
+    content = "\n".join(f"source line {number}" for number in range(1, 1_500))
+    tool_result = {
+        "path": "app/routers/fees.py",
+        "start_line": 1,
+        "end_line": 1499,
+        "content": content,
+    }
+    messages = [
+        {"role": "user", "content": "inspect the source"},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "read-1",
+                    "name": "read_file",
+                    "input": {"path": "app/routers/fees.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "read-1",
+                    "content": json.dumps(tool_result),
+                }
+            ],
+        },
+    ]
+    original_history = json.dumps(messages)
+    client = OpenRouterClient(api_key="sk-or-fake")
+    await client.messages.create(
+        model=None,
+        max_tokens=100,
+        system=[],
+        tools=TOOLS,
+        messages=messages,
+    )
+
+    assert json.dumps(messages) == original_history
+    payload = json.loads(route.calls[0].request.content or b"{}")
+    tool_message = next(message for message in payload["messages"] if message["role"] == "tool")
+    assert len(tool_message["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
+    assert "omitted source lines" in tool_message["content"]
+
+
 @pytest.mark.parametrize(
     ("model", "usage"),
     [

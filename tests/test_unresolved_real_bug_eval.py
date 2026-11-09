@@ -112,13 +112,19 @@ def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
 
 
 def test_new_budget_is_versioned_and_keeps_the_frozen_challenge_unchanged() -> None:
+    from healer.api_adapters import OPENROUTER_TOOL_RESULT_MAX_BYTES
+
     budget = json.loads(evaluation.BUDGET_CONFIG_PATH.read_text(encoding="utf-8"))
     evaluation.validate_budget_config(budget)
+    context_policy = json.loads(evaluation.CONTEXT_POLICY_PATH.read_text(encoding="utf-8"))
+    evaluation.validate_context_policy(context_policy)
     from benchmarks.real_bugs import run as benchmark_runner
 
     challenge = json.loads(evaluation.FREEZE_PATH.read_text(encoding="utf-8"))
     evaluation.validate_model_config(challenge)
     assert evaluation.EVALUATION_ID != evaluation.CHALLENGE_ID
+    assert context_policy["evaluation_id"] == evaluation.EVALUATION_ID
+    assert context_policy["tool_result_max_bytes"] == OPENROUTER_TOOL_RESULT_MAX_BYTES
     assert budget["per_case_token_cap"] == 32_768
     assert budget["per_case_request_cap"] == 10
     assert budget["per_case_request_cap"] == benchmark_runner.OPENROUTER_BENCHMARK_REQUEST_LIMIT
@@ -127,6 +133,63 @@ def test_new_budget_is_versioned_and_keeps_the_frozen_challenge_unchanged() -> N
         evaluation.sha256_file(evaluation.BUDGET_CONFIG_PATH)
         == evaluation.EXPECTED_BUDGET_CONFIG_SHA256
     )
+    assert (
+        evaluation.sha256_file(evaluation.CONTEXT_POLICY_PATH)
+        == evaluation.EXPECTED_CONTEXT_POLICY_SHA256
+    )
+
+
+@pytest.mark.asyncio
+async def test_exact_scope_normalizes_error_paths_and_deduplicates_snapshot_prefix() -> None:
+    from healer.mcp_client import MCPToolError
+
+    prefix = "connected_apps/mock/s"
+
+    class EchoMCP:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def list_tool_schemas(self) -> list[dict[str, Any]]:
+            return []
+
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            self.calls.append((name, arguments))
+            if name == "get_error":
+                return {
+                    "file_path": f"{prefix}/{evaluation.SOURCE_PATH}",
+                    "traceback": f"failed in {prefix}/{evaluation.SOURCE_PATH}\nassertion",
+                }
+            if name == "read_file" and arguments["path"].endswith("missing.py"):
+                raise MCPToolError(f"Not a file: {arguments['path']!r}")
+            return {"path": arguments["path"], "content": "repair source"}
+
+    client = EchoMCP()
+    tracer = evaluation.ExactScopeTracingMCPClient(
+        client,
+        validated=True,
+        error_id=3,
+        allowed_paths={evaluation.SOURCE_PATH},
+        workspace_prefix=prefix,
+        worktree_name="mock-run",
+    )
+    error = await tracer.call_tool("get_error", {"error_id": 3})
+    assert error["file_path"] == evaluation.SOURCE_PATH
+    assert prefix not in error["traceback"]
+    assert len(error["traceback"]) <= evaluation.MODEL_VISIBLE_TRACEBACK_CHARS
+
+    await tracer.call_tool("read_file", {"path": f"{prefix}/{evaluation.SOURCE_PATH}"})
+    assert client.calls[-1][1]["path"] == f"{prefix}/{evaluation.SOURCE_PATH}"
+    assert tracer.events[-1]["request"]["path"] == evaluation.SOURCE_PATH
+
+    with pytest.raises(MCPToolError, match="repository-relative path") as read_error:
+        await tracer.call_tool("read_file", {"path": "app/routers/missing.py"})
+    assert prefix not in str(read_error.value)
+    assert prefix not in tracer.events[-1]["error"]
+
+    before = len(client.calls)
+    with pytest.raises(evaluation.EvaluationSafetyError, match="repeated the workspace prefix"):
+        await tracer.call_tool("read_file", {"path": f"{prefix}/{prefix}/{evaluation.SOURCE_PATH}"})
+    assert len(client.calls) == before
 
 
 def test_exact_source_path_is_accepted(tmp_path: Path) -> None:
@@ -453,3 +516,205 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     model_context = system_text + user_text
     assert "invoice update leaves balance stale" not in model_context.lower()
     assert "expected fix" not in model_context.lower()
+
+
+@pytest.mark.asyncio
+async def test_offline_agent_executes_real_patch_tool_and_independent_regression(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, respx_mock: Any
+) -> None:
+    import shutil
+    import subprocess
+    import sys
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    import mcp_server.audit as audit
+    import mcp_server.sandbox as sandbox
+    import mcp_server.tools.code as code_tools
+    from benchmarks.real_bugs import run as runner
+    from core.config import settings
+    from core.models import HealJob, HealJobType, MonitoredApp
+    from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
+    from healer.mcp_client import connect_in_memory
+    from mcp_server.instance import mcp
+
+    worktrees = tmp_path / "worktrees"
+    worktree = worktrees / "mock-repair"
+    source = worktree / "app" / "routers" / "fees.py"
+    test_file = worktree / "tests" / "test_requested_changes.py"
+    source.parent.mkdir(parents=True)
+    test_file.parent.mkdir(parents=True)
+    source.write_text("def balance(amount, paid):\n    return amount + paid\n", encoding="utf-8")
+    test_file.write_text(
+        "from app.routers.fees import balance\n\n"
+        "class TestSyntheticFullSuite:\n"
+        "    def test_balance_uses_paid_amount(self):\n"
+        "        assert balance(100, 25) == 75\n\n"
+        "class RequestedChanges:\n"
+        "    def test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync(self):\n"
+        "        assert balance(100, 25) == 75\n",
+        encoding="utf-8",
+    )
+    (worktree / "pytest.ini").write_text(
+        "[pytest]\npython_classes = Test* RequestedChanges\n", encoding="utf-8"
+    )
+    (worktree / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (worktree / "app" / "routers" / "__init__.py").write_text("", encoding="utf-8")
+    for args in (
+        ["git", "init", "--quiet"],
+        ["git", "config", "user.name", "Offline fixture"],
+        ["git", "config", "user.email", "offline@example.invalid"],
+        ["git", "add", "-A"],
+        ["git", "commit", "--quiet", "-m", "synthetic failing baseline"],
+    ):
+        subprocess.run(args, cwd=worktree, check=True, capture_output=True, text=True)
+
+    repo_root = tmp_path / "mcp-root"
+    workspace_prefix = "connected_apps/mock/s"
+    snapshot = repo_root / workspace_prefix
+    snapshot.parent.mkdir(parents=True)
+    shutil.copytree(worktree, snapshot, ignore=shutil.ignore_patterns(".git"))
+    monkeypatch.setattr(sandbox, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(sandbox, "WORKTREES_ROOT", worktrees)
+    monkeypatch.setattr(code_tools, "REPO_ROOT", repo_root)
+
+    app = SimpleNamespace(
+        allowed_write_paths=["app/routers/fees.py"],
+        language="python",
+        test_command=f'"{sys.executable}" -m pytest -q',
+    )
+    job = SimpleNamespace(type=HealJobType.RUNTIME_ERROR, app_id=42)
+
+    class FakeSession:
+        def add(self, _record: Any) -> None:
+            return None
+
+        async def get(self, model: Any, _identity: int) -> Any:
+            if model is HealJob:
+                return job
+            if model is MonitoredApp:
+                return app
+            return None
+
+    @asynccontextmanager
+    async def fake_session_scope() -> Any:
+        yield FakeSession()
+
+    monkeypatch.setattr(code_tools, "session_scope", fake_session_scope)
+    monkeypatch.setattr(audit, "session_scope", fake_session_scope)
+
+    def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": call_id,
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(arguments)},
+        }
+
+    def response(message: dict[str, Any]) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": evaluation.OPENROUTER_MODEL,
+                "choices": [{"message": message}],
+                "usage": {
+                    "prompt_tokens": 20,
+                    "completion_tokens": 10,
+                    "cost": 0,
+                    "is_byok": False,
+                },
+            },
+        )
+
+    diff = (
+        "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
+        "@@ -1,2 +1,2 @@\n def balance(amount, paid):\n"
+        "-    return amount + paid\n+    return amount - paid\n"
+    )
+    provider_responses = [
+        response(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(
+                        "read-1",
+                        "read_file",
+                        {"path": "app/routers/fees.py", "start_line": 1, "end_line": 10},
+                    ),
+                    tool_call(
+                        "test-before",
+                        "run_tests",
+                        {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
+                    ),
+                ],
+            }
+        ),
+        response(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    tool_call(
+                        "patch-1",
+                        "propose_patch",
+                        {"worktree": "mock-repair", "unified_diff": diff},
+                    ),
+                    tool_call(
+                        "test-after",
+                        "run_tests",
+                        {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
+                    ),
+                ],
+            }
+        ),
+        response({"role": "assistant", "content": "Synthetic repair verified."}),
+    ]
+    provider_route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        side_effect=lambda _request: provider_responses.pop(0)
+    )
+    monkeypatch.setattr(settings, "anthropic_model", evaluation.OPENROUTER_MODEL)
+
+    async with connect_in_memory(mcp) as mcp_client:
+        original_tracer = runner.TracingMCPClient
+        scoped = evaluation.ExactScopeTracingMCPClient(
+            mcp_client,
+            validated=True,
+            error_id=7,
+            allowed_paths={evaluation.SOURCE_PATH},
+            workspace_prefix=workspace_prefix,
+            worktree_name="mock-repair",
+            tracer_factory=original_tracer,
+        )
+        agent_result = await _run_one_attempt(
+            anthropic_client=OpenRouterClient(api_key="sk-or-fake"),
+            mcp=cast(MCPToolClient, scoped),
+            job_id=7,
+            worktree_name="mock-repair",
+            messages=build_initial_messages(
+                source_kind="error",
+                source={
+                    "file_path": evaluation.SOURCE_PATH,
+                    "message": "synthetic regression fails",
+                },
+                attempt_number=1,
+                max_attempts=1,
+                heal_job_id=7,
+                worktree="mock-repair",
+                previous_attempts_summary=None,
+            ),
+            tool_schemas=await scoped.list_tool_schemas(),
+            system_prompt=evaluation.build_model_prompt(),
+            max_total_tokens=10_000,
+            model_name=evaluation.OPENROUTER_MODEL,
+        )
+
+        assert agent_result.success is True
+        assert provider_route.call_count == 3
+        assert source.read_text(encoding="utf-8").endswith("return amount - paid\n")
+        assert any(
+            event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events
+        )
+        assert any(event.get("tool") == "run_tests" and event.get("ok") for event in scoped.events)
+
+    independent = await code_tools.run_tests(worktree="mock-repair", test_path=evaluation.TEST_PATH)
+    assert independent["passed"] is True
