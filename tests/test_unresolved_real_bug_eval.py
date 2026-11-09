@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+
 from benchmarks.real_bugs import unresolved_eval as evaluation
 from healer.mcp_client import MCPToolClient
 from healer.prompts import build_initial_messages
