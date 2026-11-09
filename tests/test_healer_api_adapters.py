@@ -10,8 +10,8 @@ import json
 from typing import Any
 
 import httpx
-
 import pytest
+
 from healer.api_adapters import (
     GEMINI_API_BASE,
     GROQ_API_BASE,
