@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from benchmarks.real_bugs import mine as mine_module
 from benchmarks.real_bugs import prepare as prepare_module
 from benchmarks.real_bugs import run as run_module
@@ -332,6 +331,11 @@ async def test_case_token_meter_sums_usage_across_provider_responses() -> None:
     with pytest.raises(run_module.BenchmarkStop, match="per-case token cap"):
         await old_budget_meter.create(model="mock-free")
     assert old_budget_meter._meter.input_tokens + old_budget_meter._meter.output_tokens == 8_408
+    assert old_budget_meter._meter.request_usage == [
+        {"request": 1, "input_tokens": 3_000, "output_tokens": 100, "cost_usd": "0"},
+        {"request": 2, "input_tokens": 2_500, "output_tokens": 100, "cost_usd": "0"},
+        {"request": 3, "input_tokens": 2_485, "output_tokens": 223, "cost_usd": "0"},
+    ]
 
     proposed_budget_meter = run_module.MeteredClient(
         SequenceClient(),

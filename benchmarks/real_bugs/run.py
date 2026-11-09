@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -140,6 +140,7 @@ class UsageMeter:
     output_tokens: int = 0
     reported_cost_usd: Decimal = Decimal("0")
     cost_report_complete: bool = True
+    request_usage: list[dict[str, int | str | None]] = field(default_factory=list)
 
 
 class MeteredClient:
@@ -175,9 +176,19 @@ class MeteredClient:
             self._meter.cost_report_complete = False
             raise
         usage = response.usage
-        self._meter.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
-        self._meter.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+        response_input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        response_output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        self._meter.input_tokens += response_input_tokens
+        self._meter.output_tokens += response_output_tokens
         cost = getattr(usage, "cost_usd", None)
+        self._meter.request_usage.append(
+            {
+                "request": self._meter.request_count,
+                "input_tokens": response_input_tokens,
+                "output_tokens": response_output_tokens,
+                "cost_usd": None if cost is None else str(cost),
+            }
+        )
         if cost is None:
             self._meter.cost_report_complete = False
         else:
@@ -884,6 +895,7 @@ async def _run_arm_inner(
         "output_tokens": meter.output_tokens,
         "provider_request_count": meter.request_count,
         "total_tokens": meter.input_tokens + meter.output_tokens,
+        "request_usage": meter.request_usage,
         "cost_usd": str(meter.reported_cost_usd) if meter.cost_report_complete else None,
         "cost_basis": "provider reported"
         if meter.cost_report_complete

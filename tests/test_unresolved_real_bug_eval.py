@@ -109,6 +109,8 @@ def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
     prompt = evaluation.build_model_prompt()
     assert "invoice update leaves balance stale" not in prompt.lower()
     assert "expected fix" not in prompt.lower()
+    assert "do not reread ranges already returned" in prompt.lower()
+    assert str(evaluation.MAX_READ_FILE_LINES_PER_CALL) in prompt
     assert "root_cause" not in json.dumps(config).lower()
     assert "human_fix" not in json.dumps(config).lower()
     assert "root_cause" not in json.dumps(model_freeze).lower()
@@ -194,6 +196,90 @@ async def test_exact_scope_normalizes_error_paths_and_deduplicates_snapshot_pref
     with pytest.raises(evaluation.EvaluationSafetyError, match="repeated the workspace prefix"):
         await tracer.call_tool("read_file", {"path": f"{prefix}/{prefix}/{evaluation.SOURCE_PATH}"})
     assert len(client.calls) == before
+
+
+@pytest.mark.asyncio
+async def test_exact_scope_pages_source_reads_without_repeating_returned_lines() -> None:
+    from healer.mcp_client import MCPToolError
+
+    frozen_payload = json.loads(
+        (Path(__file__).parent / "fixtures" / "vimj_fees_read_file_payload.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    frozen_lines = frozen_payload["content"].splitlines()
+    for page_start in range(1, len(frozen_lines) + 1, evaluation.MAX_READ_FILE_LINES_PER_CALL):
+        page_end = min(len(frozen_lines), page_start + evaluation.MAX_READ_FILE_LINES_PER_CALL - 1)
+        page = {
+            "path": evaluation.SOURCE_PATH,
+            "start_line": page_start,
+            "end_line": page_end,
+            "total_lines": len(frozen_lines),
+            "content": "\n".join(frozen_lines[page_start - 1 : page_end]),
+        }
+        assert len(json.dumps(page).encode("utf-8")) <= 8_192
+
+    source_lines = [f"line {line_number}" for line_number in range(1, 274)]
+    prefix = "connected_apps/mock/s"
+
+    class PagingMCP:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def list_tool_schemas(self) -> list[dict[str, Any]]:
+            return []
+
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+            self.calls.append((name, dict(arguments)))
+            start, end = arguments["start_line"], arguments["end_line"]
+            return {
+                "path": arguments["path"],
+                "start_line": start,
+                "end_line": min(end, len(source_lines)),
+                "total_lines": len(source_lines),
+                "content": "\n".join(source_lines[start - 1 : end]),
+            }
+
+    client = PagingMCP()
+    tracer = evaluation.ExactScopeTracingMCPClient(
+        client,
+        validated=True,
+        error_id=3,
+        allowed_paths={evaluation.SOURCE_PATH},
+        workspace_prefix=prefix,
+        worktree_name="mock-run",
+    )
+    results = [
+        await tracer.call_tool("read_file", {"path": evaluation.SOURCE_PATH}),
+        await tracer.call_tool(
+            "read_file", {"path": evaluation.SOURCE_PATH, "start_line": 1, "end_line": 200}
+        ),
+        await tracer.call_tool(
+            "read_file", {"path": evaluation.SOURCE_PATH, "start_line": 200, "end_line": 273}
+        ),
+    ]
+
+    assert [(result["start_line"], result["end_line"]) for result in results] == [
+        (1, 120),
+        (121, 200),
+        (201, 273),
+    ]
+    reconstructed = [line for result in results for line in result["content"].splitlines()]
+    assert reconstructed == source_lines
+    assert len(reconstructed) == len(set(reconstructed))
+    assert [call[1]["start_line"] for call in client.calls] == [1, 121, 201]
+    assert tracer.events[1]["request"]["requested_start_line"] == 1
+    assert tracer.events[1]["request"]["start_line"] == 121
+    assert tracer.events[0]["result_summary"]["content_bytes"] > 0
+    assert "content" not in tracer.events[0]["result_summary"]
+    assert len(tracer.events[0]["result_summary"]["content_sha256"]) == 64
+    before = len(client.calls)
+    with pytest.raises(MCPToolError, match="already been returned"):
+        await tracer.call_tool(
+            "read_file", {"path": evaluation.SOURCE_PATH, "start_line": 1, "end_line": 120}
+        )
+    assert len(client.calls) == before
+    assert tracer.events[-1]["ok"] is False
 
 
 def test_exact_source_path_is_accepted(tmp_path: Path) -> None:
@@ -546,7 +632,7 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
 
 
 @pytest.mark.asyncio
-async def test_offline_agent_executes_real_patch_tool_and_independent_regression(
+async def test_scripted_offline_decisions_exercise_patch_tool_and_regression_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, respx_mock: Any
 ) -> None:
     import shutil
@@ -663,15 +749,13 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
             },
         )
 
-    diff = (
-        "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
-        "@@ -1,3 +1,3 @@\n def balance(amount, paid):\n"
-        "-    return amount + paid\n+    return amount - paid\n"
-        " # offline MCP payload padding 0: diagnostic source context\n"
-    )
-    provider_responses = [
-        response(
-            {
+    # This decision stub makes each tool choice from prior tool output. It is
+    # an offline loop contract test, not evidence of autonomous benchmark success.
+    def decide(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        tool_results = [message for message in payload["messages"] if message["role"] == "tool"]
+        if not tool_results:
+            choice = {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [
@@ -679,25 +763,41 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
                         "read-1",
                         "read_file",
                         {"path": "app/routers/fees.py"},
-                    ),
-                    tool_call(
-                        "test-before",
-                        "run_tests",
-                        {
-                            "worktree": "mock-repair",
-                            "test_path": "python -m pytest -q tests/test_requested_changes.py",
-                        },
-                    ),
+                    )
+                ],
+            }
+        elif len(tool_results) == 1:
+            read_result = json.loads(tool_results[-1]["content"])
+            assert "def balance(amount, paid)" in read_result["content"]
+            choice = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
                     tool_call(
                         "test-baseline",
                         "run_tests",
                         {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
-                    ),
+                    )
                 ],
             }
-        ),
-        response(
-            {
+        elif len(tool_results) == 2:
+            read_result = json.loads(tool_results[0]["content"])
+            baseline = json.loads(tool_results[1]["content"])
+            assert baseline["passed"] is False
+            observed = read_result["content"].splitlines()
+            function_line = next(
+                i for i, line in enumerate(observed) if line.startswith("def balance")
+            )
+            old_return = observed[function_line + 1]
+            assert "+ paid" in old_return
+            updated = old_return.replace("+ paid", "- paid", 1)
+            context = observed[function_line : function_line + 3]
+            diff = (
+                "--- a/app/routers/fees.py\n+++ b/app/routers/fees.py\n"
+                "@@ -1,3 +1,3 @@\n"
+                f" {context[0]}\n-{context[1]}\n+{updated}\n {context[2]}\n"
+            )
+            choice = {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [
@@ -705,19 +805,32 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
                         "patch-1",
                         "propose_patch",
                         {"worktree": "mock-repair", "unified_diff": diff},
-                    ),
+                    )
+                ],
+            }
+        elif len(tool_results) == 3:
+            patch_result = json.loads(tool_results[-1]["content"])
+            assert patch_result["applied"] is True
+            choice = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
                     tool_call(
                         "test-after",
                         "run_tests",
                         {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
-                    ),
+                    )
                 ],
             }
-        ),
-        response({"role": "assistant", "content": "Synthetic repair verified."}),
-    ]
+        elif len(tool_results) == 4:
+            assert json.loads(tool_results[-1]["content"])["passed"] is True
+            choice = {"role": "assistant", "content": "Offline workflow verified."}
+        else:
+            raise AssertionError("unexpected repeated tool history in offline loop")
+        return response(choice)
+
     provider_route = respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
-        side_effect=lambda _request: provider_responses.pop(0)
+        side_effect=decide
     )
     monkeypatch.setattr(settings, "anthropic_model", evaluation.OPENROUTER_MODEL)
 
@@ -756,27 +869,34 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
         )
 
         assert agent_result.success is True
-        assert provider_route.call_count == 3
+        assert provider_route.call_count == 5
         assert source.read_text(encoding="utf-8").splitlines()[1] == "    return amount - paid"
         second_request = json.loads(provider_route.calls[1].request.content or b"{}")
         read_result = next(
             message for message in second_request["messages"] if message["role"] == "tool"
         )
         assert len(read_result["content"].encode("utf-8")) <= 8_192
-        assert "omitted source lines" in read_result["content"]
         assert "def balance(amount, paid)" in read_result["content"]
+        assert len([event for event in scoped.events if event.get("tool") == "read_file"]) == 1
         assert any(
             event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events
+        )
+        assert any(
+            event.get("tool") == "run_tests"
+            and event.get("result_summary", {}).get("passed") is False
+            for event in scoped.events
+        )
+        assert any(
+            event.get("tool") == "run_tests"
+            and event.get("result_summary", {}).get("passed") is True
+            for event in scoped.events
         )
         rejected_tests = [
             event
             for event in scoped.events
             if event.get("tool") == "run_tests" and event.get("ok") is False
         ]
-        assert len(rejected_tests) == 1
-        assert rejected_tests[0]["request"]["test_path"] == (
-            "python -m pytest -q tests/test_requested_changes.py"
-        )
+        assert rejected_tests == []
         assert any(event.get("tool") == "run_tests" and event.get("ok") for event in scoped.events)
 
     independent = await code_tools.run_tests(worktree="mock-repair", test_path=evaluation.TEST_PATH)
