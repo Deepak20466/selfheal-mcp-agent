@@ -437,6 +437,11 @@ def _git_init_snapshot(source: Path, destination: Path) -> None:
     git("commit", "--quiet", "-m", "Benchmark parent snapshot", cwd=destination, timeout=120)
 
 
+def _benchmark_attempt_id(case_id_value: str, arm: str) -> str:
+    """Stable, compact identifier for a frozen case and validation arm."""
+    return hashlib.sha256(f"{case_id_value}:{arm}".encode()).hexdigest()[:16]
+
+
 def _allocate_attempt_workspace(
     *, case_id_value: str, arm: str, repository_root: Path, worktrees_root: Path
 ) -> AttemptWorkspace:
@@ -469,7 +474,11 @@ def _allocate_attempt_workspace(
 
         root_marker = root / ".selfheal-benchmark-owner"
         root_marker.write_text(owner_token, encoding="utf-8")
-        worktree_name = f"realbug-{case_id_value}-{arm}-{owner_token}"
+        # Keep both the filesystem path and corresponding Git ref short. The
+        # case/arm digest is stable for an evaluation; the full owner token
+        # keeps each worktree path fresh after an interrupted attempt.
+        attempt_id = _benchmark_attempt_id(case_id_value, arm)
+        worktree_name = f"rb-{attempt_id}-{owner_token}"
         worktree_path = resolved_worktrees_root / worktree_name
         worktree_marker = resolved_worktrees_root / f".{worktree_name}.owner"
         try:
@@ -675,7 +684,7 @@ async def _run_arm_inner(
         raise RuntimeError("prepared target test unexpectedly passed before repair")
     await create_worktree_for_connected_app(
         worktree_name,
-        f"benchmark/{case_id_value}-{arm}",
+        f"benchmark/{_benchmark_attempt_id(case_id_value, arm)}",
         source_dir=connected_path,
     )
 

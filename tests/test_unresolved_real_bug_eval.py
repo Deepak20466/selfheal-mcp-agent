@@ -7,16 +7,91 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-
+from benchmarks.real_bugs import run as benchmark_runner
 from benchmarks.real_bugs import unresolved_eval as evaluation
+from benchmarks.real_bugs.run import _allocate_attempt_workspace, _benchmark_attempt_id
 from healer.mcp_client import MCPToolClient
 from healer.prompts import build_initial_messages
 from healer.runtime_agent import _run_one_attempt
+from healer.worktree import create_worktree_for_connected_app, remove_plain_clone
 from mcp_server.sandbox import SandboxViolation
 
 
 def _diff(path: str = "app/routers/fees.py") -> str:
     return f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-old_value = 1\n+new_value = 2\n"
+
+
+@pytest.mark.asyncio
+async def test_attempt_worktree_and_branch_fit_deep_windows_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise clone and checkout beneath a path that stresses MAX_PATH."""
+    project = tmp_path.joinpath(*(f"nested-project-{index:02d}" for index in range(3)))
+    project.mkdir(parents=True)
+    worktrees_root = project / "worktrees"
+    import mcp_server.sandbox as sandbox
+
+    monkeypatch.setattr(sandbox, "WORKTREES_ROOT", worktrees_root)
+    workspace = _allocate_attempt_workspace(
+        case_id_value=evaluation.CASE_ID,
+        arm=evaluation.ARM,
+        repository_root=project,
+        worktrees_root=worktrees_root,
+    )
+    source = tmp_path / "source-repository"
+    source.mkdir()
+
+    async def git(*args: str, cwd: Path) -> None:
+        import asyncio
+
+        process = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        assert process.returncode == 0, stderr.decode(errors="replace")
+
+    await git("init", "-b", "main", cwd=source)
+    await git("config", "user.email", "test@example.com", cwd=source)
+    await git("config", "user.name", "Test", cwd=source)
+    (source / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    await git("add", "-A", cwd=source)
+    await git("commit", "-m", "initial", cwd=source)
+
+    branch = f"benchmark/{_benchmark_attempt_id(evaluation.CASE_ID, evaluation.ARM)}"
+    try:
+        clone = await create_worktree_for_connected_app(
+            workspace.worktree_name, branch, source_dir=source
+        )
+        assert clone.is_dir()
+        assert (clone / "app.py").is_file()
+        assert (
+            clone / ".git" / "refs" / "heads" / "benchmark" / branch.rsplit("/", 1)[1]
+        ).is_file()
+        assert (
+            len(
+                str(
+                    clone
+                    / ".git"
+                    / "refs"
+                    / "heads"
+                    / "benchmark"
+                    / f"{branch.rsplit('/', 1)[1]}.lock"
+                )
+            )
+            < 260
+        )
+        assert len(str(clone)) < 240
+        assert len(workspace.worktree_name) <= 52
+        assert len(branch) <= 27
+    finally:
+        await remove_plain_clone(workspace.worktree_name)
+        benchmark_runner._cleanup_owned_path(
+            workspace.root, workspace.root_marker, workspace.owner_token
+        )
 
 
 def test_frozen_config_and_model_prompt_have_no_evaluator_finding() -> None:
