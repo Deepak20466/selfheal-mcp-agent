@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from benchmarks.real_bugs import mine as mine_module
 from benchmarks.real_bugs import prepare as prepare_module
 from benchmarks.real_bugs import run as run_module

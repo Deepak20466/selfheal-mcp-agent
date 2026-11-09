@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-
 import pytest
 
 # isort: split
