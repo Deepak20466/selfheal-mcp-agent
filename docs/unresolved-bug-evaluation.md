@@ -48,7 +48,7 @@ calls. The canonical test hash matches the operator's frozen Windows-byte hash
 after line-ending normalization. The operator's model-visible freeze is saved
 as `benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-model-visible-freeze.json`.
 Evidence aligned with it is saved in
-`benchmarks/real_bugs/results/unresolved/vimj-official-offline-preflight-2026-11-09.jsonl`.
+`benchmarks/real_bugs/results/unresolved/vimj-verified-offline-preflight-v2.jsonl`.
 Earlier draft preflight records remain preserved but are not the authoritative
 preflight evidence.
 The unresolved-context guard tests exercise the actual Selfheal agent loop

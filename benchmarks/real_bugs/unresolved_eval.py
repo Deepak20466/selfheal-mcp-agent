@@ -93,6 +93,8 @@ def validate_model_config(document: Any) -> None:
     if (
         frozen.get("evaluation_id") != EVALUATION_ID
         or frozen.get("baseline_commit") != EXPECTED_BASELINE
+        or frozen.get("repair_attempts") != 0
+        or frozen.get("provider_calls") != 0
         or inputs.get("root") != "backend"
         or inputs.get("regression_test_path") != "tests/test_requested_changes.py"
         or inputs.get("regression_test_sha256") != EXPECTED_FROZEN_TEST_RAW_SHA256
@@ -585,7 +587,8 @@ def main() -> int:
             "freeze_sha256": EXPECTED_FREEZE_SHA256,
             "regression_test_command": f"python -m pytest -q {TEST_PATH}",
             "permitted_source_paths": [SOURCE_PATH],
-            "regression_test_sha256": EXPECTED_TEST_SHA256,
+            "regression_test_sha256": EXPECTED_FROZEN_TEST_RAW_SHA256,
+            "regression_test_canonical_sha256": EXPECTED_TEST_SHA256,
             "started_at_utc": datetime.now(UTC).isoformat(),
             "provider_calls_authorized": bool(args.live),
             "status": "baseline_verification",
