@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
+
 import pytest
 
 # isort: split
@@ -567,7 +569,9 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
         ["git", "add", "-A"],
         ["git", "commit", "--quiet", "-m", "synthetic failing baseline"],
     ):
-        subprocess.run(args, cwd=worktree, check=True, capture_output=True, text=True)
+        await asyncio.to_thread(
+            subprocess.run, args, cwd=worktree, check=True, capture_output=True, text=True
+        )
 
     repo_root = tmp_path / "mcp-root"
     workspace_prefix = "connected_apps/mock/s"
