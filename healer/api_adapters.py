@@ -272,19 +272,69 @@ def _groq_compact_read_file(content: str, max_bytes: int) -> str:
     return content
 
 
+def _groq_compact_error(content: str, max_bytes: int) -> str | None:
+    """Compact oversized error records without dropping repair diagnostics.
+
+    The exception identity, message, source location, and traceback boundaries
+    are retained. The complete record remains in local tool history; omitted
+    traceback lines can be fetched again with ``get_error``.
+    """
+    try:
+        value = json.loads(content)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("traceback"), str):
+        return None
+
+    traceback_lines = value["traceback"].splitlines()
+    for keep_per_side in (64, 32, 16, 8, 4, 2, 1, 0):
+        if len(traceback_lines) <= keep_per_side * 2:
+            continue
+        selected = traceback_lines[:keep_per_side]
+        selected.append(
+            "[Selfheal omitted traceback lines; the complete traceback remains in local "
+            "tool history and can be fetched again with get_error]"
+        )
+        if keep_per_side:
+            selected.extend(traceback_lines[-keep_per_side:])
+        compacted_value = dict(value)
+        compacted_value["traceback"] = "\n".join(selected)
+        compacted = json.dumps(compacted_value, separators=(",", ":"), ensure_ascii=False)
+        if len(compacted.encode("utf-8")) <= max_bytes:
+            return compacted
+
+    # Error records may contain a single very long traceback line. Keep the
+    # diagnostic fields intact and compact only that line by UTF-8 bytes.
+    compacted_value = dict(value)
+    compacted_value["traceback"] = (
+        "[Selfheal compacted traceback; full traceback remains in local tool history and "
+        "can be fetched again with get_error]"
+    )
+    compacted = json.dumps(compacted_value, separators=(",", ":"), ensure_ascii=False)
+    return compacted if len(compacted.encode("utf-8")) <= max_bytes else None
+
+
 OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
 
 
 def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Bound rediscoverable MCP results on an outgoing copy of chat history."""
     compacted = copy.deepcopy(messages)
-    call_names = {
-        call["id"]: call["function"]["name"]
-        for message in compacted
-        if message.get("role") == "assistant"
-        for call in message.get("tool_calls", [])
-    }
+    # MCP tool results belong to the immediately preceding assistant tool-call
+    # turn. Do not build one global ID map: providers may reuse call IDs across
+    # turns, which otherwise associates an older result with a newer tool name.
+    call_names: dict[str, str] = {}
     for message in compacted:
+        if message.get("role") == "assistant":
+            call_names = {
+                call["id"]: call["function"]["name"]
+                for call in message.get("tool_calls", [])
+                if isinstance(call, dict)
+                and isinstance(call.get("id"), str)
+                and isinstance(call.get("function"), dict)
+                and isinstance(call["function"].get("name"), str)
+            }
+            continue
         if message.get("role") != "tool":
             continue
         content = message.get("content")
@@ -293,11 +343,14 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
             or len(content.encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
         ):
             continue
-        tool_name = call_names.get(message.get("tool_call_id"))
+        call_id = message.get("tool_call_id")
+        tool_name = call_names.get(call_id) if isinstance(call_id, str) else None
         if tool_name == "list_files":
             content = _groq_compact_json(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
         elif tool_name == "read_file":
             content = _groq_compact_read_file(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+        elif tool_name == "get_error":
+            content = _groq_compact_error(content, OPENROUTER_TOOL_RESULT_MAX_BYTES) or content
         elif tool_name == "run_tests":
             content = _groq_compact_test_output(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
             if content is None:
@@ -307,8 +360,13 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
         else:
             raise RuntimeError("OpenRouter tool output exceeds the safe context limit")
         if len(content.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES:
-            raise RuntimeError("OpenRouter tool output remains over the safe context limit")
+            raise RuntimeError(
+                "OpenRouter tool output remains over the safe context limit "
+                f"(tool={tool_name or 'unknown'}, bytes={len(content.encode('utf-8'))})"
+            )
         message["content"] = content
+        if isinstance(call_id, str):
+            call_names.pop(call_id, None)
     return compacted
 
 

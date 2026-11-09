@@ -10,8 +10,8 @@ import json
 from typing import Any
 
 import httpx
-import pytest
 
+import pytest
 from healer.api_adapters import (
     GEMINI_API_BASE,
     GROQ_API_BASE,
@@ -1703,6 +1703,77 @@ async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_
     tool_message = next(message for message in payload["messages"] if message["role"] == "tool")
     assert len(tool_message["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
     assert "omitted source lines" in tool_message["content"]
+
+
+def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -> None:
+    from healer.api_adapters import (
+        OPENROUTER_TOOL_RESULT_MAX_BYTES,
+        _compact_openrouter_tool_messages,
+    )
+
+    # Some OpenAI-compatible endpoints can reuse a call ID in a later turn.
+    # The older result must still be compacted according to the tool that
+    # produced it, rather than whichever tool most recently reused that ID.
+    error_result = {
+        "id": 197,
+        "exception_type": "AssertionError",
+        "message": "expected balance to be reconciled",
+        "file_path": "tests/test_requested_changes.py",
+        "line_number": 317,
+        "traceback": "\n".join(f"frame {index}: relevant test evidence" for index in range(600)),
+    }
+    read_result = {
+        "path": "app/routers/fees.py",
+        "start_line": 1,
+        "end_line": 400,
+        "total_lines": 400,
+        "content": "\n".join(f"source line {index}: repair-critical code" for index in range(400)),
+    }
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "reused-call-id",
+                    "function": {"name": "get_error", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "reused-call-id",
+            "content": json.dumps(error_result),
+        },
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "reused-call-id",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "reused-call-id",
+            "content": json.dumps(read_result),
+        },
+    ]
+
+    compacted = _compact_openrouter_tool_messages(messages)
+    tool_results = [message for message in compacted if message["role"] == "tool"]
+
+    assert all(
+        len(message["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
+        for message in tool_results
+    )
+    compacted_error = json.loads(tool_results[0]["content"])
+    assert compacted_error["exception_type"] == "AssertionError"
+    assert compacted_error["message"] == error_result["message"]
+    assert compacted_error["file_path"] == error_result["file_path"]
+    assert "omitted traceback lines" in compacted_error["traceback"]
+    compacted_read = json.loads(tool_results[1]["content"])
+    assert "omitted source lines" in compacted_read["content"]
 
 
 @pytest.mark.parametrize(
