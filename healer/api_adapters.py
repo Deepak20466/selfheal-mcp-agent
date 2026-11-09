@@ -1094,7 +1094,12 @@ class _OpenRouterMessages(_GroqMessages):
             # counts failed attempts too.
             response = await client.post(
                 f"{OPENROUTER_API_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {self._api_key}"},
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    # OpenRouter exposes routing metadata (including its
+                    # non-BYOK signal) only when explicitly requested.
+                    "X-OpenRouter-Metadata": "enabled",
+                },
                 json=payload,
             )
         _raise_for_status_classified(response, backend="openrouter_api")
@@ -1117,9 +1122,19 @@ class _OpenRouterMessages(_GroqMessages):
             )
 
         usage = body.get("usage", {})
+        routing_metadata = body.get("openrouter_metadata", {})
+        usage_byok = usage.get("is_byok") if isinstance(usage, dict) else None
+        routing_byok = (
+            routing_metadata.get("is_byok") if isinstance(routing_metadata, dict) else None
+        )
+        non_byok_verified = (
+            (usage_byok is False or routing_byok is False)
+            and usage_byok is not True
+            and routing_byok is not True
+        )
         if (
             not isinstance(usage, dict)
-            or usage.get("is_byok") is not False
+            or not non_byok_verified
             or _usage_cost(usage) != Decimal("0")
         ):
             raise RuntimeError("OpenRouter did not verify a zero-cost, non-BYOK completion")

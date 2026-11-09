@@ -58,7 +58,7 @@ OPENROUTER_REQUEST_CAP = 10
 CASE_COST_CAP_USD = Decimal("0")
 MODEL_VISIBLE_TRACEBACK_CHARS = 4_000
 OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
-MAX_READ_FILE_LINES_PER_CALL = 120
+MAX_READ_FILE_LINES_PER_CALL = 180
 OPENROUTER_MODEL = "cohere/north-mini-code:free"
 
 
@@ -176,14 +176,16 @@ def build_model_prompt() -> str:
 
     return f"""You are repairing one reproducible Python bug in a disposable repository.
 
-The existing regression test is present and its baseline failure is supplied.
+The existing regression test is present, and the harness already ran it on the
+unmodified baseline and supplied its failure details. Do not spend another
+request rerunning it before a patch.
 Read {SOURCE_PATH} using that exact repository-relative `read_file.path`; never
 put the worktree name, `connected_apps` path, or snapshot prefix in a file path.
 The worktree name belongs only in tool `worktree` arguments. `read_file` accepts
-1-indexed `start_line` and `end_line`; use narrow ranges. First run the supplied
-regression test and confirm it fails. Call `run_tests` with `test_path` set
-exactly to `{TEST_PATH}` for that test; omit `test_path` for the approved full
-suite. Do not pass a shell command or another test selector as `test_path`.
+1-indexed `start_line` and `end_line`; use narrow ranges. After proposing a
+patch, call `run_tests` with `test_path` set exactly to `{TEST_PATH}` for the
+regression test; omit `test_path` for the approved full suite. Do not pass a
+shell command or another test selector as `test_path`.
 Do not read test files; the failing regression result is already supplied.
 Read only the permitted source file `{SOURCE_PATH}`.
 If a test request is rejected, use the returned tool error to correct the
@@ -869,6 +871,51 @@ def _safe_patch(patch: str | None) -> dict[str, str] | None:
     }
 
 
+def _patch_proposal_evidence(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Separate model proposals, rejected diffs, and patches applied by MCP."""
+    proposals: list[dict[str, Any]] = []
+    for event in events:
+        if event.get("tool") != "propose_patch":
+            continue
+        request = event.get("request")
+        request = request if isinstance(request, dict) else {}
+        summary = event.get("result_summary")
+        summary = summary if isinstance(summary, dict) else {}
+        digest = request.get("diff_sha256") or request.get("unified_diff_sha256")
+        paths = request.get("paths")
+        if not isinstance(paths, list):
+            paths = [
+                item.get("path")
+                for item in request.get("header_paths", [])
+                if isinstance(item, dict) and isinstance(item.get("path"), str)
+            ]
+        if not isinstance(paths, list):
+            paths = []
+        if event.get("ok") is False:
+            disposition = "rejected"
+        elif summary.get("applied") is True:
+            disposition = "applied"
+        else:
+            disposition = "accepted_without_application_evidence"
+        proposals.append(
+            {
+                "sha256": digest,
+                "bytes": request.get("diff_bytes", request.get("unified_diff_bytes")),
+                "patch_format": request.get("patch_format"),
+                "paths": (
+                    sorted(set(paths))
+                    if all(isinstance(path, str) for path in paths)
+                    else []
+                ),
+                "disposition": disposition,
+                "applied_files": (
+                    summary.get("files_changed", []) if disposition == "applied" else []
+                ),
+            }
+        )
+    return proposals
+
+
 async def _execute(
     staged: Path, python: Path, provider: Any, model: str, free_attested: bool
 ) -> dict[str, Any]:
@@ -941,6 +988,7 @@ async def _execute(
         return result | {
             "provider_free_attested": free_attested,
             "model_patch": _safe_patch(tracers[-1].last_patch) if tracers else None,
+            "patch_proposals": _patch_proposal_evidence(tracers[-1].events) if tracers else [],
             "baseline_commit": EXPECTED_BASELINE,
             "regression_test_sha256": EXPECTED_FROZEN_TEST_RAW_SHA256,
             "regression_test_canonical_sha256": EXPECTED_TEST_SHA256,

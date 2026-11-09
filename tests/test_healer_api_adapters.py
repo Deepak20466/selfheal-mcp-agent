@@ -1643,6 +1643,36 @@ async def test_openrouter_tool_call_response(
     request_json = json.loads(payload)
     assert request_json["provider"] == {"allow_fallbacks": False}
     assert request_json["usage"] == {"include": True}
+    assert route.calls[0].request.headers["X-OpenRouter-Metadata"] == "enabled"
+
+
+async def test_openrouter_accepts_documented_routing_metadata_for_non_byok(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
+    respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": "cohere/north-mini-code:free",
+                "choices": [{"message": {"role": "assistant", "content": "patch proposal"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0},
+                "openrouter_metadata": {"is_byok": False},
+            },
+        )
+    )
+    client = OpenRouterClient(api_key="sk-or-fake")
+    response = await client.messages.create(
+        model=None,
+        max_tokens=100,
+        system=[],
+        tools=[],
+        messages=[{"role": "user", "content": "hi"}],
+    )
+
+    assert response.usage.cost_usd == 0
 
 
 async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_history(
@@ -2063,6 +2093,7 @@ def test_openrouter_records_redacted_diagnostics_before_uncompactable_result_fai
         ("cohere/north-mini-code:free", {"cost": 0.01, "is_byok": False}),
         ("cohere/north-mini-code:free", {"is_byok": False}),
         ("cohere/north-mini-code:free", {"cost": 0, "is_byok": True}),
+        ("cohere/north-mini-code:free", {"cost": 0}),
     ],
 )
 async def test_openrouter_rejects_unverified_or_paid_completions(
@@ -2086,6 +2117,34 @@ async def test_openrouter_rejects_unverified_or_paid_completions(
     )
     client = OpenRouterClient(api_key="sk-or-fake")
     with pytest.raises(RuntimeError, match="OpenRouter"):
+        await client.messages.create(
+            model=None,
+            max_tokens=32,
+            system=[],
+            tools=[],
+            messages=[{"role": "user", "content": "hi"}],
+        )
+
+
+async def test_openrouter_rejects_conflicting_byok_metadata(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "cohere/north-mini-code:free")
+    respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "model": "cohere/north-mini-code:free",
+                "choices": [{"message": {"role": "assistant", "content": "answer"}}],
+                "usage": {"cost": 0, "is_byok": True},
+                "openrouter_metadata": {"is_byok": False},
+            },
+        )
+    )
+    client = OpenRouterClient(api_key="sk-or-fake")
+    with pytest.raises(RuntimeError, match="zero-cost, non-BYOK"):
         await client.messages.create(
             model=None,
             max_tokens=32,
