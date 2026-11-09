@@ -105,10 +105,23 @@ the scope wrapper prepended that prefix again. Subsequent model responses
 repeated and compounded the internal path from prior tool errors. This loop
 spent 35,140 input tokens and 661 output tokens without reaching repair.
 
-The next run uses the separately pinned context policy in
-`vimj-cohere-north-mini-context-v3.json`, evaluation ID
-`vimj-cohere-north-mini-context-v3-2026-11-09`, and the unchanged budget-v2
-config. The budget remains 32,768 aggregate tokens, at most 10 provider
+The v3 live attempt is preserved in
+`results/unresolved/vimj-v3-20261109-110601-7861741.jsonl`: one HTTP 200,
+2,374 input tokens, 416 output tokens, no patch, and a rejected `run_tests`
+request. Its saved MCP trace contains only the initial `get_error`; the scope
+guard raised before the tracer recorded the rejected arguments. The exact
+submitted `test_path` therefore cannot be recovered from this evidence. The
+guard proves it was not `None` or the complete frozen selector
+`tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync`.
+
+The next run uses a separately pinned context policy in
+`vimj-cohere-north-mini-context-v4.json`, evaluation ID
+`vimj-cohere-north-mini-context-v4-2026-11-09`, and the unchanged budget-v2
+config. The prompt gives the exact approved `run_tests.test_path`; omitting
+`test_path` selects the approved full-suite command. A rejected test request
+now returns an MCP tool error for the model to correct, and records the
+sanitized attempted `test_path` in the trace without executing it. The budget
+remains 32,768 aggregate tokens, at most 10 provider
 requests, $0 reported cost, and 600 seconds. The context policy presents the
 source as the exact repo-relative `app/routers/fees.py` path, strips one exact
 snapshot prefix if it is echoed, and returns a short correction for failed

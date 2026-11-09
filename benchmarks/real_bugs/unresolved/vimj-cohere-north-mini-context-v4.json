@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "vimj-cohere-north-mini-context-v4-2026-11-09",
+  "challenge_id": "vimj-offline-candidate-2026-11-09",
+  "budget_config_sha256": "0a87e9d2793e38d6bd0cb7666f40c2acbf3cf35de24ae1a981b52c3af3cd6d74",
+  "model": "cohere/north-mini-code:free",
+  "model_visible_traceback_chars": 4000,
+  "tool_result_max_bytes": 8192,
+  "source_path": "app/routers/fees.py",
+  "regression_sequence": ["fail before patch", "pass after patch", "full suite"],
+  "regression_test_path": "tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync",
+  "full_suite_test_path": null,
+  "rejected_test_request": "controlled_tool_error"
+}

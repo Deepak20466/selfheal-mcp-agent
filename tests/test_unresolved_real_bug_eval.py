@@ -333,6 +333,7 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     from benchmarks.real_bugs import run as runner
     from core.config import settings
     from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
+    from healer.mcp_client import MCPToolError
 
     worktrees = tmp_path / "worktrees"
     worktree = worktrees / "mock-run"
@@ -495,12 +496,19 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         ("read_file", {"path": "../tests/test_unresolved_real_bug_eval.py"}),
         ("list_files", {"glob": "../**/*.py"}),
         ("list_files", {"glob": "app/../**/*.py"}),
-        ("run_tests", {"worktree": "another-worktree", "test_path": evaluation.TEST_PATH}),
-        ("run_tests", {"worktree": "mock-run", "test_path": "tests/test_secret.py"}),
     ):
         with pytest.raises(evaluation.EvaluationSafetyError):
             await tracer.call_tool(tool_name, arguments)
+    with pytest.raises(MCPToolError, match="frozen regression and full-suite"):
+        await tracer.call_tool(
+            "run_tests",
+            {"worktree": "mock-run", "test_path": "python -m pytest -q tests/test_secret.py"},
+        )
     assert len(fake_mcp.calls) == before_rejected_calls
+    rejected_event = tracer.events[-1]
+    assert rejected_event["tool"] == "run_tests"
+    assert rejected_event["ok"] is False
+    assert rejected_event["request"]["test_path"] == "python -m pytest -q tests/test_secret.py"
     with pytest.raises(evaluation.EvaluationSafetyError, match="exact source allowlist"):
         await tracer.call_tool(
             "propose_patch",
@@ -650,6 +658,14 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
                     tool_call(
                         "test-before",
                         "run_tests",
+                        {
+                            "worktree": "mock-repair",
+                            "test_path": "python -m pytest -q tests/test_requested_changes.py",
+                        },
+                    ),
+                    tool_call(
+                        "test-baseline",
+                        "run_tests",
                         {"worktree": "mock-repair", "test_path": evaluation.TEST_PATH},
                     ),
                 ],
@@ -719,6 +735,15 @@ async def test_offline_agent_executes_real_patch_tool_and_independent_regression
         assert source.read_text(encoding="utf-8").endswith("return amount - paid\n")
         assert any(
             event.get("tool") == "propose_patch" and event.get("ok") for event in scoped.events
+        )
+        rejected_tests = [
+            event
+            for event in scoped.events
+            if event.get("tool") == "run_tests" and event.get("ok") is False
+        ]
+        assert len(rejected_tests) == 1
+        assert rejected_tests[0]["request"]["test_path"] == (
+            "python -m pytest -q tests/test_requested_changes.py"
         )
         assert any(event.get("tool") == "run_tests" and event.get("ok") for event in scoped.events)
 
