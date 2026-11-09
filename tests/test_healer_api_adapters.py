@@ -1700,7 +1700,12 @@ async def test_openrouter_rejects_unallowlisted_model_before_request(
     assert not route.called
 
 
-async def test_openrouter_429_raises_cooldown_with_retry_after(respx_mock: Any) -> None:
+async def test_openrouter_429_raises_cooldown_with_retry_after(
+    respx_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.config import settings as core_settings
+
+    monkeypatch.setattr(core_settings, "anthropic_model", "google/gemma-4-26b-a4b-it:free")
     respx_mock.post(f"{OPENROUTER_API_BASE}/chat/completions").mock(
         return_value=httpx.Response(429, headers={"retry-after": "60"}, text="rate limited")
     )
