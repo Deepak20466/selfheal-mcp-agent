@@ -10,8 +10,8 @@ import json
 from typing import Any
 
 import httpx
-import pytest
 
+import pytest
 from healer.api_adapters import (
     GEMINI_API_BASE,
     GROQ_API_BASE,
@@ -1706,6 +1706,8 @@ async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_
 
 
 def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -> None:
+    import structlog
+
     from healer.api_adapters import (
         OPENROUTER_TOOL_RESULT_MAX_BYTES,
         _compact_openrouter_tool_messages,
@@ -1760,8 +1762,15 @@ def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -
         },
     ]
 
-    compacted = _compact_openrouter_tool_messages(messages)
+    with structlog.testing.capture_logs() as logs:
+        compacted = _compact_openrouter_tool_messages(messages)
     tool_results = [message for message in compacted if message["role"] == "tool"]
+    diagnostics = [log for log in logs if log.get("event") == "provider.tool_result_diagnostic"]
+    assert [log["call_id"] for log in diagnostics] == ["reused-call-id", "reused-call-id"]
+    assert [log["call_key"] for log in diagnostics] == ["turn-0:call-0", "turn-1:call-0"]
+    assert [log["tool"] for log in diagnostics] == ["get_error", "read_file"]
+    assert all(log["compaction_outcome"] == "compacted" for log in diagnostics)
+    assert all(log["failure_category"] is None for log in diagnostics)
 
     assert all(
         len(message["content"].encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
@@ -1774,6 +1783,53 @@ def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -
     assert "omitted traceback lines" in compacted_error["traceback"]
     compacted_read = json.loads(tool_results[1]["content"])
     assert "omitted source lines" in compacted_read["content"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "result"),
+    [
+        (
+            "get_error",
+            {"message": "private@example.invalid " + "x" * 9_000, "traceback": "trace"},
+        ),
+        ("read_file", {"path": "a" * 9_000, "content": "source"}),
+    ],
+)
+def test_openrouter_records_redacted_diagnostics_before_uncompactable_result_fails(
+    tool_name: str, result: dict[str, Any]
+) -> None:
+    import structlog
+
+    from healer.api_adapters import _compact_openrouter_tool_messages
+
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call-diagnostic-1", "function": {"name": tool_name, "arguments": "{}"}}
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-diagnostic-1",
+            "content": json.dumps(result),
+        },
+    ]
+    with (
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(RuntimeError, match="OpenRouter tool output exceeds the safe context limit"),
+    ):
+        _compact_openrouter_tool_messages(messages)
+
+    diagnostic = next(log for log in logs if log.get("event") == "provider.tool_result_diagnostic")
+    assert diagnostic["tool"] == tool_name
+    assert diagnostic["call_id"] == "call-diagnostic-1"
+    assert diagnostic["call_key"] == "turn-0:call-0"
+    assert diagnostic["payload_bytes"] > 8_192
+    assert diagnostic["compaction_outcome"] == "failed"
+    assert diagnostic["failure_category"] == "context_limit_after_compaction"
+    assert len(diagnostic["payload_preview"].encode("utf-8")) <= 768
+    assert "private@example.invalid" not in diagnostic["payload_preview"]
 
 
 @pytest.mark.parametrize(

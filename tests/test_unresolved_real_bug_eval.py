@@ -329,6 +329,8 @@ def test_mock_execution_environment_contains_no_provider_or_database_secrets(
 async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, respx_mock: Any
 ) -> None:
+    import structlog
+
     import mcp_server.sandbox as sandbox
     from benchmarks.real_bugs import run as runner
     from core.config import settings
@@ -456,28 +458,41 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         "propose_patch",
     ]
     fake_provider = OpenRouterClient(api_key="sk-or-fake")
-    result = await _run_one_attempt(
-        anthropic_client=fake_provider,
-        mcp=cast(MCPToolClient, tracer),
-        job_id=7,
-        worktree_name="mock-run",
-        messages=build_initial_messages(
-            source_kind="error",
-            source={"message": "frozen regression test fails"},
-            attempt_number=1,
-            max_attempts=1,
-            heal_job_id=7,
-            worktree="mock-run",
-            previous_attempts_summary=None,
-        ),
-        tool_schemas=schemas,
-        system_prompt=evaluation.build_model_prompt(),
-        max_total_tokens=100,
-        model_name="mock-only",
-    )
+    with structlog.testing.capture_logs() as diagnostic_logs:
+        result = await _run_one_attempt(
+            anthropic_client=fake_provider,
+            mcp=cast(MCPToolClient, tracer),
+            job_id=7,
+            worktree_name="mock-run",
+            messages=build_initial_messages(
+                source_kind="error",
+                source={"message": "frozen regression test fails"},
+                attempt_number=1,
+                max_attempts=1,
+                heal_job_id=7,
+                worktree="mock-run",
+                previous_attempts_summary=None,
+            ),
+            tool_schemas=schemas,
+            system_prompt=evaluation.build_model_prompt(),
+            max_total_tokens=100,
+            model_name="mock-only",
+        )
     assert result.success is True
     assert isinstance(tracer._tracer, original_tracer_factory)
     assert provider_routes.call_count == 3
+    tool_diagnostics = [
+        entry
+        for entry in diagnostic_logs
+        if entry.get("event") == "provider.tool_result_diagnostic"
+    ]
+    assert {entry["tool"] for entry in tool_diagnostics} == {
+        "read_file",
+        "run_tests",
+        "propose_patch",
+    }
+    assert all(entry["failure_category"] is None for entry in tool_diagnostics)
+    assert all(entry["payload_bytes"] > 0 for entry in tool_diagnostics)
     called_tools = [name for name, _ in fake_mcp.calls]
     assert fake_mcp.tests >= 2
     assert called_tools.count("read_file") >= 1

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import os
 import random
@@ -40,7 +41,7 @@ import structlog
 
 from core.config import settings
 from healer.backend_chain import BackendCooldownError
-from sentinel.scrubber import scrub_text
+from sentinel.scrubber import scrub_text, scrub_value
 
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -315,6 +316,33 @@ def _groq_compact_error(content: str, max_bytes: int) -> str | None:
 
 
 OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
+OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES = 768
+
+
+def _openrouter_safe_call_id(value: Any) -> str:
+    """Keep provider call IDs useful for correlation without logging control data."""
+    if not isinstance(value, str) or not value:
+        return "missing"
+    safe = re.sub(r"[^A-Za-z0-9_.:-]", "_", value)
+    if len(safe) > 96:
+        digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:12]
+        return f"{safe[:80]}-{digest}"
+    return safe
+
+
+def _openrouter_diagnostic_preview(content: str) -> str:
+    """Return a small, scrubbed snapshot useful for offline adapter reproduction."""
+    try:
+        value = scrub_value(json.loads(content))
+        rendered = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+    except (TypeError, ValueError):
+        rendered = scrub_text(content)
+    encoded = rendered.encode("utf-8")
+    if len(encoded) <= OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES:
+        return rendered
+    suffix = b"...[truncated]"
+    prefix = encoded[: OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES - len(suffix)]
+    return prefix.decode("utf-8", errors="ignore") + suffix.decode("ascii")
 
 
 def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -323,12 +351,17 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
     # MCP tool results belong to the immediately preceding assistant tool-call
     # turn. Do not build one global ID map: providers may reuse call IDs across
     # turns, which otherwise associates an older result with a newer tool name.
-    call_names: dict[str, str] = {}
-    for message in compacted:
+    call_names: dict[str, tuple[str, str]] = {}
+    turn_index = -1
+    for message_index, message in enumerate(compacted):
         if message.get("role") == "assistant":
+            turn_index += 1
             call_names = {
-                call["id"]: call["function"]["name"]
-                for call in message.get("tool_calls", [])
+                call["id"]: (
+                    call["function"]["name"],
+                    f"turn-{turn_index}:call-{call_index}",
+                )
+                for call_index, call in enumerate(message.get("tool_calls", []))
                 if isinstance(call, dict)
                 and isinstance(call.get("id"), str)
                 and isinstance(call.get("function"), dict)
@@ -338,31 +371,75 @@ def _compact_openrouter_tool_messages(messages: list[dict[str, Any]]) -> list[di
         if message.get("role") != "tool":
             continue
         content = message.get("content")
-        if (
-            not isinstance(content, str)
-            or len(content.encode("utf-8")) <= OPENROUTER_TOOL_RESULT_MAX_BYTES
-        ):
+        if not isinstance(content, str):
             continue
+        original_content = content
+        original_bytes = len(original_content.encode("utf-8"))
         call_id = message.get("tool_call_id")
-        tool_name = call_names.get(call_id) if isinstance(call_id, str) else None
-        if tool_name == "list_files":
-            content = _groq_compact_json(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
-        elif tool_name == "read_file":
-            content = _groq_compact_read_file(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
-        elif tool_name == "get_error":
-            content = _groq_compact_error(content, OPENROUTER_TOOL_RESULT_MAX_BYTES) or content
-        elif tool_name == "run_tests":
-            content = _groq_compact_test_output(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
-            if content is None:
+        call_info = call_names.get(call_id) if isinstance(call_id, str) else None
+        raw_tool_name, call_key = call_info if call_info is not None else (None, "unmatched")
+        # Names originate in provider history; only known MCP names may enter
+        # diagnostic fields. Unknown names are represented by a fixed label.
+        tool_name = (
+            raw_tool_name
+            if raw_tool_name in {"get_error", "read_file", "list_files", "run_tests"}
+            else "unknown"
+        )
+        outcome = (
+            "not_needed" if original_bytes <= OPENROUTER_TOOL_RESULT_MAX_BYTES else "compacted"
+        )
+        failure_category: str | None = None
+        if original_bytes > OPENROUTER_TOOL_RESULT_MAX_BYTES:
+            if call_info is None:
+                outcome = "failed"
+                failure_category = "unmatched_call_id"
+            elif tool_name == "list_files":
+                content = _groq_compact_json(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+            elif tool_name == "read_file":
+                content = _groq_compact_read_file(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+            elif tool_name == "get_error":
+                content = _groq_compact_error(content, OPENROUTER_TOOL_RESULT_MAX_BYTES) or content
+            elif tool_name == "run_tests":
+                content = _groq_compact_test_output(content, OPENROUTER_TOOL_RESULT_MAX_BYTES)
+                if content is None:
+                    outcome = "failed"
+                    failure_category = "test_evidence_not_safely_compactable"
+            else:
+                outcome = "failed"
+                failure_category = "unsupported_tool"
+
+            if (
+                outcome != "failed"
+                and isinstance(content, str)
+                and len(content.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES
+            ):
+                outcome = "failed"
+                failure_category = "context_limit_after_compaction"
+
+        result_bytes = len(content.encode("utf-8")) if isinstance(content, str) else None
+        logger.info(
+            "provider.tool_result_diagnostic",
+            backend="openrouter_api",
+            tool=tool_name,
+            call_id=_openrouter_safe_call_id(call_id),
+            call_key=call_key,
+            message_index=message_index,
+            payload_bytes=original_bytes,
+            outgoing_bytes=result_bytes,
+            compaction_outcome=outcome,
+            failure_category=failure_category,
+            payload_sha256=hashlib.sha256(original_content.encode("utf-8")).hexdigest(),
+            payload_preview=_openrouter_diagnostic_preview(original_content),
+        )
+
+        if outcome == "failed":
+            if failure_category == "test_evidence_not_safely_compactable":
                 raise RuntimeError(
                     "OpenRouter tool output could not be compacted without losing test evidence"
                 )
-        else:
-            raise RuntimeError("OpenRouter tool output exceeds the safe context limit")
-        if len(content.encode("utf-8")) > OPENROUTER_TOOL_RESULT_MAX_BYTES:
             raise RuntimeError(
-                "OpenRouter tool output remains over the safe context limit "
-                f"(tool={tool_name or 'unknown'}, bytes={len(content.encode('utf-8'))})"
+                "OpenRouter tool output exceeds the safe context limit "
+                f"(tool={tool_name}, bytes={original_bytes}, category={failure_category})"
             )
         message["content"] = content
         if isinstance(call_id, str):
