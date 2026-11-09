@@ -1127,23 +1127,26 @@ class _OpenRouterMessages(_GroqMessages):
         routing_byok = (
             routing_metadata.get("is_byok") if isinstance(routing_metadata, dict) else None
         )
+        reported_cost = _usage_cost(usage) if isinstance(usage, dict) else None
         non_byok_verified = (
             (usage_byok is False or routing_byok is False)
             and usage_byok is not True
             and routing_byok is not True
         )
-        if (
-            not isinstance(usage, dict)
-            or not non_byok_verified
-            or _usage_cost(usage) != Decimal("0")
-        ):
-            raise RuntimeError("OpenRouter did not verify a zero-cost, non-BYOK completion")
+        if reported_cost is None:
+            raise RuntimeError("OpenRouter did not report an exact completion cost")
+        if reported_cost != Decimal("0"):
+            raise RuntimeError("OpenRouter reported a nonzero completion cost")
+        if usage_byok is True or routing_byok is True:
+            raise RuntimeError("OpenRouter reported BYOK routing")
+        if not non_byok_verified:
+            raise RuntimeError("OpenRouter did not verify non-BYOK routing metadata")
         return _Response(
             content=blocks,
             usage=_Usage(
                 input_tokens=usage.get("prompt_tokens", 0),
                 output_tokens=usage.get("completion_tokens", 0),
-                cost_usd=_usage_cost(usage),
+                cost_usd=reported_cost,
             ),
         )
 

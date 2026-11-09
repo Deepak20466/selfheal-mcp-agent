@@ -2144,7 +2144,7 @@ async def test_openrouter_rejects_conflicting_byok_metadata(
         )
     )
     client = OpenRouterClient(api_key="sk-or-fake")
-    with pytest.raises(RuntimeError, match="zero-cost, non-BYOK"):
+    with pytest.raises(RuntimeError, match="reported BYOK routing"):
         await client.messages.create(
             model=None,
             max_tokens=32,
