@@ -301,10 +301,13 @@ class ExactScopeTracingMCPClient:
         allowed_paths: set[str] | None = None,
         workspace_prefix: str,
         worktree_name: str,
+        tracer_factory: Any | None = None,
     ) -> None:
-        from benchmarks.real_bugs.run import TracingMCPClient
+        if tracer_factory is None:
+            from benchmarks.real_bugs.run import TracingMCPClient
 
-        self._tracer = TracingMCPClient(client, validated=validated, error_id=error_id)
+            tracer_factory = TracingMCPClient
+        self._tracer = tracer_factory(client, validated=validated, error_id=error_id)
         self.allowed_paths = allowed_paths or {SOURCE_PATH}
         self.workspace_prefix = workspace_prefix.strip("/")
         self.worktree_name = worktree_name
@@ -469,6 +472,7 @@ async def _execute(
             allowed_paths={SOURCE_PATH},
             workspace_prefix=workspace_prefix[0],
             worktree_name=worktree_name[0],
+            tracer_factory=originals[1],
         )
         tracers.append(tracer)
         return tracer

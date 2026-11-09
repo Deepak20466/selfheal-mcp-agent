@@ -239,6 +239,7 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import mcp_server.sandbox as sandbox
+    from benchmarks.real_bugs import run as runner
 
     worktrees = tmp_path / "worktrees"
     worktree = worktrees / "mock-run"
@@ -310,14 +311,23 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
             )
 
     fake_mcp = FakeMCP()
-    tracer = evaluation.ExactScopeTracingMCPClient(
-        fake_mcp,
-        validated=True,
-        error_id=7,
-        allowed_paths={"app/routers/fees.py"},
-        workspace_prefix="connected_apps/mock/s",
-        worktree_name="mock-run",
-    )
+    original_tracer_factory = runner.TracingMCPClient
+
+    def scoped_tracer(client: Any, *, validated: bool, error_id: int) -> Any:
+        return evaluation.ExactScopeTracingMCPClient(
+            client,
+            validated=validated,
+            error_id=error_id,
+            allowed_paths={"app/routers/fees.py"},
+            workspace_prefix="connected_apps/mock/s",
+            worktree_name="mock-run",
+            tracer_factory=original_tracer_factory,
+        )
+
+    # Match unresolved_eval._execute's dynamic class replacement. The exact
+    # scope wrapper must retain the original tracer factory after this patch.
+    monkeypatch.setattr(runner, "TracingMCPClient", scoped_tracer)
+    tracer = runner.TracingMCPClient(fake_mcp, validated=True, error_id=7)
     schemas = await tracer.list_tool_schemas()
     assert [schema["name"] for schema in schemas] == [
         "read_file",
@@ -346,6 +356,8 @@ async def test_actual_selfheal_loop_runs_with_mock_provider_and_exact_scope(
         model_name="mock-only",
     )
     assert result.success is True
+    assert isinstance(tracer._tracer, original_tracer_factory)
+    assert len(fake_provider.messages.calls) == 3
     called_tools = [name for name, _ in fake_mcp.calls]
     assert fake_mcp.tests >= 2
     assert called_tools.count("propose_patch") == 1
