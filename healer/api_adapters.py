@@ -523,7 +523,8 @@ class _GroqMessages:
             "Groq request not sent: prompt/tool history cannot fit the current TPM/context "
             f"budget (prompt_estimate={last_prompt_bound}, available_tpm={available_tpm}, "
             f"context_limit={GROQ_MAX_CONTEXT_TOKENS}, requested_output={requested_output}); "
-            "only list-files JSON and non-diagnostic test-output lines were compacted"
+            "only list-files JSON, read-file source ranges, and non-diagnostic test-output "
+            "lines were compacted"
         )
 
     def _to_openai_messages(
