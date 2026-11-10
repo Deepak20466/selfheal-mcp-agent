@@ -197,17 +197,122 @@ def test_tracing_baseline_returns_patch_apply_failure_as_recoverable_tool_error(
 
     monkeypatch.setattr(run_module.TracingMCPClient, "_apply_without_policy", fail_patch)
     tracer = run_module.TracingMCPClient(object(), validated=False, error_id=1)
+    tracer.allowed_source_paths = {"src/module.py"}
+    patch = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
 
     with pytest.raises(MCPToolError, match="malformed unified diff"):
         asyncio.run(
             tracer.call_tool(
                 "propose_patch",
-                {"unified_diff": "not a patch", "worktree": "fixture", "heal_job_id": 1},
+                {"unified_diff": patch, "worktree": "fixture", "heal_job_id": 1},
             )
         )
 
     assert tracer.patch_error == "git apply failed: malformed unified diff"
     assert tracer.events[-1]["ok"] is False
+
+
+def test_benchmark_patch_requires_valid_source_only_diff() -> None:
+    from healer.mcp_client import MCPToolError
+
+    good = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    run_module._validate_benchmark_patch(good, {"src/module.py"})
+
+    for invalid, message in (
+        (None, "patch is missing"),
+        ("```diff\\n" + good + "```", "malformed patch"),
+        (
+            good.replace("src/module.py", "../src/module.py"),
+            "traversal|Invalid patch path",
+        ),
+        (
+            good.replace("src/module.py", "tests/test_bug.py"),
+            "outside the allowed scope",
+        ),
+    ):
+        with pytest.raises(MCPToolError, match=message):
+            run_module._validate_benchmark_patch(invalid, {"src/module.py"})
+
+
+def test_tracing_rejects_worktree_prefixed_inspection_path() -> None:
+    from healer.mcp_client import MCPToolError
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            self.calls.append(name)
+            return {"content": "source"}
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(
+        client,
+        validated=True,
+        error_id=1,
+        allowed_source_paths=["src/module.py"],
+        max_inspection_tool_calls=1,
+    )
+    with pytest.raises(MCPToolError, match="repository-relative"):
+        asyncio.run(
+            tracer.call_tool(
+                "read_file", {"path": "rb-attempt/s/src/module.py"}
+            )
+        )
+    assert client.calls == []
+
+
+def test_tracing_allows_one_correction_only_after_verification_failure() -> None:
+    from healer.mcp_client import MCPToolError
+
+    patch = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.patches = 0
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            if name == "propose_patch":
+                self.patches += 1
+                return {"applied": True}
+            if name == "run_tests":
+                return {"passed": False, "output": "assert expected false, got true"}
+            raise AssertionError(name)
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(
+        client,
+        validated=True,
+        error_id=1,
+        allowed_source_paths=["src/module.py"],
+        target_test_paths=["tests/test_bug.py"],
+    )
+
+    async def scenario() -> None:
+        tracer.begin_model_turn()
+        await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        with pytest.raises(MCPToolError, match="regression test successfully"):
+            await tracer.call_tool("run_tests", {})
+        with pytest.raises(MCPToolError, match="only after.*failure"):
+            await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        await tracer.call_tool("run_tests", {"test_path": "tests/test_bug.py"})
+        assert tracer.retry_ready
+        tracer.begin_model_turn()
+        await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        with pytest.raises(MCPToolError, match="retry limit"):
+            await tracer.call_tool("propose_patch", {"unified_diff": patch})
+
+    asyncio.run(scenario())
+    assert client.patches == 2
 
 
 def test_tracing_limits_supplemental_repository_inspection_to_one_call() -> None:
@@ -227,7 +332,7 @@ def test_tracing_limits_supplemental_repository_inspection_to_one_call() -> None
         "content"
     ] == "source"
 
-    with pytest.raises(MCPToolError, match="single supplemental inspection call"):
+    with pytest.raises(MCPToolError, match="no more repository inspection calls"):
         asyncio.run(tracer.call_tool("list_files", {}))
 
     assert client.calls == ["read_file"]

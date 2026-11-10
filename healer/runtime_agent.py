@@ -400,6 +400,10 @@ async def _run_one_attempt(
 
         messages.append({"role": "assistant", "content": response.content})
 
+        begin_model_turn = getattr(mcp, "begin_model_turn", None)
+        if callable(begin_model_turn):
+            begin_model_turn()
+
         tool_results: list[dict[str, Any]] = []
         turn_made_progress = False
         repeated_failed_call = False

@@ -57,6 +57,19 @@ test database. See the [primed-case report](evidence/openrouter-v9-primed-case-2
 [raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/attempts.jsonl),
 and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/2026-11-10.md).
 
+The structured repair runner then completed exactly one controlled attempt on the same frozen
+case. Before generation, the exact `cohere/north-mini-code:free` model and tool-capable zero-priced
+endpoint were reverified; provider fallback was disabled, the per-completion zero-cost guard was
+active, and only the disposable `selfheal_real_bug_test` database was used. The attempt used 2
+completion requests, 4,555 input and 1,528 output tokens (6,083 total), with $0.00 provider-reported
+cost. The model attempted one 495-byte diff, but it had no parseable file paths and was rejected
+before application. The target regression remained failing, so the full suite was not run. The
+bounded correction was blocked after the provider's two-request daily headroom was exhausted. The
+offline structured workflow suite passed 138 tests with 2 skipped. See the
+[structured-case report](evidence/openrouter-v10-structured-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
