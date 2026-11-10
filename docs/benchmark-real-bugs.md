@@ -6,14 +6,15 @@ This benchmark mines historical source-and-test fixes from the pinned repositori
 [`benchmarks/real_bugs/repos.yaml`](../benchmarks/real_bugs/repos.yaml). Mining and preparation
 produce eligible cases; they are not model repair attempts. Only JSONL records produced by
 `benchmarks.real_bugs.run` count as provider results. `benchmarks/real_bugs/results/` contains
-generated score reports when runs are scored; no provider run or score report is committed for this
-benchmark. Raw local datasets, provider run files, and generated score reports are ignored.
+generated score reports when corpus runs are scored. Raw local datasets, provider run files, and
+generated score reports are ignored.
 
-**Status: harness included; results not yet measured.** No real provider attempts are recorded in
-this checkout.
-The execution environment has no `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY`, no
-`REAL_BUG_DATABASE_URL`, and no PostgreSQL listener on port 5432. No provider calls or runtime-demo
-repairs were made. Do not infer repair results from mined or prepared cases.
+**Corpus status: harness included; aggregate results not measured.** No corpus-run JSONL or scored
+report is recorded. A separate one-case VIMJ fee-balance repair did use a real provider response;
+its saved regression and backend suite results are documented in the
+[VIMJ evidence report](evidence/vimj-fee-balance-2026-11-10.md). That run is not a corpus result
+from `benchmarks.real_bugs.run` and must not be used to infer aggregate repair rates. Its patch
+recovery did not create a VIMJ commit or pull request.
 
 ## Case selection
 

@@ -1,14 +1,13 @@
-# Selfheal
+# SelfHeal MCP Agent
 
-- Capture runtime, contract, and CI failures.
-- Gather scoped repository context through MCP tools.
-- Propose candidate patches with a configured AI backend.
-- Check patch policy and run tests in an isolated worktree.
-- Open a GitHub pull request when verification succeeds.
+AI-powered incident-to-patch automation with scoped MCP repository tools, policy-checked diffs,
+isolated tests, and human-reviewed pull requests.
 
 ![Selfheal repair-to-PR demo](docs/demo-e2e-repairs.gif)
 
-[Repair-to-PR video](docs/demo-e2e-repairs.mp4) · [Terminal walkthrough](docs/demo-terminal.mp4)
+[Synthetic repair-to-PR walkthrough](docs/demo-e2e-repairs.mp4) ·
+[VIMJ single-case repair demo (1080p, 2:08)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo.mp4) ·
+[Terminal walkthrough](docs/demo-terminal.mp4)
 
 Python 3.11+ · FastAPI · PostgreSQL · SQLAlchemy/Alembic · MCP · Typer · GitHub Actions
 
@@ -32,7 +31,7 @@ For native PostgreSQL setup, local services, and credentials needed to run repai
 | [`selfheal-e2e-demo-03`](https://github.com/Deepak20466/selfheal-e2e-demo-03) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) and CI passed; PR #10 remains open. |
 | [`multi-agent-workspace`](https://github.com/Deepak20466/multi-agent-workspace) | Manual, engineer-directed and Claude-assisted | Dogfooding exposed two Selfheal defects, fixed in Selfheal commits [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6). The PyPDF2 repair did not converge; a separate manual PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged despite unrelated failing CI. |
 | [ShopCart](https://github.com/Deepak20466/ShopCart) | Manual changes; AI-prepared onboarding | Selfheal onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) needed manual setup repair before CI ran. The pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2); clean-build work was PR [#3](https://github.com/Deepak20466/ShopCart/pull/3); safe dependency updates were PR [#4](https://github.com/Deepak20466/ShopCart/pull/4). All four are merged. PR #4 reduced audit findings from 36 (5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). |
-| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
+| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Manual GitHub search; separate isolated local case | No remote run appears in the reviewed PR, issue, and Actions listings. A separate local VIMJ fee-balance repair is documented [here](docs/evidence/vimj-fee-balance-2026-11-10.md); it did not create a VIMJ PR. |
 | [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
 | [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
 
@@ -63,12 +62,21 @@ project's Vite 4 line, and test imports used paths absent from the repository. T
 was found manually and fixed manually (engineer-directed, Claude-assisted) in ShopCart PR
 [#2](https://github.com/Deepak20466/ShopCart/pull/2); this was not a Selfheal-generated repair.
 
+Separately, one authorized free-tier OpenRouter response produced a patch for a frozen VIMJ
+fee-balance regression. Formatting-only normalization made the returned code hunk valid for the
+patch validator; the saved regression and VIMJ backend logs report 1 and 30 passing tests. This was
+an isolated single-case repair, not a complete autonomous repair-to-PR run. See the
+[VIMJ evidence report](docs/evidence/vimj-fee-balance-2026-11-10.md).
+
 The dated outcomes and evidence links are in [VERIFICATION.md](VERIFICATION.md) and the
 [recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md).
 
 ## Real-bug benchmark status
 
-Benchmark status: harness included; results not yet measured.
+**Corpus benchmark:** the harness is included, but aggregate results across the mined real-bug case
+set remain unmeasured. A separate VIMJ single-case repair and backend test result are recorded in
+the [evidence report](docs/evidence/vimj-fee-balance-2026-11-10.md); these are not corpus benchmark
+metrics or a repair-to-PR demonstration.
 
 ## Architecture
 
@@ -93,9 +101,10 @@ The PyPDF2 repair did not converge, so no fix to that issue is claimed. ShopCart
 was fixed manually (engineer-directed, Claude-assisted) in PR #2, not by Selfheal's repair loop.
 Earlier seeded trials also include failed AI repair attempts and CI checks; the evidence ledger
 links each result rather than counting only successful attempts.
-No provider attempt has completed for the current real-bug benchmark. Resolve rate, resolve rate
-with the full suite green, false-positive rate, median time, median cost, and failure distribution
-are therefore unknown. The scorer's failure categories are `no_patch`, `invalid_patch`,
+One VIMJ provider repair has completed, but no aggregate provider run from the mined-case benchmark
+harness is recorded. Corpus resolve rates, full-suite resolve rates, false-positive rate, median
+time, median cost, and failure distribution remain unknown. The scorer's failure categories are
+`no_patch`, `invalid_patch`,
 `rejected_by_policy`, `tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`,
 `cost_unknown`, and `repair_error`; these are labels in the harness, not measured frequencies.
 
@@ -115,8 +124,9 @@ recovery. Tests and API-backed demos do not establish kernel-level sandbox escap
 Historical Claude Code costs are subscription-usage records, not API billing measurements. Provider
 prices and quotas can change; the provider API could not attest the earlier free-tier account's full
 billing state. The available evidence does not include an independent review of that billing
-ledger. No Selfheal run was found for the VIMJ attendance system or either Attendance Academy
-repository in the reviewed session logs, PRs, or Actions records.
+ledger. The VIMJ single-case result is local and isolated; no VIMJ PR or hosted repair workflow is
+claimed. No remote Selfheal run was found for either Attendance Academy repository in the reviewed
+session logs, PRs, or Actions records.
 
 For complete dated results and limitations, see [VERIFICATION.md](VERIFICATION.md),
 [the evidence ledger](docs/history/RECOVERED_EVIDENCE.md), and the separate
@@ -131,6 +141,7 @@ current terminal-first product.
 - [Connect an application](docs/onboarding.md)
 - [Runtime error demo](examples/runtime_demo/README.md)
 - [Real-bug benchmark method](docs/benchmark-real-bugs.md)
+- [Verified VIMJ single-case evidence](docs/evidence/vimj-fee-balance-2026-11-10.md)
 - [Historical fixture benchmark](docs/benchmark.md)
 - [Verification report](VERIFICATION.md)
 - [Recovered evidence](docs/history/RECOVERED_EVIDENCE.md)
