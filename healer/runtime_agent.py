@@ -56,6 +56,8 @@ logger = structlog.get_logger(__name__)
 
 MAX_ATTEMPTS = 3
 MAX_TOOL_CALLS_PER_ATTEMPT = 20
+MAX_NO_PROGRESS_TOOL_TURNS = 2
+MAX_INSPECTION_ONLY_TOOL_TURNS = 4
 CLAUDE_MAX_TOKENS = 8000
 
 RUNTIME_TOOL_NAMES = frozenset(
@@ -347,6 +349,10 @@ async def _run_one_attempt(
     last_diff_stat = ""
     last_test_output = ""
     final_text = ""
+    failed_tool_calls: dict[str, int] = {}
+    successful_read_calls: set[str] = set()
+    no_progress_turns = 0
+    inspection_only_turns = 0
 
     for _ in range(MAX_TOOL_CALLS_PER_ATTEMPT):
         token_count = total_input + total_output
@@ -395,29 +401,70 @@ async def _run_one_attempt(
         messages.append({"role": "assistant", "content": response.content})
 
         tool_results: list[dict[str, Any]] = []
+        turn_made_progress = False
+        repeated_failed_call = False
+        turn_attempted_repair_action = False
         for block in tool_use_blocks:
             # Never trust the model's own heal_job_id/worktree — always the
             # server-side values for *this* job, so the write scope
             # propose_patch derives from heal_job_id can't be widened by a
             # confused or injected tool call naming a different job.
-            arguments = dict(block.input)
+            valid_arguments = isinstance(block.input, dict)
+            arguments = dict(block.input) if valid_arguments else {}
+            if block.name in {"run_tests", "propose_patch"}:
+                turn_attempted_repair_action = True
+            if block.name == "read_file" and valid_arguments:
+                line_range = arguments.get("start_line")
+                if (
+                    arguments.get("end_line") is None
+                    and isinstance(line_range, list)
+                    and len(line_range) == 2
+                    and all(
+                        isinstance(line, int) and not isinstance(line, bool) and line >= 1
+                        for line in line_range
+                    )
+                    and line_range[0] <= line_range[1]
+                ):
+                    # Some OpenAI-compatible models encode the requested range
+                    # as a pair in start_line despite the scalar MCP schema.
+                    arguments["start_line"], arguments["end_line"] = line_range
             if block.name in ("propose_patch", "run_tests"):
                 arguments["worktree"] = worktree_name
             if block.name == "propose_patch":
                 arguments["heal_job_id"] = job_id
 
+            call_signature = json.dumps(
+                [block.name, arguments], sort_keys=True, separators=(",", ":"), default=str
+            )
             is_error = False
             try:
+                if not valid_arguments:
+                    raise MCPToolError(
+                        "Tool arguments must be a JSON object; retry with an object."
+                    )
                 result = await mcp.call_tool(block.name, arguments)
             except MCPToolError as exc:
                 result = str(exc)
                 is_error = True
+                failed_tool_calls[call_signature] = failed_tool_calls.get(call_signature, 0) + 1
+                repeated_failed_call = (
+                    repeated_failed_call or failed_tool_calls[call_signature] >= 2
+                )
 
             if not is_error and block.name == "run_tests" and isinstance(result, dict):
                 test_results.append(bool(result.get("passed")))
                 last_test_output = str(result.get("output", ""))[-4000:]
             if not is_error and block.name == "propose_patch" and isinstance(result, dict):
                 last_diff_stat = str(result.get("diff_stat", ""))
+            if not is_error:
+                if block.name in {"read_file", "list_files"}:
+                    if call_signature not in successful_read_calls:
+                        successful_read_calls.add(call_signature)
+                        turn_made_progress = True
+                else:
+                    # Patch and test operations are meaningful even when the
+                    # model repeats a test path to establish before/after evidence.
+                    turn_made_progress = True
 
             content = result if isinstance(result, str) else json.dumps(result, default=str)
             tool_results.append(
@@ -430,6 +477,28 @@ async def _run_one_attempt(
             )
 
         messages.append({"role": "user", "content": tool_results})
+        no_progress_turns = 0 if turn_made_progress else no_progress_turns + 1
+        inspection_only_turns = 0 if turn_attempted_repair_action else inspection_only_turns + 1
+        if (
+            repeated_failed_call
+            or no_progress_turns >= MAX_NO_PROGRESS_TOOL_TURNS
+            or inspection_only_turns >= MAX_INSPECTION_ONLY_TOOL_TURNS
+        ):
+            reason = (
+                "repeated identical failed tool call"
+                if repeated_failed_call
+                else "inspection-only tool-turn limit reached"
+                if inspection_only_turns >= MAX_INSPECTION_ONLY_TOOL_TURNS
+                else "consecutive tool turns made no new progress"
+            )
+            logger.warning(
+                "runtime_agent.attempt_stalled",
+                job_id=job_id,
+                reason=reason,
+                no_progress_turns=no_progress_turns,
+            )
+            final_text = f"Stopped after {reason}; existing tool and test evidence is preserved."
+            break
 
     # Proven only if an earlier run_tests failed (the new test reproduces the
     # bug) and the last run_tests passed — a single passing run never proves

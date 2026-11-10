@@ -334,6 +334,46 @@ def _compact_provider_tool_messages(
 ) -> list[dict[str, Any]]:
     """Bound rediscoverable MCP results on an outgoing copy of chat history."""
     compacted = copy.deepcopy(messages)
+    duplicate_read_results: dict[int, dict[str, Any]] = {}
+    scan_tool_names: dict[str, str] = {}
+    latest_read_index: dict[tuple[str, int | None, int | None], int] = {}
+    for index, item in enumerate(compacted):
+        if item.get("role") == "assistant":
+            scan_tool_names = {
+                call["id"]: call["function"]["name"]
+                for call in item.get("tool_calls", [])
+                if isinstance(call, dict)
+                and isinstance(call.get("id"), str)
+                and isinstance(call.get("function"), dict)
+                and isinstance(call["function"].get("name"), str)
+            }
+            continue
+        if item.get("role") != "tool" or not isinstance(item.get("content"), str):
+            continue
+        if scan_tool_names.get(item.get("tool_call_id")) != "read_file":
+            continue
+        try:
+            result = json.loads(item["content"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(result, dict) or not isinstance(result.get("path"), str):
+            continue
+        start_line, end_line = result.get("start_line"), result.get("end_line")
+        key = (
+            result["path"],
+            start_line if isinstance(start_line, int) else None,
+            end_line if isinstance(end_line, int) else None,
+        )
+        previous_index = latest_read_index.get(key)
+        if previous_index is not None:
+            try:
+                previous_result = json.loads(compacted[previous_index]["content"])
+            except (TypeError, ValueError):
+                previous_result = {}
+            duplicate_read_results[previous_index] = (
+                previous_result if isinstance(previous_result, dict) else {}
+            )
+        latest_read_index[key] = index
     # MCP tool results belong to the immediately preceding assistant tool-call
     # turn. Do not build one global ID map: providers may reuse call IDs across
     # turns, which otherwise associates an older result with a newer tool name.
@@ -376,7 +416,29 @@ def _compact_provider_tool_messages(
             "not_needed" if original_bytes <= OPENROUTER_TOOL_RESULT_MAX_BYTES else "compacted"
         )
         failure_category: str | None = None
-        if original_bytes > OPENROUTER_TOOL_RESULT_MAX_BYTES:
+        if message_index in duplicate_read_results:
+            outcome = "compacted"
+            previous_result = duplicate_read_results[message_index]
+            content = json.dumps(
+                {
+                    "path": previous_result.get("path"),
+                    "start_line": previous_result.get("start_line"),
+                    "end_line": previous_result.get("end_line"),
+                    "total_lines": previous_result.get("total_lines"),
+                    "content": (
+                        "[Repeated source read omitted from request history; "
+                        "use read_file again if these lines are needed.]"
+                    ),
+                },
+                separators=(",", ":"),
+            )
+            logger.info(
+                "provider.tool_result_deduplicated",
+                backend=backend,
+                tool="read_file",
+                message_index=message_index,
+            )
+        elif original_bytes > OPENROUTER_TOOL_RESULT_MAX_BYTES:
             if call_info is None:
                 outcome = "failed"
                 failure_category = "unmatched_call_id"

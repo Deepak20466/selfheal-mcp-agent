@@ -187,6 +187,29 @@ def test_windows_resume_skips_attempted_arm_and_allocates_fresh_workspace(
     assert not allocated[0].root.exists()
 
 
+def test_tracing_baseline_returns_patch_apply_failure_as_recoverable_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from healer.mcp_client import MCPToolError
+
+    async def fail_patch(_self: Any, _arguments: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("git apply failed: malformed unified diff")
+
+    monkeypatch.setattr(run_module.TracingMCPClient, "_apply_without_policy", fail_patch)
+    tracer = run_module.TracingMCPClient(object(), validated=False, error_id=1)
+
+    with pytest.raises(MCPToolError, match="malformed unified diff"):
+        asyncio.run(
+            tracer.call_tool(
+                "propose_patch",
+                {"unified_diff": "not a patch", "worktree": "fixture", "heal_job_id": 1},
+            )
+        )
+
+    assert tracer.patch_error == "git apply failed: malformed unified diff"
+    assert tracer.events[-1]["ok"] is False
+
+
 def test_exception_group_summary_records_sanitized_nested_cause() -> None:
     nested = TimeoutError("provider request timed out; token=do-not-record-this")
     error = ExceptionGroup(

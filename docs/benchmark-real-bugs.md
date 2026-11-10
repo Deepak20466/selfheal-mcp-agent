@@ -35,6 +35,17 @@ See the [OpenRouter results report](evidence/openrouter-v9-pilot-results-2026-11
 [raw attempts](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/attempts.jsonl),
 and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/2026-11-10.md).
 
+A subsequent controlled repeat of the first frozen case stopped before repair verification: the
+agent used 10 `read_file` requests, 40,172 input and 888 output tokens, and reached the 40,000-token
+case guard. All completions reported $0.00. The trace shows three invalid array-shaped line-range
+arguments and no patch or test-verification tool call. Offline workflow updates now normalize that
+observed range shape, compact repeated source reads, return failed patch applications to the agent
+for one correction, and stop inspection-only loops after four turns. Final offline tests passed
+133 with 2 skipped; the last two workflow refinements were not live-tested. See the
+[controlled-case report](evidence/openrouter-v9-controlled-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
