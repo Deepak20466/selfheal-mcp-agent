@@ -48,16 +48,57 @@ The MCP surface provides error lookup, scoped file listing and reading, patch pr
 sandboxed test execution. See [provider setup and current execution limits](docs/operations.md) and
 [security boundaries](docs/architecture.md).
 
-## Demonstrations & Verified Results
+## Benchmarks & Real-World Evaluation
 
-| Repository | Classification | Verified scope and current outcome |
+### Verified outcomes
+
+| Evaluation | Result | Scope and evidence |
 |---|---|---|
-| [`selfheal-e2e-demo-01`](https://github.com/Deepak20466/selfheal-e2e-demo-01) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#16](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16) and CI passed; PR #16 is merged. |
-| [`selfheal-e2e-demo-02`](https://github.com/Deepak20466/selfheal-e2e-demo-02) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) and CI passed; PR #13 remains open. |
-| [`selfheal-e2e-demo-03`](https://github.com/Deepak20466/selfheal-e2e-demo-03) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) and CI passed; PR #10 remains open. |
-| [`multi-agent-workspace`](https://github.com/Deepak20466/multi-agent-workspace) | Manual, engineer-directed and Claude-assisted | Dogfooding exposed two Selfheal defects, fixed in Selfheal commits [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6). The PyPDF2 repair did not converge; a separate manual PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged despite unrelated failing CI. |
-| [ShopCart](https://github.com/Deepak20466/ShopCart) | Manual changes; AI-prepared onboarding | Selfheal onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) needed manual setup repair before CI ran. The pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2); clean-build work was PR [#3](https://github.com/Deepak20466/ShopCart/pull/3); safe dependency updates were PR [#4](https://github.com/Deepak20466/ShopCart/pull/4). All four are merged. PR #4 reduced audit findings from 36 (5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). |
-| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Isolated real-application repair; AI-generated code | At frozen commit [`6490833`](https://github.com/Deepak20466/vimj-studio-os-saas/commit/6490833d178b71624d024b16046240a20a3f78a6), the unpaid balance was ₹125; expected ₹175. One genuine AI-generated repair required patch metadata normalization. Saved local logs report the frozen regression **1 passed** and complete backend suite **30 passed**. No VIMJ PR or merge was created. [Evidence](docs/evidence/vimj-fee-balance-2026-11-10.md). |
+| Synthetic repair benchmark | **20/20 diagnoses and 20/20 repairs verified**; 0 terminal false fixes; 0 manual interventions. One case used a retry (21 model generations total); mean repair and verification time was 15.8649s. | Historical Codex CLI run on 20 seeded failures in one synthetic FastAPI repository; [full method, per-case results, and limitations](docs/benchmark.md); [raw run](benchmarks/results/codex-full-2026-10-19-run5.json). |
+| Isolated VIMJ fee-balance repair | Corrected the observed **INR 125** unpaid balance to the expected **INR 175**. Saved logs: frozen regression **1 passed** and backend suite **30 passed**. | One AI-generated code change in an isolated local checkout at frozen commit [`6490833`](https://github.com/Deepak20466/vimj-studio-os-saas/commit/6490833d178b71624d024b16046240a20a3f78a6). Patch metadata needed normalization; no VIMJ PR or merge was created. [Evidence and published patch](docs/evidence/vimj-fee-balance-2026-11-10.md). |
+| Synthetic repair-to-PR demos | Three controlled repairs reached CI-passing PRs. | Demo repos: [#16, merged](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16), [#13, open](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13), [#10, open](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10). |
+
+The synthetic 20/20 result is a fixed-fixture historical benchmark, not an estimate of performance
+on arbitrary repositories or current production reliability. The VIMJ result is one isolated case,
+not a corpus score or an end-to-end hosted repair-to-PR run. Aggregate performance across the
+41-case real-bug corpus remains unmeasured.
+
+### Gemini real-bug pilot: incomplete, no repair completed
+
+The predetermined 10-case pilot has **5 saved attempt records, 0 completed repairs, and 8 cases
+not attempted**. Two requests timed out at Gemini `generateContent`; three were rejected with HTTP
+400 because function-call history omitted Gemini's signed Parts / `thoughtSignature` protocol data.
+Therefore, **0/5 means no attempt completed a repair; it does not mean five generated patches were
+validated and found incorrect**. No full suite passed. The saved scorer reports 0/5 resolve and
+0/5 full-suite-green resolves, 121.094s median elapsed time, 6,989 reported tokens, and unknown
+cost for all five attempts. Failure labels were `provider_error` (2) and `repair_error` (3).
+
+See the [benchmark method and pilot details](docs/benchmark-real-bugs.md), [readable saved results](benchmarks/real_bugs/results/published/pilot-through-v8.md),
+[scorer JSON](benchmarks/real_bugs/results/published/pilot-through-v8.json), and
+[five-record JSONL source](benchmarks/real_bugs/results/published/gemini-v5-v8-attempts.jsonl).
+The adapter fix is covered offline; it has not been verified by a live Gemini rerun.
+
+### Other real-world evidence and limits
+
+Engineer-directed dogfooding exposed two Selfheal defects, fixed in commits
+[`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503)
+and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6).
+The PyPDF2 repair did not converge. In ShopCart, onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1)
+needed manual setup repair; pagination was fixed manually in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2),
+and clean-build and dependency work landed in PRs [#3](https://github.com/Deepak20466/ShopCart/pull/3)
+and [#4](https://github.com/Deepak20466/ShopCart/pull/4). PR #4 reduced audit findings from 36
+(5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). These were not
+Selfheal-generated bug repairs. Dated outcomes and the broader evidence ledger remain in
+[VERIFICATION.md](VERIFICATION.md) and the [recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md).
+
+### Other provider evaluations
+
+Separate GroqCloud diagnostics completed no repairs: v1/v2 recorded TPM and request-length errors;
+v3 made one successful API call, then stopped locally when its prompt estimate exceeded the remaining
+TPM budget. V4 has not been run. The separate frozen VIMJ Groq evaluation also completed no repair;
+its current Gemini route has offline test coverage but no live attempt. Full configurations, exact
+attempt records, and limits are in the [real-bug benchmark report](docs/benchmark-real-bugs.md),
+[Groq runbook](docs/groqcloud-repair.md), and [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
 
 ## Manually reported bugs
 
@@ -66,22 +107,6 @@ with `selfheal report-bug --repo owner/repo --file src/app.py --description "Off
 then use `selfheal fix owner/repo <finding-id> --suggest`; this path always opens an UNVERIFIED,
 human-review-only suggestion and cannot claim the normal verified route. See
 [manual bug reporting](docs/manual-bug-reports.md).
-
-## Additional results and limitations
-
-Real-world exploration found both successes and failures. Engineer-directed dogfooding uncovered two
-SelfHeal defects that were fixed with regression tests. The PyPDF2 repair did not converge, and
-ShopCart's pagination bug was fixed manually rather than by SelfHeal. The mined real-bug benchmark
-has no completed repair in five saved Gemini attempts; eight selected cases and the wider 41-case
-corpus remain unmeasured. Groq diagnostic attempts also did not complete a repair. The isolated VIMJ
-repair is a single case, not an aggregate benchmark result, and created no VIMJ PR or merge.
-
-Generated pull requests are review artifacts: passing tests do not prove every change correct, and
-SelfHeal does not automatically merge repairs. The [verification report](VERIFICATION.md) and
-[recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md) preserve dated outcomes and historical
-records. See the [real-bug benchmark report](docs/benchmark-real-bugs.md), [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md),
-[Groq runbook](docs/groqcloud-repair.md), and [VIMJ evaluation record](docs/unresolved-bug-evaluation.md)
-for methods, detailed attempts, and limitations.
 
 ## Architecture
 
