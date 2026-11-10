@@ -862,9 +862,9 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         expected = ("127.0.0.1", 5434, "selfheal_real_bug_test")
         assert rows == []
         assert observed == [
+            ("runner", *expected),
             ("verify", *expected),
             ("alembic", *expected),
-            ("runner", *expected),
         ]
         assert os.environ["DATABASE_URL"] == os.environ["REAL_BUG_DATABASE_URL"]
 
@@ -886,6 +886,7 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         else:
             raise AssertionError("runner did not fail closed on database verification error")
         assert observed == [
+            ("runner", *expected),
             ("verify", *expected),
             ("alembic", *expected),
             ("runner", *expected),
@@ -901,6 +902,39 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_provider_attestation_precedes_database_verification_and_migrations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(run_module, "_prepared_cases", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(run_module, "_configure_database", lambda: "isolated-db-url")
+
+    def reject_unattested_provider(_provider_name: str) -> Any:
+        calls.append("provider-check")
+        raise RuntimeError("operator billing attestation missing")
+
+    monkeypatch.setattr(run_module, "_provider", reject_unattested_provider)
+    monkeypatch.setattr(
+        run_module,
+        "_verify_database_connection",
+        lambda _url: calls.append("database-verification"),
+    )
+    monkeypatch.setattr(run_module, "_migrate_database", lambda: calls.append("migration"))
+
+    with pytest.raises(RuntimeError, match="billing attestation missing"):
+        run_module.run_benchmark(
+            provider_name="gemini_api",
+            run_file=tmp_path / "attempts.jsonl",
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout=1,
+            resume=True,
+        )
+
+    assert calls == ["provider-check"]
 
 
 def test_rate_limit_backoff_honors_retry_after() -> None:

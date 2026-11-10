@@ -1168,9 +1168,12 @@ def run_benchmark(
     frozen_ids = _frozen_case_ids(case_list)
     cases = _prepared_cases(PREPARED_ROOT, case_ids=frozen_ids)
     database_url = _configure_database()
+    # Validate the provider, API key, and current free-quota attestations
+    # before connecting to or migrating the disposable evaluation database.
+    # _provider only constructs a client; it does not make a network request.
+    provider_client, model, attested_free = _provider(provider_name)
     _verify_database_connection(database_url)
     _migrate_database()
-    provider_client, model, attested_free = _provider(provider_name)
     return asyncio.run(
         _run_cases(
             cases=cases,

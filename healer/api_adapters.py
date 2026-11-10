@@ -1451,15 +1451,11 @@ class GeminiApiClient:
     Developer forum threads reporting the exact 401 this project's
     original `?key=` implementation hit. Don't switch back to `?key=`.
 
-    Note on tool_use ids: Gemini's `functionCall`/`functionResponse` protocol
-    matches calls by function *name*, not by an id the way Anthropic/OpenAI
-    do -- this adapter invents a `call_N` id per response purely so
-    `runtime_agent.py`'s existing "match tool_result.tool_use_id to the
-    block that requested it" bookkeeping has something to key on; it is
-    never sent back to Gemini (only the function *name* is, in
-    `functionResponse.name`). Fine for this loop's single-call-then-respond
-    pattern; would need revisiting if Gemini ever calls the same tool twice
-    in one turn (not observed in this project's own live check call).
+    Gemini 3 function calls include provider IDs and may carry opaque thought
+    signatures. The adapter retains each original model Part and returns the
+    exact provider ID in its matching functionResponse. For older responses
+    without an ID, it generates a local ID for runtime bookkeeping and omits
+    that synthetic ID from the provider response.
     """
 
     def __init__(self, api_key: str | None = None) -> None:
