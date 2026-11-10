@@ -316,7 +316,6 @@ def _groq_compact_error(content: str, max_bytes: int) -> str | None:
 
 
 OPENROUTER_TOOL_RESULT_MAX_BYTES = 8_192
-OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES = 768
 
 
 def _openrouter_safe_call_id(value: Any) -> str:
@@ -328,26 +327,6 @@ def _openrouter_safe_call_id(value: Any) -> str:
         digest = hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:12]
         return f"{safe[:80]}-{digest}"
     return safe
-
-
-def _openrouter_diagnostic_preview(content: str) -> str:
-    """Return a small, scrubbed snapshot useful for offline adapter reproduction."""
-    try:
-        value = scrub_value(json.loads(content))
-        rendered = json.dumps(value, separators=(",", ":"), ensure_ascii=False)
-    except (TypeError, ValueError):
-        rendered = json.dumps(scrub_text(content), ensure_ascii=False)
-    # This serialized preview passes through the global log scrubber a second
-    # time as free text. Escaping @ keeps an escaped JSON newline before a
-    # decorator (``\\n@router.put``) from looking like an email address there.
-    # The JSON value decodes to the same already-scrubbed preview.
-    rendered = rendered.replace("@", "\\u0040")
-    encoded = rendered.encode("utf-8")
-    if len(encoded) <= OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES:
-        return rendered
-    suffix = b"...[truncated]"
-    prefix = encoded[: OPENROUTER_DIAGNOSTIC_PREVIEW_MAX_BYTES - len(suffix)]
-    return prefix.decode("utf-8", errors="ignore") + suffix.decode("ascii")
 
 
 def _compact_provider_tool_messages(
@@ -436,8 +415,6 @@ def _compact_provider_tool_messages(
             outgoing_bytes=result_bytes,
             compaction_outcome=outcome,
             failure_category=failure_category,
-            payload_sha256=hashlib.sha256(original_content.encode("utf-8")).hexdigest(),
-            payload_preview=_openrouter_diagnostic_preview(original_content),
         )
 
         if outcome == "failed":
@@ -527,8 +504,6 @@ def _compact_gemini_tool_contents(contents: list[dict[str, Any]]) -> list[dict[s
                 outgoing_bytes=(len(content.encode("utf-8")) if isinstance(content, str) else None),
                 compaction_outcome=outcome,
                 failure_category=failure_category,
-                payload_sha256=hashlib.sha256(original_content.encode("utf-8")).hexdigest(),
-                payload_preview=_openrouter_diagnostic_preview(original_content),
             )
             if outcome == "failed":
                 if failure_category == "test_evidence_not_safely_compactable":

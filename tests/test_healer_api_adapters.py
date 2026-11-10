@@ -1803,13 +1803,12 @@ async def test_openrouter_compacts_outgoing_read_history_without_mutating_agent_
 
 
 @pytest.mark.asyncio
-async def test_openrouter_preserves_put_decorator_in_wire_payload_and_log_preview(
+async def test_openrouter_preserves_put_decorator_in_wire_payload_without_logging_source(
     respx_mock: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import structlog
 
     from core.config import settings as core_settings
-    from core.logging import _scrub_event_dict
     from healer.api_adapters import OPENROUTER_API_BASE, OpenRouterClient
     from healer.mcp_client import connect_in_memory
     from mcp.server.mcpserver import MCPServer
@@ -1910,10 +1909,10 @@ async def test_openrouter_preserves_put_decorator_in_wire_payload_and_log_previe
     assert "[REDACTED_EMAIL]" in wire_result["diagnostic_label"]
 
     diagnostic = next(log for log in logs if log.get("event") == "provider.tool_result_diagnostic")
-    scrubbed_log = _scrub_event_dict(None, "info", dict(diagnostic))
-    preview = json.loads(scrubbed_log["payload_preview"])
-    assert "@router.put" in preview["content"]
-    assert "[REDACTED_EMAIL]" in preview["diagnostic_label"]
+    assert diagnostic["payload_bytes"] > 0
+    assert "payload_preview" not in diagnostic
+    assert "payload_sha256" not in diagnostic
+    assert "@router.put" not in json.dumps(diagnostic)
 
 
 @pytest.mark.asyncio
@@ -1988,9 +1987,8 @@ async def test_openrouter_compacts_actual_mcp_read_file_json_without_corrupting_
         log for log in failure_logs if log.get("event") == "provider.tool_result_diagnostic"
     )
     assert failure["payload_bytes"] == 10_345
-    assert failure["payload_sha256"] == (
-        "8237f2339c158712e8938b9401c7002f500ff649d3f0772a405b20f790077d76"
-    )
+    assert "payload_sha256" not in failure
+    assert "payload_preview" not in failure
     assert failure["failure_category"] == "context_limit_after_compaction"
 
     converter = object.__new__(_GroqMessages)
@@ -2117,6 +2115,8 @@ def test_openrouter_records_redacted_diagnostics_before_uncompactable_result_fai
 
     from healer.api_adapters import _compact_openrouter_tool_messages
 
+    private_source_marker = f"PRIVATE_SOURCE_MARKER_{tool_name}_9284f410"
+    result["private_source"] = private_source_marker
     messages = [
         {
             "role": "assistant",
@@ -2143,8 +2143,74 @@ def test_openrouter_records_redacted_diagnostics_before_uncompactable_result_fai
     assert diagnostic["payload_bytes"] > 8_192
     assert diagnostic["compaction_outcome"] == "failed"
     assert diagnostic["failure_category"] == "context_limit_after_compaction"
-    assert len(diagnostic["payload_preview"].encode("utf-8")) <= 768
-    assert "private@example.invalid" not in diagnostic["payload_preview"]
+    assert "payload_preview" not in diagnostic
+    assert "payload_sha256" not in diagnostic
+    assert private_source_marker not in json.dumps(logs, sort_keys=True)
+
+
+@pytest.mark.parametrize("provider_path", ["openrouter", "gemini"])
+def test_provider_tool_result_logs_never_include_private_source_markers(
+    provider_path: str,
+) -> None:
+    import structlog
+
+    from healer.api_adapters import (
+        _compact_gemini_tool_contents,
+        _compact_openrouter_tool_messages,
+    )
+
+    marker = f"PRIVATE_REPOSITORY_SOURCE_{provider_path.upper()}_d09ad9a5"
+    tool_result = json.dumps({"path": "src/private_module.py", "content": marker})
+    with structlog.testing.capture_logs() as logs:
+        if provider_path == "openrouter":
+            compacted = _compact_openrouter_tool_messages(
+                [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "private-read-2",
+                                "function": {"name": "read_file", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "private-read-2",
+                        "content": tool_result,
+                    },
+                ]
+            )
+        else:
+            compacted = _compact_gemini_tool_contents(
+                [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "functionResponse": {
+                                    "name": "read_file",
+                                    "response": {"content": tool_result},
+                                }
+                            }
+                        ],
+                    }
+                ]
+            )
+
+    if provider_path == "openrouter":
+        compacted_result = compacted[-1]["content"]
+    else:
+        compacted_result = compacted[0]["parts"][0]["functionResponse"]["response"]["content"]
+    assert marker in compacted_result
+
+    diagnostic = next(log for log in logs if log["event"] == "provider.tool_result_diagnostic")
+    assert diagnostic["tool"] == "read_file"
+    assert diagnostic["payload_bytes"] == len(tool_result.encode("utf-8"))
+    assert diagnostic["compaction_outcome"] == "not_needed"
+    assert "payload_preview" not in diagnostic
+    assert "payload_sha256" not in diagnostic
+    assert marker not in json.dumps(logs, sort_keys=True)
 
 
 @pytest.mark.parametrize(

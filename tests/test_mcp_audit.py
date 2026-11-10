@@ -59,21 +59,23 @@ async def test_failed_call_logs_the_error_message(db_session) -> None:
     assert "999999" in matching[0].details["error"]
 
 
-async def test_long_argument_values_are_truncated(db_session) -> None:
+async def test_patch_arguments_are_omitted_from_audit_logs(db_session) -> None:
     from sqlalchemy import select
 
     from core.models import AuditLog
 
-    long_diff = "x" * 5000
+    private_source_marker = "PRIVATE_PATCH_SOURCE_MARKER_3f54c7e1"
+    long_diff = private_source_marker + "x" * 5000
     await log_tool_call("propose_patch", {"unified_diff": long_diff}, success=True, duration_ms=1.0)
 
     stmt = select(AuditLog).where(AuditLog.action == "tool_call").order_by(AuditLog.id.desc())
     rows = (await db_session.execute(stmt)).scalars().all()
     matching = [r for r in rows if r.details.get("tool") == "propose_patch"]
     assert matching
-    logged_value = matching[0].details["args"]["unified_diff"]
-    assert len(logged_value) < 1000
-    assert "chars omitted" in logged_value
+    logged_args = matching[0].details["args"]
+    assert "unified_diff" not in logged_args
+    assert logged_args["unified_diff_bytes"] == len(long_diff.encode("utf-8"))
+    assert private_source_marker not in str(matching[0].details)
 
 
 class _FakeMcp:

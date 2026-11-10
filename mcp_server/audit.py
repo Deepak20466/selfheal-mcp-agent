@@ -46,6 +46,16 @@ def _truncate_values(data: dict[str, Any]) -> dict[str, Any]:
     return truncated
 
 
+def _safe_logged_args(tool_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    scrubbed = scrub_dict(kwargs)
+    if tool_name == "propose_patch":
+        diff = kwargs.get("unified_diff")
+        if isinstance(diff, str):
+            scrubbed.pop("unified_diff", None)
+            scrubbed["unified_diff_bytes"] = len(diff.encode("utf-8", errors="replace"))
+    return _truncate_values(scrubbed)
+
+
 async def log_tool_call(
     tool_name: str,
     kwargs: dict[str, Any],
@@ -54,7 +64,7 @@ async def log_tool_call(
     duration_ms: float,
     error: str | None = None,
 ) -> None:
-    scrubbed_args = _truncate_values(scrub_dict(kwargs))
+    scrubbed_args = _safe_logged_args(tool_name, kwargs)
     details: dict[str, Any] = {
         "tool": tool_name,
         "args": scrubbed_args,
