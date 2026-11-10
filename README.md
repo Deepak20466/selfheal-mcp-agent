@@ -67,21 +67,25 @@ then use `selfheal fix owner/repo <finding-id> --suggest`; this path always open
 human-review-only suggestion and cannot claim the normal verified route. See
 [manual bug reporting](docs/manual-bug-reports.md).
 
-## Additional results and limitations
+## Benchmarks & Real-World Evaluation
 
-Real-world exploration found both successes and failures. Engineer-directed dogfooding uncovered two
-SelfHeal defects that were fixed with regression tests. The PyPDF2 repair did not converge, and
-ShopCart's pagination bug was fixed manually rather than by SelfHeal. The mined real-bug benchmark
-has no completed repair in five saved Gemini attempts; eight selected cases and the wider 41-case
-corpus remain unmeasured. Groq diagnostic attempts also did not complete a repair. The isolated VIMJ
-repair is a single case, not an aggregate benchmark result, and created no VIMJ PR or merge.
+- **Historical synthetic fixture:** 20/20 scenarios passed in one disposable FastAPI repository.
+  This is a recorded synthetic result, not an estimate of reliability across repositories. See the
+  [benchmark report](docs/benchmark.md).
+- **Recorded Gemini real-bug pilot:** 0/5 completed repairs. The five unsuccessful attempts cover
+  two of ten selected cases; eight cases remain unattempted. See the [real-bug benchmark report](docs/benchmark-real-bugs.md)
+  and [saved results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
+- **Isolated VIMJ real-application repair:** one frozen case was repaired with AI-generated code.
+  Saved logs report the frozen regression passed (1 test) and the backend suite passed (30 tests).
+  This was an isolated local repair with no VIMJ PR or merge, and is not a corpus benchmark result.
+  See the [VIMJ evidence report](docs/evidence/vimj-fee-balance-2026-11-10.md).
 
-Generated pull requests are review artifacts: passing tests do not prove every change correct, and
-SelfHeal does not automatically merge repairs. The [verification report](VERIFICATION.md) and
-[recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md) preserve dated outcomes and historical
-records. See the [real-bug benchmark report](docs/benchmark-real-bugs.md), [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md),
-[Groq runbook](docs/groqcloud-repair.md), and [VIMJ evaluation record](docs/unresolved-bug-evaluation.md)
-for methods, detailed attempts, and limitations.
+Other historical results include two SelfHeal defects found during engineer-directed dogfooding,
+a PyPDF2 attempt that did not converge, and a ShopCart pagination fix performed manually. The
+[verification report](VERIFICATION.md) and [evidence ledger](docs/history/RECOVERED_EVIDENCE.md)
+preserve the outcomes and their context. Groq diagnostic attempts did not complete a repair; see the
+[Groq runbook](docs/groqcloud-repair.md). Generated pull requests are review artifacts: passing tests
+do not prove every change correct, and SelfHeal does not automatically merge repairs.
 
 ## Architecture
 
