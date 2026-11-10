@@ -46,6 +46,17 @@ for one correction, and stop inspection-only loops after four turns. Final offli
 [raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/attempts.jsonl),
 and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/2026-11-10.md).
 
+A later primed controlled attempt on the same first frozen case supplied the focused failing test,
+baseline failure, import map, and source excerpt before the first repair turn. The free OpenRouter
+model used 2 completion requests and 4,773 total tokens ($0.00 reported), but spent them on one
+invalid worktree-prefixed `read_file` path and a blocked `list_files` attempt. It proposed no patch;
+the regression remained failing and the full suite was not run. The path guidance and bounded
+inspection allowance were refined offline afterward. Focused offline validation passed 135 tests
+with 2 skipped using `--noconftest`; the standard pytest session could not connect to its configured
+test database. See the [primed-case report](evidence/openrouter-v9-primed-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not

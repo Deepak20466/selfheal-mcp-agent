@@ -210,6 +210,72 @@ def test_tracing_baseline_returns_patch_apply_failure_as_recoverable_tool_error(
     assert tracer.events[-1]["ok"] is False
 
 
+def test_tracing_limits_supplemental_repository_inspection_to_one_call() -> None:
+    from healer.mcp_client import MCPToolError
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            self.calls.append(name)
+            return {"path": "src/module.py", "content": "source"}
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(client, validated=True, error_id=1)
+    assert asyncio.run(tracer.call_tool("read_file", {"path": "src/module.py"}))[
+        "content"
+    ] == "source"
+
+    with pytest.raises(MCPToolError, match="single supplemental inspection call"):
+        asyncio.run(tracer.call_tool("list_files", {}))
+
+    assert client.calls == ["read_file"]
+    assert tracer.events[-1]["ok"] is False
+
+
+def test_benchmark_context_primes_failing_test_and_imported_source_without_metadata(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "prepared-parent"
+    test_file = repo / "tests" / "test_bug.py"
+    source_file = repo / "src" / "pkg" / "module.py"
+    test_file.parent.mkdir(parents=True)
+    source_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from pkg import module as implementation\n\n"
+        "def test_nested_state():\n"
+        "    with implementation.disabled():\n"
+        "        assert implementation.state is False\n",
+        encoding="utf-8",
+    )
+    source_file.write_text(
+        "state = True\n\n"
+        "def disabled():\n"
+        "    global state\n"
+        "    state = False\n"
+        "    yield\n"
+        "    state = True\n",
+        encoding="utf-8",
+    )
+
+    context = run_module._benchmark_context(
+        repository_path=repo,
+        repository_name="fixture",
+        test_paths=["tests/test_bug.py"],
+        failure="tests/test_bug.py:4: AssertionError: expected nested state to remain disabled",
+    )
+
+    assert "Repository: fixture" in context
+    assert "MCP inspection paths are repository-relative" in context
+    assert "Do not prefix a worktree name" in context
+    assert "Frozen failing test context" in context
+    assert "Imported source context" in context
+    assert "def disabled():" in context
+    assert "expected nested state to remain disabled" in context
+    assert "human_fix" not in context
+
+
 def test_exception_group_summary_records_sanitized_nested_cause() -> None:
     nested = TimeoutError("provider request timed out; token=do-not-record-this")
     error = ExceptionGroup(

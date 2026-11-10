@@ -8,10 +8,12 @@ prepared parent checkout; scoring files live outside the MCP repository root.
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -216,10 +218,19 @@ class MeteredClient:
 class TracingMCPClient:
     """Trace the actual in-memory MCP protocol and optionally bypass patch policy."""
 
-    def __init__(self, client: Any, *, validated: bool, error_id: int) -> None:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        validated: bool,
+        error_id: int,
+        max_inspection_tool_calls: int = 1,
+    ) -> None:
         self.client = client
         self.validated = validated
         self.error_id = error_id
+        self.max_inspection_tool_calls = max_inspection_tool_calls
+        self.inspection_tool_calls = 0
         self.events: list[dict[str, Any]] = []
         self.last_patch: str | None = None
         self.patch_error: str | None = None
@@ -240,6 +251,18 @@ class TracingMCPClient:
         event = {"tool": name}
         if requested_name != name:
             event["requested_tool"] = requested_name
+        if name in {"read_file", "list_files"}:
+            if self.inspection_tool_calls >= self.max_inspection_tool_calls:
+                from healer.mcp_client import MCPToolError
+
+                message = (
+                    "The benchmark supplied focused source and test context; the single "
+                    "supplemental inspection call is used. Proceed to the regression test "
+                    "and repair."
+                )
+                self.events.append({**event, "ok": False, "error": message})
+                raise MCPToolError(message)
+            self.inspection_tool_calls += 1
         try:
             if name == "propose_patch":
                 patch = arguments.get("unified_diff")
@@ -661,15 +684,195 @@ def _allowed_paths(case: dict[str, Any]) -> list[str]:
     return sorted(prefixes)
 
 
+def _benchmark_context(
+    *, repository_path: Path, repository_name: str, test_paths: list[str], failure: str
+) -> str:
+    """Build bounded first-turn context from the prepared parent and failing test only."""
+    from sentinel.scrubber import scrub_text
+
+    root = repository_path.resolve(strict=True)
+    output = failure.replace("\\", "/")
+    sections = [
+        f"Repository: {repository_name} (Python).",
+        "MCP inspection paths are repository-relative (for example, "
+        "tests/test_example.py or src/package/module.py). Do not prefix a worktree name, "
+        "checkout folder, or s/; the MCP server already scopes paths to this repository.",
+    ]
+    selected_test = test_paths[0] if test_paths else None
+    failure_line: int | None = None
+    if selected_test:
+        normalized_test = selected_test.replace("\\", "/")
+        match = re.search(re.escape(normalized_test) + r":(\d+)", output)
+        if match:
+            failure_line = int(match.group(1))
+
+    module_aliases: dict[str, str] = {}
+    test_tree: ast.Module | None = None
+    test_function: ast.AST | None = None
+    test_source: list[str] = []
+    test_rel = Path(selected_test) if selected_test else None
+    if test_rel and safe_case_path(test_rel.as_posix()):
+        test_file = root / test_rel
+        try:
+            resolved_test = test_file.resolve(strict=True)
+            resolved_test.relative_to(root)
+            if test_file.is_symlink() or not resolved_test.is_file():
+                raise ValueError("frozen test path is not a regular repository file")
+            test_source = resolved_test.read_text(encoding="utf-8", errors="replace").splitlines()
+            test_tree = ast.parse("\n".join(test_source), filename=test_rel.as_posix())
+        except (OSError, UnicodeError, ValueError, SyntaxError):
+            test_tree = None
+
+    if test_tree is not None and test_source:
+        for node in test_tree.body:
+            if isinstance(node, ast.Import):
+                for item in node.names:
+                    alias = item.asname or item.name.split(".")[0]
+                    module_aliases[alias] = item.name
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                for item in node.names:
+                    alias = item.asname or item.name
+                    module_aliases[alias] = f"{node.module}.{item.name}"
+        if failure_line is not None:
+            test_function = next(
+                (
+                    node
+                    for node in ast.walk(test_tree)
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.lineno <= failure_line <= getattr(node, "end_lineno", node.lineno)
+                ),
+                None,
+            )
+        if test_function is None:
+            test_function = next(
+                (
+                    node
+                    for node in ast.walk(test_tree)
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name.startswith("test_")
+                ),
+                None,
+            )
+        if test_function is not None:
+            start = test_function.lineno
+            end = min(getattr(test_function, "end_lineno", start), start + 59)
+            sections.append(
+                f"Frozen failing test context — {test_rel.as_posix()}:{start}-{end}:\n"
+                + "\n".join(
+                    f"{line_no}: {test_source[line_no - 1]}"
+                    for line_no in range(start, end + 1)
+                )
+            )
+
+    if test_tree is not None and test_function is not None:
+        used_aliases = {
+            node.id for node in ast.walk(test_function) if isinstance(node, ast.Name)
+        }
+        imported_modules = sorted(
+            {module_aliases[alias] for alias in used_aliases.intersection(module_aliases)}
+        )
+        map_lines = ["Relevant repository map:"]
+        if test_rel is not None:
+            map_lines.append(f"- Frozen regression: {test_rel.as_posix()}")
+        map_lines.extend(f"- Imported source module: {module}" for module in imported_modules)
+        sections.insert(1, "\n".join(map_lines))
+        referenced_attributes: dict[str, set[str]] = {}
+        called_attributes: dict[str, set[str]] = {}
+        for node in ast.walk(test_function):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                if node.value.id in used_aliases:
+                    referenced_attributes.setdefault(node.value.id, set()).add(node.attr)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if isinstance(node.func.value, ast.Name):
+                    alias = node.func.value.id
+                    if alias in used_aliases:
+                        called_attributes.setdefault(alias, set()).add(node.func.attr)
+
+        for alias in sorted(used_aliases.intersection(module_aliases)):
+            module = module_aliases[alias]
+            module_rel = Path("src", *module.split("."))
+            module_candidates = [
+                root / module_rel.with_suffix(".py"),
+                root / module_rel / "__init__.py",
+            ]
+            source_file = next(
+                (
+                    candidate.resolve()
+                    for candidate in module_candidates
+                    if candidate.is_file() and not candidate.is_symlink()
+                ),
+                None,
+            )
+            if source_file is None or not source_file.is_relative_to(root):
+                continue
+            try:
+                source_text = source_file.read_text(encoding="utf-8", errors="replace")
+                source_lines = source_text.splitlines()
+                source_tree = ast.parse(
+                    source_text, filename=source_file.relative_to(root).as_posix()
+                )
+            except (OSError, UnicodeError, SyntaxError):
+                continue
+            calls = called_attributes.get(alias, set())
+            attributes = referenced_attributes.get(alias, set()) - calls
+            relevant: list[tuple[int, int]] = []
+            for node in source_tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+                    node.name in calls
+                    or any(
+                        isinstance(child, ast.Name) and child.id in attributes
+                        for child in ast.walk(node)
+                    )
+                ):
+                    end = min(getattr(node, "end_lineno", node.lineno), node.lineno + 49)
+                    relevant.append((node.lineno, end))
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)) and any(
+                    isinstance(child, ast.Name) and child.id in attributes
+                    for child in ast.walk(node)
+                ):
+                    start = max(1, node.lineno - 1)
+                    end = min(len(source_lines), node.end_lineno + 1)
+                    relevant.append((start, end))
+            if not relevant:
+                continue
+            rel = source_file.relative_to(root).as_posix()
+            excerpt_lines: list[str] = []
+            for start, end in relevant:
+                excerpt_lines.extend(
+                    f"{line_no}: {source_lines[line_no - 1]}"
+                    for line_no in range(start, end + 1)
+                )
+            sections.append(f"Imported source context — {rel}:\n" + "\n".join(excerpt_lines))
+
+    safe_failure = scrub_text(failure)
+    failure_lines = [
+        line
+        for line in safe_failure.splitlines()
+        if re.search(r"^_{5,} |^E\s|(?:tests?|test)\\?[/\\].*\.py:\d+|^\d+ failed|^FAILED ", line)
+    ]
+    failure_excerpt = "\n".join(failure_lines[-8:])[-900:]
+    if failure_excerpt:
+        sections.append(
+            "Observed baseline regression failure (before any repair):\n" + failure_excerpt
+        )
+    context = "\n\n".join(sections)
+    max_chars = 8_000
+    if len(context) > max_chars:
+        context = context[: max_chars - 40] + "\n[Context excerpt truncated safely.]"
+    return context
+
+
 def _benchmark_prompt() -> str:
     from core.untrusted import UNTRUSTED_DATA_SYSTEM_PROMPT_NOTE
 
     return f"""You are repairing a real historical bug in a disposable Python repository.
 
-The test-only regression patch is already present and fails on the selected parent commit.
-Use MCP tools to inspect the captured failure and source. Read only the relevant file and use
-targeted line ranges; do not reread the same content or list the entire repository. First run the
-selected failing regression test, then propose a minimal source-only repair, then rerun that test
+The test-only regression patch is already present and fails on the selected parent commit. Your
+initial message includes a concise repository map, the focused frozen test, the observed pre-fix
+failure, and imported source context from the prepared parent checkout. Treat it as sufficient:
+do not list files, and use at most one supplemental read_file/list_files call. Any optional
+read_file path must be repository-relative, without a worktree or checkout prefix. First run the
+selected failing regression test, propose a minimal source-only repair, then rerun that same test
 and the full suite. Emit a raw unified diff beginning with `diff --git`, with no Markdown fences,
 explanatory text, or function-call markers. If `propose_patch` reports an error, use that exact
 error to correct the diff and retry once; never resubmit an unchanged diff. Do not modify tests,
@@ -719,6 +922,7 @@ async def _run_arm_inner(
 ) -> dict[str, Any]:
     from core.db import session_scope
     from core.models import Error, HealJob, HealJobStatus, OpenResolvedStatus
+    from core.untrusted import wrap_untrusted
     from healer.backend_chain import BackendCooldownError
     from healer.mcp_client import connect_in_memory
     from healer.prompts import build_initial_messages
@@ -806,6 +1010,15 @@ async def _run_arm_inner(
                     heal_job_id=job_id,
                     worktree=worktree_name,
                     previous_attempts_summary=None,
+                )
+                context = _benchmark_context(
+                    repository_path=connected_path,
+                    repository_name=metadata["repository"],
+                    test_paths=metadata["test_paths"],
+                    failure=str(failure_result.get("output", "")),
+                )
+                messages[0]["content"] += "\n\nFocused repository context:\n" + wrap_untrusted(
+                    "benchmark_context", context
                 )
                 await _run_one_attempt(
                     anthropic_client=client,
