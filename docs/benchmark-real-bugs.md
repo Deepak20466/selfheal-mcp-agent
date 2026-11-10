@@ -25,6 +25,16 @@ model completion because the configured database role could not access the dispo
 Alembic version table. It produced no benchmark attempt and does not change the Gemini pilot score.
 See the [OpenRouter preflight report](evidence/openrouter-v9-pilot-preflight-2026-11-10.md).
 
+After the disposable database permissions were corrected and reverified, the frozen OpenRouter
+pilot resumed. It recorded three arm attempts across two of the ten selected cases: zero completed
+repairs (0/3), zero target-test passes, and zero full-suite passes. The exact model was still
+verified free before generation; 26 completion requests reported a total cost of $0.00. The run
+stopped after a request-cap event, a patch that did not apply, and a per-case token-cap event. Eight
+selected cases remain unattempted, so this is a partial result rather than a 10-case success rate.
+See the [OpenRouter results report](evidence/openrouter-v9-pilot-results-2026-11-10.md),
+[raw attempts](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not

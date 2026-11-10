@@ -43,6 +43,9 @@ SAFE_TOOL_NAMES = {"read_file", "list_files", "run_tests", "propose_patch"}
 # continue to use the canonical, explicitly allowlisted MCP tool name.
 SAFE_TOOL_ALIASES = {"repo_browser.list_files": "list_files"}
 OPENROUTER_BENCHMARK_REQUEST_LIMIT = 10
+# Keep benchmark traffic below OpenRouter's 50-request/day free-tier ceiling.
+# Ten requests are reserved for other previously verified free use of this key.
+OPENROUTER_BENCHMARK_DAILY_REQUEST_BUDGET = 40
 RATE_LIMIT_BACKOFF_BASE_SECONDS = 30
 MAX_AUTOMATIC_RATE_LIMIT_WAIT_SECONDS = 300
 REAL_BUG_DATABASE_HOST = "127.0.0.1"
@@ -963,6 +966,33 @@ def _latest_records(path: Path) -> dict[tuple[str, str], dict[str, Any]]:
     return rows
 
 
+def _openrouter_requests_used_today(path: Path, *, now: datetime | None = None) -> int:
+    """Count today's logged requests, including older run files and superseded attempts."""
+    files = sorted(path.glob("*.jsonl")) if path.is_dir() else [path]
+    today = (now or datetime.now(UTC)).astimezone(UTC).date()
+    total = 0
+    for file in files:
+        if not file.is_file():
+            continue
+        for line in file.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+                recorded_at = datetime.fromisoformat(
+                    str(row["recorded_at"]).replace("Z", "+00:00")
+                )
+                count = row.get("provider_request_count", 0)
+                if (
+                    recorded_at.tzinfo is not None
+                    and recorded_at.astimezone(UTC).date() == today
+                    and isinstance(count, int)
+                    and count > 0
+                ):
+                    total += count
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+    return total
+
+
 def _rate_limit_backoff_remaining(record: dict[str, Any]) -> float:
     """Return remaining cooldown, honoring Retry-After and capped exponential backoff."""
     attempt = record.get("rate_limit_attempt", 1)
@@ -1115,6 +1145,11 @@ async def _run_cases(
             if delay > 0:
                 await asyncio.sleep(delay)
     written: list[dict[str, Any]] = []
+    openrouter_requests_used = (
+        _openrouter_requests_used_today(run_file.parent)
+        if provider_name == "openrouter_api"
+        else 0
+    )
     for _case_dir, metadata, prepared in cases:
         for arm in ARMS:
             prior = previous.get((metadata["case_id"], arm))
@@ -1122,6 +1157,18 @@ async def _run_cases(
                 continue
             if limit is not None and len(previous) + len(written) >= limit:
                 return written
+            request_limit = None
+            if provider_name == "openrouter_api":
+                remaining_budget = (
+                    OPENROUTER_BENCHMARK_DAILY_REQUEST_BUDGET - openrouter_requests_used
+                )
+                if remaining_budget <= 0:
+                    print(
+                        "Free-model daily benchmark request budget exhausted; "
+                        "no further provider call was made. Resume after the UTC daily reset."
+                    )
+                    return written
+                request_limit = remaining_budget
             row = await _run_arm(
                 metadata=metadata,
                 prepared_record=prepared,
@@ -1132,6 +1179,7 @@ async def _run_cases(
                 token_limit=token_limit,
                 cost_limit=cost_limit,
                 timeout_seconds=timeout_seconds,
+                request_limit=request_limit,
             )
             row["free_tier_attested_by_operator"] = attested_free
             row["run_id"] = run_file.stem
@@ -1149,6 +1197,8 @@ async def _run_cases(
                 )
             _append_jsonl(run_file, row)
             written.append(row)
+            if provider_name == "openrouter_api":
+                openrouter_requests_used += int(row.get("provider_request_count", 0) or 0)
             if row.get("rate_limited") or row.get("failure_category") == "provider_error":
                 return written
     return written

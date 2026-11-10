@@ -1195,6 +1195,92 @@ def test_score_reader_preserves_every_attempt_row(tmp_path: Path) -> None:
     assert [row["status"] for row in rows] == ["failed", "resolved"]
 
 
+def test_openrouter_daily_budget_counts_every_same_day_record(tmp_path: Path) -> None:
+    run_file = tmp_path / "attempts.jsonl"
+    now = datetime(2026, 11, 10, 12, tzinfo=UTC)
+    records = [
+        {
+            "case_id": "same-case",
+            "arm": "with_validation",
+            "provider_request_count": 10,
+            "recorded_at": "2026-11-10T10:00:00+00:00",
+        },
+        {
+            "case_id": "same-case",
+            "arm": "with_validation",
+            "provider_request_count": 4,
+            "recorded_at": "2026-11-10T11:00:00+00:00",
+        },
+        {
+            "case_id": "older-case",
+            "arm": "with_validation",
+            "provider_request_count": 20,
+            "recorded_at": "2026-11-09T23:59:00+00:00",
+        },
+    ]
+    run_file.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
+    (tmp_path / "second-run.jsonl").write_text(
+        json.dumps(
+            {
+                "case_id": "another-case",
+                "arm": "without_validation",
+                "provider_request_count": 2,
+                "recorded_at": "2026-11-10T11:30:00+00:00",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert run_module._openrouter_requests_used_today(run_file, now=now) == 14
+    assert run_module._openrouter_requests_used_today(tmp_path, now=now) == 16
+
+
+def test_openrouter_resumed_run_passes_only_remaining_daily_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen_limits: list[int | None] = []
+
+    async def fake_arm(**kwargs: Any) -> dict[str, Any]:
+        seen_limits.append(kwargs["request_limit"])
+        return {
+            "case_id": kwargs["metadata"]["case_id"],
+            "arm": kwargs["arm"],
+            "provider_request_count": int(kwargs["request_limit"] or 0),
+            "failure_category": "request_cap",
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+
+    monkeypatch.setattr(run_module, "_run_arm", fake_arm)
+    run_file = tmp_path / "partial.jsonl"
+    prior = {
+        "case_id": "fixture-case",
+        "arm": "with_validation",
+        "provider_request_count": 10,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+    run_file.write_text(json.dumps(prior) + "\n", encoding="utf-8")
+    metadata = {"case_id": "fixture-case", "parent_sha": "a" * 40, "repository": "fixture"}
+
+    rows = asyncio.run(
+        run_module._run_cases(
+            cases=[(tmp_path, metadata, {})],
+            provider_name="openrouter_api",
+            run_file=run_file,
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout_seconds=10,
+            resume=True,
+            provider_client=object(),
+            model="fixture-model",
+            attested_free=True,
+        )
+    )
+
+    assert seen_limits == [run_module.OPENROUTER_BENCHMARK_DAILY_REQUEST_BUDGET - 10]
+    assert len(rows) == 1
+
+
 def test_model_tool_wrapper_rejects_git_history_tools() -> None:
     class FakeClient:
         async def call_tool(self, _name: str, _arguments: dict[str, Any]) -> Any:
