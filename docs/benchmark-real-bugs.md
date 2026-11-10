@@ -70,6 +70,14 @@ offline structured workflow suite passed 138 tests with 2 skipped. See the
 [raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/attempts.jsonl),
 and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/2026-11-10.md).
 
+Reviewing that published JSONL showed it retained the 495-byte size and `Diff does not touch any
+files` error but not the diff text itself. The record proves no path was parsed; it does not reveal
+whether the original had missing headers, Markdown, or another format issue. The runner now
+normalizes only enclosing fences and unambiguous one-file unified headers, rejects other forms,
+and retains a bounded exact candidate plus SHA256 when safe. Its request accounting caps each case
+by both daily headroom and the per-case allowance, reserving one in-budget request for a correction
+when possible. See [patch-format follow-up](evidence/openrouter-v10-patch-format-2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not

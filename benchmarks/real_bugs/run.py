@@ -244,6 +244,7 @@ class TracingMCPClient:
         self.full_suite_passed = False
         self.events: list[dict[str, Any]] = []
         self.last_patch: str | None = None
+        self.raw_patch_candidate: str | None = None
         self.patch_error: str | None = None
 
     def begin_model_turn(self) -> None:
@@ -311,8 +312,13 @@ class TracingMCPClient:
                 self.patch_attempts += 1
                 self.patch_turn = self.model_turn
                 self.retry_ready = False
-                self.last_patch = patch if isinstance(patch, str) else None
-                _validate_benchmark_patch(patch, self.allowed_source_paths)
+                self.raw_patch_candidate = patch if isinstance(patch, str) else None
+                self.last_patch = self.raw_patch_candidate
+                normalized_patch = _validate_benchmark_patch(
+                    patch, self.allowed_source_paths
+                )
+                self.last_patch = normalized_patch
+                arguments = {**arguments, "unified_diff": normalized_patch}
                 if not self.validated:
                     result = await self._apply_without_policy(arguments)
                 else:
@@ -389,22 +395,164 @@ class TracingMCPClient:
         }
 
 
-def _validate_benchmark_patch(patch: Any, allowed_source_paths: set[str]) -> None:
-    """Require a parseable, source-only diff before delegating to MCP apply guards."""
+def _validate_benchmark_patch(patch: Any, allowed_source_paths: set[str]) -> str:
+    """Validate formatting, paths, and source-only scope for one model diff."""
+    return _normalize_benchmark_patch(patch, allowed_source_paths)
+
+
+def _openrouter_request_budget(total_limit: int) -> tuple[int, int]:
+    """Reserve one request for the single correction without increasing the cap."""
+    if total_limit <= 1:
+        return max(total_limit, 0), 0
+    return total_limit - 1, 1
+
+
+def _bounded_openrouter_case_request_limit(daily_remaining: int) -> int:
+    """Apply both the per-case cap and remaining daily cap; neither can be bypassed."""
+    return min(OPENROUTER_BENCHMARK_REQUEST_LIMIT, max(daily_remaining, 0))
+
+
+def _patch_candidate_evidence(patch: str | None) -> dict[str, Any]:
+    """Retain bounded exact model output when it contains no scrubbed secrets."""
+    if patch is None:
+        return {"patch_candidate": None, "patch_candidate_sha256": None}
+    digest = hashlib.sha256(patch.encode("utf-8", errors="replace")).hexdigest()
+    if len(patch.encode("utf-8", errors="replace")) > 64 * 1024:
+        return {
+            "patch_candidate": None,
+            "patch_candidate_sha256": digest,
+            "patch_candidate_omitted": "over_64_KiB",
+        }
+    from sentinel.scrubber import scrub_text
+
+    if scrub_text(patch) != patch:
+        return {
+            "patch_candidate": None,
+            "patch_candidate_sha256": digest,
+            "patch_candidate_omitted": "sensitive_pattern_redacted",
+        }
+    return {
+        "patch_candidate": patch,
+        "patch_candidate_sha256": digest,
+    }
+
+
+def _normalize_benchmark_patch(patch: Any, allowed_source_paths: set[str]) -> str:
+    """Normalize only unambiguous wrappers and headers; reject unsupported patch forms."""
     from healer.mcp_client import MCPToolError
     from mcp_server.sandbox import SandboxViolation, check_diff_paths_writable, extract_diff_paths
 
     if not isinstance(patch, str) or not patch.strip():
         raise MCPToolError("patch is missing; provide one raw unified diff after diff generation")
-    if not patch.startswith("diff --git ") or "```" in patch or "<function call>" in patch.lower():
+    candidate = patch.strip()
+    if candidate.startswith("```"):
+        lines = candidate.splitlines()
+        if (
+            len(lines) < 4
+            or lines[0].strip().lower() not in {"```", "```diff", "```patch"}
+            or lines[-1].strip() != "```"
+        ):
+            raise MCPToolError(
+                "malformed patch: only a single enclosing Markdown diff fence is supported"
+            )
+        candidate = "\n".join(lines[1:-1]).strip()
+    if "```" in candidate or "<function call>" in candidate.lower():
         raise MCPToolError(
-            "malformed patch: provide a raw unified diff beginning with 'diff --git' "
-            "and no wrapper text"
+            "malformed patch: embedded Markdown or function-call text is not supported"
         )
+    lines = candidate.splitlines()
+    git_headers = [index for index, line in enumerate(lines) if line.startswith("diff --git ")]
+    if len(git_headers) > 1:
+        raise MCPToolError("malformed patch: exactly one source file is supported per repair diff")
+    if git_headers and git_headers[0] != 0:
+        raise MCPToolError("malformed patch: unexpected text precedes the diff")
+    if not git_headers and (len(lines) < 2 or not lines[0].startswith("--- ")):
+        raise MCPToolError("malformed patch: unexpected text precedes the file headers")
+
+    hunk_index = next((index for index, line in enumerate(lines) if line.startswith("@@")), None)
+    if hunk_index is None or not re.fullmatch(
+        r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?: .*)?", lines[hunk_index]
+    ):
+        raise MCPToolError("malformed diff: at least one unified hunk is required")
+    old_indices = [
+        index for index, line in enumerate(lines[:hunk_index]) if line.startswith("--- ")
+    ]
+    new_indices = [
+        index for index, line in enumerate(lines[:hunk_index]) if line.startswith("+++ ")
+    ]
+    if len(old_indices) > 1 or len(new_indices) > 1:
+        raise MCPToolError("malformed diff: multiple file header pairs are ambiguous")
+    if not git_headers and (old_indices != [0] or new_indices != [1]):
+        raise MCPToolError("malformed diff: bare file headers must be the first two lines")
+    if git_headers:
+        header_area = lines[git_headers[0] + 1 : hunk_index]
+        if not old_indices and not new_indices:
+            if any(not line.startswith("index ") for line in header_area):
+                raise MCPToolError("malformed diff: unsupported metadata before the hunk")
+        else:
+            if not old_indices or not new_indices or old_indices[0] >= new_indices[0]:
+                raise MCPToolError("malformed diff: expected ordered --- and +++ file headers")
+            if any(
+                not line.startswith("index ")
+                for index, line in enumerate(header_area, start=git_headers[0] + 1)
+                if index not in {old_indices[0], new_indices[0]}
+            ):
+                raise MCPToolError("malformed diff: unsupported metadata before the hunk")
+
+    def header_path(line: str, marker: str) -> tuple[str, str]:
+        value = line[len(marker) :]
+        path, separator, suffix = value.partition("\t")
+        if not path or " " in path or path.startswith('"'):
+            raise MCPToolError("malformed diff: file header path is ambiguous")
+        normalized_path = path[2:] if path.startswith(("a/", "b/")) else path
+        return normalized_path, separator + suffix if separator else ""
+
+    if git_headers:
+        git_index = git_headers[0]
+        match = re.fullmatch(r"diff --git a/([^\s]+) b/([^\s]+)", lines[git_index])
+        if not match or match.group(1) != match.group(2):
+            raise MCPToolError("malformed diff: git header must name one unchanged source path")
+        path = match.group(1)
+        if bool(old_indices) != bool(new_indices):
+            raise MCPToolError("malformed diff: both --- and +++ file headers are required")
+        if not old_indices:
+            # A git path plus a hunk uniquely identifies the file; synthesize only
+            # the two structural headers and leave all hunk content untouched.
+            candidate_lines = [
+                *lines[:hunk_index],
+                f"--- a/{path}",
+                f"+++ b/{path}",
+                *lines[hunk_index:],
+            ]
+            candidate = "\n".join(candidate_lines) + "\n"
+        else:
+            old_path, old_suffix = header_path(lines[old_indices[0]], "--- ")
+            new_path, new_suffix = header_path(lines[new_indices[0]], "+++ ")
+            if old_path != path or new_path != path:
+                raise MCPToolError("malformed diff: file headers do not match the git path")
+            lines[old_indices[0]] = f"--- a/{path}{old_suffix}"
+            lines[new_indices[0]] = f"+++ b/{path}{new_suffix}"
+            candidate = "\n".join(lines) + "\n"
+    else:
+        if not old_indices or not new_indices:
+            raise MCPToolError("malformed diff: missing git path or a complete ---/+++ header pair")
+        old_path, old_suffix = header_path(lines[old_indices[0]], "--- ")
+        new_path, new_suffix = header_path(lines[new_indices[0]], "+++ ")
+        if old_path != new_path or old_path == "/dev/null":
+            raise MCPToolError(
+                "malformed diff: additions, deletions, and renames are not supported"
+            )
+        path = old_path
+        lines[old_indices[0]] = f"--- a/{path}{old_suffix}"
+        lines[new_indices[0]] = f"+++ b/{path}{new_suffix}"
+        candidate = "\n".join([f"diff --git a/{path} b/{path}", *lines]) + "\n"
+
+    if len(candidate.encode("utf-8")) > 64 * 1024:
+        raise MCPToolError("patch exceeds the 64 KiB benchmark limit")
     try:
-        paths = extract_diff_paths(patch)
+        paths = extract_diff_paths(candidate)
         check_diff_paths_writable(
-            patch,
+            candidate,
             allowed_prefixes=sorted(
                 {
                     f"{Path(path).parent.as_posix()}/"
@@ -424,6 +572,9 @@ def _validate_benchmark_patch(patch: Any, allowed_source_paths: set[str]) -> Non
             "repair diff may change only the frozen case source file(s); rejected paths: "
             + ", ".join(disallowed[:5])
         )
+    if paths != {path}:
+        raise MCPToolError("malformed diff: parsed path does not match the normalized file header")
+    return candidate
 
 
 def _configure_database() -> str:
@@ -1155,9 +1306,22 @@ async def _run_arm_inner(
                 messages[0]["content"] += "\n\nFocused repository context:\n" + wrap_untrusted(
                     "benchmark_context", context
                 )
+                if provider_name == "openrouter_api" and request_limit is not None:
+                    initial_request_limit, correction_request_limit = _openrouter_request_budget(
+                        request_limit
+                    )
+                else:
+                    initial_request_limit, correction_request_limit = None, None
                 for correction_number in range(2):
                     remaining_tokens = token_limit - meter.input_tokens - meter.output_tokens
                     if remaining_tokens <= 0:
+                        break
+                    phase_request_limit = (
+                        initial_request_limit
+                        if correction_number == 0
+                        else correction_request_limit
+                    )
+                    if phase_request_limit == 0:
                         break
                     await _run_one_attempt(
                         anthropic_client=client,
@@ -1169,6 +1333,7 @@ async def _run_arm_inner(
                         tool_schemas=schemas,
                         system_prompt=_benchmark_prompt(context_sufficient=context_sufficient),
                         max_total_tokens=remaining_tokens,
+                        max_provider_requests=phase_request_limit,
                         model_name=model,
                     )
                     if trace.last_patch:
@@ -1281,6 +1446,9 @@ async def _run_arm_inner(
     retryable = False
 
     patch_changed_lines = _changed_line_count(trace.last_patch if trace else None)
+    patch_candidate_evidence = _patch_candidate_evidence(
+        trace.raw_patch_candidate if trace else None
+    )
     duration = time.monotonic() - started
     result = {
         "case_id": case_id_value,
@@ -1298,6 +1466,7 @@ async def _run_arm_inner(
         "patch_size_bytes": patch_bytes,
         "patch_changed_lines": patch_changed_lines,
         "patch_attempt_count": trace.patch_attempts if trace else 0,
+        **patch_candidate_evidence,
         "verification_history": verification_history,
         "duration_seconds": round(duration, 3),
         "input_tokens": meter.input_tokens,
@@ -1569,7 +1738,7 @@ async def _run_cases(
                         "no further provider call was made. Resume after the UTC daily reset."
                     )
                     return written
-                request_limit = remaining_budget
+                request_limit = _bounded_openrouter_case_request_limit(remaining_budget)
             row = await _run_arm(
                 metadata=metadata,
                 prepared_record=prepared,

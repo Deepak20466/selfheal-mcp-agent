@@ -31,6 +31,13 @@ completion did not submit a correction. The bounded outer correction was then st
 two-request daily headroom guard. The actual error and failing regression output were retained in
 the attempt record; the full suite was correctly not run while the target test failed.
 
+**Historical artifact limitation:** the published JSONL contains patch size and line-count
+metadata, but not the 495-byte candidate itself. Therefore the recorded parser error establishes
+that no file path was recognized, but does not distinguish missing file headers from another
+unparseable layout. It is not possible to truthfully label the original proposal as a Markdown,
+path, or header defect without that omitted text. New attempts now retain the bounded exact
+candidate and digest when it contains no scrubbed sensitive pattern.
+
 ## Workflow and offline verification
 
 The benchmark now follows DIAGNOSE, PATCH, APPLY, VERIFY, and RETRY phases. It can suppress
@@ -40,7 +47,9 @@ as raw unified diffs and may change only source files selected for the frozen ca
 sandbox and patch-policy checks still perform safe application in the isolated checkout. The
 runner independently re-runs the frozen regression and then the full suite after a passing
 regression. It passes actual apply or verification output into at most one correction, requires
-that correction to follow the previous tool-result turn, and enforces a two-patch maximum.
+that correction to follow the previous tool-result turn, and enforces a two-patch maximum. Each
+OpenRouter case is bounded by the smaller of its configured case cap and remaining daily budget;
+one request is reserved for a correction when the total allowance is at least two.
 
 Offline verification passed **138 tests, 2 skipped** across runtime recovery, real-bug benchmark,
 provider-adapter, and OpenRouter tests using `pytest --noconftest`. Ruff and `git diff --check`

@@ -192,3 +192,38 @@ def test_agent_stops_after_four_inspection_only_turns() -> None:
     assert provider.calls == 4
     assert result.success is False
     assert "inspection-only tool-turn limit" in result.root_cause
+
+
+def test_agent_respects_phase_provider_request_limit() -> None:
+    provider = _Provider(
+        [
+            _response(_tool_call("r1", "read_file", {"path": "src/a.py"})),
+            _response(SimpleNamespace(type="text", text="No second request is allowed.")),
+        ]
+    )
+
+    class ReadSource:
+        calls = 0
+
+        async def call_tool(self, _name: str, _arguments: dict[str, Any]) -> Any:
+            self.calls += 1
+            return {"content": "source"}
+
+    mcp = ReadSource()
+    result = asyncio.run(
+        _run_one_attempt(
+            anthropic_client=provider,
+            mcp=mcp,  # type: ignore[arg-type]
+            job_id=13,
+            worktree_name="test-worktree",
+            messages=[{"role": "user", "content": "repair this frozen failure"}],
+            tool_schemas=[],
+            max_total_tokens=1_000,
+            max_provider_requests=1,
+            model_name="offline-test-model",
+        )
+    )
+
+    assert provider.calls == 1
+    assert mcp.calls == 1
+    assert result.success is False

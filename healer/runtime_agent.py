@@ -340,6 +340,7 @@ async def _run_one_attempt(
     tool_schemas: list[dict[str, Any]],
     system_prompt: str = SYSTEM_PROMPT,
     max_total_tokens: int | None = None,
+    max_provider_requests: int | None = None,
     model_name: str | None = None,
 ) -> AttemptResult:
     """One iteration: converse with Claude, executing tool calls, until it stops."""
@@ -353,14 +354,18 @@ async def _run_one_attempt(
     successful_read_calls: set[str] = set()
     no_progress_turns = 0
     inspection_only_turns = 0
+    provider_requests = 0
 
     for _ in range(MAX_TOOL_CALLS_PER_ATTEMPT):
+        if max_provider_requests is not None and provider_requests >= max_provider_requests:
+            break
         token_count = total_input + total_output
         if max_total_tokens is not None and token_count >= max_total_tokens:
             break
         max_response_tokens = CLAUDE_MAX_TOKENS
         if max_total_tokens is not None:
             max_response_tokens = min(max_response_tokens, max_total_tokens - token_count)
+        provider_requests += 1
         response = await anthropic_client.messages.create(
             model=model_name or settings.anthropic_model,
             max_tokens=max_response_tokens,

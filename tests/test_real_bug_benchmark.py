@@ -226,7 +226,8 @@ def test_benchmark_patch_requires_valid_source_only_diff() -> None:
 
     for invalid, message in (
         (None, "patch is missing"),
-        ("```diff\\n" + good + "```", "malformed patch"),
+        ("prefix text\n" + good, "malformed patch"),
+        (good.replace("@@ -1 +1 @@", "@@ not a hunk @@"), "at least one unified hunk"),
         (
             good.replace("src/module.py", "../src/module.py"),
             "traversal|Invalid patch path",
@@ -235,9 +236,125 @@ def test_benchmark_patch_requires_valid_source_only_diff() -> None:
             good.replace("src/module.py", "tests/test_bug.py"),
             "outside the allowed scope",
         ),
+        (
+            good.replace(
+                "diff --git a/src/module.py b/src/module.py",
+                "diff --git a/src/module.py b/src/other.py",
+            ),
+            "must name one unchanged source path",
+        ),
     ):
         with pytest.raises(MCPToolError, match=message):
             run_module._validate_benchmark_patch(invalid, {"src/module.py"})
+
+
+def test_benchmark_patch_normalizes_supported_unambiguous_headers_and_fences() -> None:
+    bare = (
+        "--- src/module.py\n+++ src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    expected = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    assert run_module._validate_benchmark_patch(bare, {"src/module.py"}) == expected
+
+    missing_file_headers = (
+        "diff --git a/src/module.py b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    assert (
+        run_module._validate_benchmark_patch(missing_file_headers, {"src/module.py"})
+        == expected
+    )
+    assert run_module._validate_benchmark_patch(
+        f"```diff\n{expected}```", {"src/module.py"}
+    ) == expected
+
+
+def test_normalized_patch_applies_and_passes_test_in_isolated_checkout(tmp_path: Path) -> None:
+    checkout = tmp_path / "isolated-checkout"
+    source = checkout / "src" / "module.py"
+    test = checkout / "tests" / "test_bug.py"
+    source.parent.mkdir(parents=True)
+    test.parent.mkdir()
+    (source.parent / "__init__.py").write_text("", encoding="utf-8")
+    source.write_text("def fixed():\n    return True\n", encoding="utf-8")
+    test.write_text(
+        "from src.module import fixed\n\n"
+        "def test_frozen_regression():\n"
+        "    assert fixed() is False\n",
+        encoding="utf-8",
+    )
+    _git(checkout, "init", "--quiet")
+    _git(checkout, "config", "user.name", "Offline fixture")
+    _git(checkout, "config", "user.email", "offline@example.invalid")
+    _git(checkout, "add", "src", "tests")
+    _git(checkout, "commit", "--quiet", "-m", "baseline")
+
+    regression = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests/test_bug.py"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert regression.returncode != 0
+
+    candidate = (
+        "--- src/module.py\n+++ src/module.py\n@@ -1,2 +1,2 @@\n"
+        " def fixed():\n-    return True\n+    return False\n"
+    )
+    normalized = run_module._validate_benchmark_patch(candidate, {"src/module.py"})
+    checked = subprocess.run(
+        ["git", "apply", "--check", "-"],
+        cwd=checkout,
+        input=normalized,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    applied = subprocess.run(
+        ["git", "apply", "-"],
+        cwd=checkout,
+        input=normalized,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert applied.returncode == 0, applied.stderr
+
+    verified = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests/test_bug.py"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert "1 passed" in verified.stdout
+
+
+def test_openrouter_request_budget_reserves_single_correction_within_caps() -> None:
+    assert run_module._bounded_openrouter_case_request_limit(100) == 10
+    assert run_module._bounded_openrouter_case_request_limit(2) == 2
+    assert run_module._bounded_openrouter_case_request_limit(0) == 0
+    assert run_module._openrouter_request_budget(2) == (1, 1)
+    assert run_module._openrouter_request_budget(10) == (9, 1)
+    assert run_module._openrouter_request_budget(1) == (1, 0)
+
+
+def test_safe_patch_candidate_evidence_retains_exact_output_and_digest() -> None:
+    import hashlib
+
+    candidate = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    evidence = run_module._patch_candidate_evidence(candidate)
+    assert evidence["patch_candidate"] == candidate
+    assert evidence["patch_candidate_sha256"] == hashlib.sha256(
+        candidate.encode("utf-8")
+    ).hexdigest()
 
 
 def test_tracing_rejects_worktree_prefixed_inspection_path() -> None:
@@ -1471,7 +1588,7 @@ def test_openrouter_resumed_run_passes_only_remaining_daily_budget(
         )
     )
 
-    assert seen_limits == [run_module.OPENROUTER_BENCHMARK_DAILY_REQUEST_BUDGET - 10]
+    assert seen_limits == [run_module.OPENROUTER_BENCHMARK_REQUEST_LIMIT]
     assert len(rows) == 1
 
 
