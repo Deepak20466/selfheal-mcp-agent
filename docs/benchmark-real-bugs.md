@@ -19,6 +19,12 @@ remain unattempted. These outcomes and all raw records are saved under
 file is preserved unchanged. The v9 adapter fix and both leakage audits are committed separately
 from these historical outcomes. Do not resume into an existing result file.
 
+An OpenRouter v9 pilot preflight on 2026-11-10 verified the existing Free-tier key and the
+zero-priced, tool-capable `cohere/north-mini-code:free` endpoint. The run then stopped before any
+model completion because the configured database role could not access the disposable database's
+Alembic version table. It produced no benchmark attempt and does not change the Gemini pilot score.
+See the [OpenRouter preflight report](evidence/openrouter-v9-pilot-preflight-2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
