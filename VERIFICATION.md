@@ -76,6 +76,28 @@ ShopCart main is at [34c04c4](https://github.com/Deepak20466/ShopCart/commit/34c
 
 The current GitHub state was checked with gh on 2026-11-08: demo-01 PR #16 is merged, demo-02 PR #13 and demo-03 PR #10 remain open; ShopCart PRs #1-#4 are all merged. Links and individual ShopCart outcomes are recorded below and in the [recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md).
 
+## VIMJ local single-case repair evidence - 2026-11-10
+
+This is a separate local result, not a change to the 2026-11-08 `main` verification snapshot.
+Review of the saved artifacts confirmed a genuine response from OpenRouter model
+`cohere/north-mini-code:free` for the frozen VIMJ fee-balance case. The provider-reported inference
+cost was **$0.00**. Preflight records zero-price/free-model eligibility; billing-disabled and
+model-restricted key settings were operator-attested, not independently confirmed by the provider.
+
+The frozen case reproduced a balance of **INR 125 instead of INR 175**. The AI response contained
+the code change but not a valid unified-diff envelope and hunk coordinates, so raw patch validation
+rejected it. Recovery added exact file headers and recalculated hunk metadata from unique unchanged
+source context at line 155; the AI-authored code bytes were preserved. The original frozen test hash
+is recorded unchanged.
+
+The retained run logs report the exact frozen regression as **1 passed** and the complete VIMJ
+backend pytest suite as **30 passed**. These counts are from the saved logs, not independent test
+runs during this documentation update. The patch was applied only in an isolated VIMJ checkout
+using SQLite. No VIMJ production data, commit, or pull request is claimed. This one-case result does
+not measure the mined-corpus benchmark or demonstrate a complete autonomous repair-to-PR workflow.
+See the [sanitized evidence report](docs/evidence/vimj-fee-balance-2026-11-10.md) and
+[published normalized patch](docs/evidence/vimj-fee-balance-2026-11-10.patch).
+
 ## Historical feature-branch verification - feat/real-bug-benchmark (2026-11-07)
 
 This section preserves the local audit of feat/real-bug-benchmark as it stood before review on 2026-11-07; it is historical rather than current-main verification. No real provider

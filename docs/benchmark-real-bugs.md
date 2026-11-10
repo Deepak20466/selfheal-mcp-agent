@@ -19,6 +19,12 @@ remain unattempted. These outcomes and all raw records are saved under
 file is preserved unchanged. The v9 adapter fix and both leakage audits are committed separately
 from these historical outcomes. Do not resume into an existing result file.
 
+A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
+repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
+normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
+create a VIMJ commit or pull request and is not a result from this benchmark runner. See the
+[VIMJ evidence report](evidence/vimj-fee-balance-2026-11-10.md).
+
 **Diagnostic-request disclosure:** before the test environment was made hermetic, one targeted
 test rerun sent unmatched diagnostic requests to Gemini's endpoint using the deliberately fake
 test key installed by `tests/conftest.py`; Gemini returned HTTP 400. The recorded adjustment note
@@ -267,7 +273,7 @@ The VIMJ budget-v2 one-case harness caps aggregate input plus output tokens at
 limit of 50 requests/day. See the VIMJ runbook for its full attestation and
 evidence procedure. The current separately versioned VIMJ route uses Gemini 2.5 Flash through
 `GeminiApiClient`; its exact budget and account-level free-tier gates are documented in the
-[VIMJ evaluation record](docs/unresolved-bug-evaluation.md). The preserved Cohere/OpenRouter files
+[VIMJ evaluation record](unresolved-bug-evaluation.md). The preserved Cohere/OpenRouter files
 and attempt evidence remain historical and unchanged.
 
 Score one or more JSONL files with:

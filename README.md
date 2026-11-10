@@ -1,17 +1,16 @@
-# Selfheal
+# SelfHeal MCP Agent
+
+AI-powered incident-to-patch automation with scoped MCP repository tools, policy-checked diffs,
+isolated tests, and human-reviewed pull requests.
 
 [![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
 [![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
 
-- Capture runtime, contract, and CI failures.
-- Gather scoped repository context through MCP tools.
-- Propose candidate patches with a configured AI backend.
-- Check patch policy and run tests in an isolated worktree.
-- Open a GitHub pull request when verification succeeds.
+![Synthetic Selfheal repair-to-PR demo](docs/demo-e2e-repairs.gif)
 
-![Selfheal repair-to-PR demo](docs/demo-e2e-repairs.gif)
-
-[Repair-to-PR video](docs/demo-e2e-repairs.mp4) · [Terminal walkthrough](docs/demo-terminal.mp4)
+[Synthetic repair-to-PR walkthrough](docs/demo-e2e-repairs.mp4) ·
+[VIMJ single-case repair demo (1080p, 2:08)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo.mp4) ·
+[Terminal walkthrough](docs/demo-terminal.mp4)
 
 Python 3.11+ · FastAPI · PostgreSQL · SQLAlchemy/Alembic · MCP · Typer · GitHub Actions
 
@@ -35,7 +34,7 @@ provider and do not fall back to another. The repository MCP surface includes er
 file listing/reading, patch proposal, and sandboxed test execution. See [backend selection](docs/operations.md)
 and [security boundaries](docs/architecture.md).
 
-## Tested on
+## Demonstrations & Verified Results
 
 | Repository | Classification | Verified scope and current outcome |
 |---|---|---|
@@ -44,9 +43,7 @@ and [security boundaries](docs/architecture.md).
 | [`selfheal-e2e-demo-03`](https://github.com/Deepak20466/selfheal-e2e-demo-03) | Synthetic, AI-generated repair | Controlled repair-to-PR trial; PR [#10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) and CI passed; PR #10 remains open. |
 | [`multi-agent-workspace`](https://github.com/Deepak20466/multi-agent-workspace) | Manual, engineer-directed and Claude-assisted | Dogfooding exposed two Selfheal defects, fixed in Selfheal commits [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6). The PyPDF2 repair did not converge; a separate manual PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged despite unrelated failing CI. |
 | [ShopCart](https://github.com/Deepak20466/ShopCart) | Manual changes; AI-prepared onboarding | Selfheal onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) needed manual setup repair before CI ran. The pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2); clean-build work was PR [#3](https://github.com/Deepak20466/ShopCart/pull/3); safe dependency updates were PR [#4](https://github.com/Deepak20466/ShopCart/pull/4). All four are merged. PR #4 reduced audit findings from 36 (5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). |
-| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Codex-assisted, not Selfheal-autonomous | VIMJ PR [#1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1) fixes a SQLite naive/aware password-reset expiry comparison; its backend CI passed 30 tests. The reproduction is SQLite-specific and was not verified against production PostgreSQL. |
-| [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
-| [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system) | Manual GitHub search | No Selfheal run recorded in the reviewed PR, issue, and Actions listings. |
+| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Isolated real-application repair; AI-generated code | At frozen commit [`6490833`](https://github.com/Deepak20466/vimj-studio-os-saas/commit/6490833d178b71624d024b16046240a20a3f78a6), the unpaid balance was ₹125; expected ₹175. One genuine AI-generated repair required patch metadata normalization. Saved local logs report the frozen regression **1 passed** and complete backend suite **30 passed**. No VIMJ PR or merge was created. [Evidence](docs/evidence/vimj-fee-balance-2026-11-10.md). |
 
 ## Manually reported bugs
 
@@ -80,10 +77,10 @@ The dated outcomes and evidence links are in [VERIFICATION.md](VERIFICATION.md) 
 
 ## Real-bug benchmark status
 
-Benchmark status: the predetermined 10-case pilot remains incomplete. Five attempt records across
+The mined Gemini benchmark's predetermined 10-case pilot remains incomplete. Five attempt records across
 v5, v7, and v8 cover two selected bugs; two v5/v7 requests timed out, and three v8 requests failed
 with Gemini HTTP 400 because conversation history omitted thought signatures for function calls.
-No repair completed; eight selected cases remain unattempted. v9 preserves the original cohort and
+No pilot repair completed; eight selected cases remain unattempted. v9 preserves the original cohort and
 pilot IDs and fixes Gemini Part/function-response round-tripping. See the [real-bug benchmark
 report](docs/benchmark-real-bugs.md) and [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
 The historical fixture benchmark remains separate.
@@ -104,6 +101,10 @@ regression, exact source allowlist, 32,768-token budget, 10-request cap, 600-sec
 free-only requirement. Historical Cohere/OpenRouter and Groq evidence remains unchanged. Mocked
 offline tests exercise the Gemini MCP patch workflow; no live Gemini attempt or autonomous repair
 result is claimed. See the [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
+
+The completed isolated fee-balance repair in the results table is separate from these benchmark
+attempts and is not an aggregate benchmark result. Aggregate performance across the 41-case corpus
+remains unmeasured; the pilot and single-case results are not general success rates.
 
 ## Architecture
 
@@ -163,9 +164,9 @@ recovery. Tests and API-backed demos do not establish kernel-level sandbox escap
 Historical Claude Code costs are subscription-usage records, not API billing measurements. Provider
 prices and quotas can change; the provider API could not attest the earlier free-tier account's full
 billing state. The available evidence does not include an independent review of that billing
-ledger. No Selfheal run was found for VIMJ or either Attendance Academy repository in the reviewed
-session logs, PRs, or Actions records. VIMJ PR #1 is a separate Codex-assisted change, not an agent
-repair.
+ledger. The VIMJ fee-balance repair was local and isolated; it created no VIMJ PR or hosted repair
+workflow. No remote SelfHeal run was found for either Attendance Academy repository in the reviewed
+session logs, PRs, or Actions records. VIMJ PR #1 is a separate Codex-assisted password-reset fix.
 
 For complete dated results and limitations, see [VERIFICATION.md](VERIFICATION.md),
 [the evidence ledger](docs/history/RECOVERED_EVIDENCE.md), and the separate
@@ -181,6 +182,7 @@ current terminal-first product.
 - [Runtime error demo](examples/runtime_demo/README.md)
 - [Three-minute interview walkthrough](docs/interview-demo.md)
 - [Real-bug benchmark method](docs/benchmark-real-bugs.md)
+- [Verified VIMJ single-case evidence](docs/evidence/vimj-fee-balance-2026-11-10.md)
 - [Historical fixture benchmark](docs/benchmark.md)
 - [Verification report](VERIFICATION.md)
 - [Recovered evidence](docs/history/RECOVERED_EVIDENCE.md)
