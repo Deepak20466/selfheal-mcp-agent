@@ -1,8 +1,61 @@
 # Changelog
 
+## Unreleased — 2026-11-09
+
+### Fixed
+- **Groq temporary TPM exhaustion after a successful turn**: the v3 diagnostic showed a 6,818-token
+  prompt estimate with 5,936 TPM remaining after one successful API response. V4 now waits once for
+  the exact server token-reset header only if the unchanged conversation plus minimum output fits a
+  fresh 8,000-token window and the request deadline permits it. If no usable reset time is available,
+  or the request cannot fit a fresh window, the adapter stops before sending. Offline regressions
+  cover both the exact 6,818/5,936 case and a request that cannot fit a fresh allowance.
+
+### Evidence
+- Preserved v3 diagnostic: one successful provider response (1,505 input and 89 output tokens),
+  then a local budget rejection; 2.438 seconds, cost unknown, and no repair. V4 keeps all 41 cases,
+  the original pilot IDs, prompts, and scoring; the full, pilot, and diagnostic leakage audits pass.
+  No v4 provider request was made.
+- VIMJ PR #1 remains a separate Codex-assisted SQLite timestamp repair, not a Selfheal repair. Its
+  backend suite and PR CI passed; production PostgreSQL behavior was not verified.
+
 ## Unreleased — 2026-11-07
 
+### Fixed
+- **Groq free-tier token budgeting**: after v2 recorded a TPM 429 and a request-length HTTP 400,
+  every Groq request now budgets prompt plus completion against the current 8,000 TPM allowance and
+  the 131,072-token model context. It uses provider remaining-token headers, visibly compacts only
+  rediscoverable file listings and non-diagnostic test-log lines, and fails closed if essential
+  evidence cannot fit. A confirmed temporary TPM 429 can retry once at the exact server delay only
+  if it is bounded to 60 seconds and fits the remaining case deadline. Daily quota is never retried.
+  V3 keeps the existing model, timeouts, case list, scoring, and case token cap. Offline regressions
+  cover the v2 429/400, multi-turn growth, preservation of test evidence and tool IDs, deadline
+  handling, and no daily-quota retry. No new provider call was made.
+- **Gemini function-call history**: preserve each complete original model Part (including opaque
+  thought signatures) in subsequent `generateContent` requests. Match function responses by the
+  returned function name and call ID, preserving model Part/call order for sequential and parallel
+  calls. Added offline regressions for the reported `run_tests` HTTP 400 and multi-call histories.
+  Frozen v9 keeps the v4-v8 files, original 41 cases, and pilot IDs unchanged; both v9 leakage
+  audits pass.
+- **Gemini benchmark request deadline propagation**: the runner now passes the remaining case
+  deadline to the Gemini HTTP client instead of allowing its fixed 120-second timeout to outlive
+  the runner's case budget. HTTPX timeouts are classified at the provider-request boundary with
+  their cause preserved; no automatic retry was added. Frozen v8 preserves the existing cohort and
+  pilot IDs. Regression coverage checks timeout propagation and prevents requests after expiry.
+
+### Evidence
+- Five saved v5/v7/v8 attempt records cover two bugs: two request timeouts and three Gemini HTTP
+  400 errors from missing thought signatures. No repair completed; eight pilot IDs remain
+  unattempted. The saved score report and raw records are linked from
+  `docs/benchmark-real-bugs.md`. No new Gemini request was made for the v9 fix.
+
 ### Added
+- **Separate GroqCloud frozen benchmark**: preserves v1/v2 freezes and their two diagnostic
+  failures, and adds v3-v5 with the same 41 cases, original ten pilot IDs, prompts, scoring rules,
+  and case limits. V3 recorded one failed diagnostic after one successful API response; V4 adds a
+  bounded wait for the exact TPM reset header. V5 maps only the observed `repo_browser.list_files`
+  alias to the explicitly allowed `list_files` tool and rejects other namespaces. V5's three
+  leakage audits pass; no v5 provider call or repair result is claimed. See
+  `docs/groqcloud-repair.md` for the operator-run command and VIMJ evidence.
 - **Mined historical bug benchmark** (`benchmarks/real_bugs/`): repository mining, flaky-case
   preparation, a production-loop provider/MCP runner, validation-policy ablation, resumable JSONL
   records, and result scoring. Offline fixture tests cover mining, preparation, and scoring. No

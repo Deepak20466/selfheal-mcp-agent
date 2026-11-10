@@ -37,9 +37,16 @@ class BackendCooldownError(Exception):
     failure -- classifies as "try the next backend", not a normal failure.
     """
 
-    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after_seconds: int | None = None,
+        status_code: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.retry_after_seconds = retry_after_seconds
+        self.status_code = status_code
 
 
 _cooldowns: dict[str, datetime] = {}

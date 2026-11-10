@@ -30,6 +30,15 @@ class ModelPricing:
 
 
 _PRICING: dict[str, ModelPricing] = {
+    # OpenRouter's VIMJ allowlisted free endpoint has zero input/output
+    # pricing. Its API usage report is independently required to confirm the
+    # actual per-completion cost before the benchmark accepts a response.
+    "cohere/north-mini-code:free": ModelPricing(
+        input_per_mtok=Decimal("0"),
+        output_per_mtok=Decimal("0"),
+        cache_write_per_mtok=Decimal("0"),
+        cache_read_per_mtok=Decimal("0"),
+    ),
     "claude-sonnet-5": ModelPricing(
         input_per_mtok=Decimal("2.00"),
         output_per_mtok=Decimal("10.00"),

@@ -64,7 +64,7 @@ def _gemini_model_list(*names: str) -> dict[str, Any]:
 def _repository(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
-    (root / "src" / "app.py").write_text("return 1\n", encoding="utf-8")
+    (root / "src" / "app.py").write_text("return 1\n", encoding="utf-8", newline="\n")
     return root
 
 

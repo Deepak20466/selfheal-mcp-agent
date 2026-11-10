@@ -50,6 +50,8 @@ def gemini_has_no_confirmed_quota(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
     monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "true")
     monkeypatch.setenv("GEMINI_QUOTA_CHECKED_UTC", datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    monkeypatch.setenv("GEMINI_38_FLASH_FREE_QUOTA", "false")
+    monkeypatch.setenv("GEMINI_35_FLASH_LITE_FREE_QUOTA", "false")
     monkeypatch.setenv("GEMINI_25_PRO_FREE_QUOTA", "false")
     monkeypatch.setenv("GEMINI_25_FLASH_FREE_QUOTA", "false")
 
@@ -68,7 +70,7 @@ def _repository(tmp_path: Path) -> Path:
     repository = tmp_path / "repository"
     (repository / "src").mkdir(parents=True)
     (repository / "tests").mkdir()
-    (repository / "src" / "app.py").write_text("return 1\n", encoding="utf-8")
+    (repository / "src" / "app.py").write_text("return 1\n", encoding="utf-8", newline="\n")
     return repository
 
 
@@ -228,6 +230,33 @@ def test_free_endpoint_check_requires_live_zero_price_for_exact_variant(
         openrouter_repair.InferenceError, match="no currently available zero-priced"
     ):
         openrouter_repair.verify_free_endpoint("vendor/model:free", TEST_API_KEY)
+
+
+def test_openrouter_endpoint_requires_advertised_function_calling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        openrouter_repair,
+        "_request",
+        lambda *_args, **_kwargs: {
+            "data": {
+                "id": "cohere/north-mini-code:free",
+                "endpoints": [
+                    {
+                        "status": 0,
+                        "pricing": {"prompt": "0", "completion": "0"},
+                        "supported_parameters": ["tools"],
+                    }
+                ],
+            }
+        },
+    )
+    openrouter_repair.verify_free_endpoint(
+        "cohere/north-mini-code:free", TEST_API_KEY, required_parameter="tools"
+    )
+
+    with pytest.raises(openrouter_repair.InferenceError, match="required capability"):
+        openrouter_repair.verify_free_endpoint("cohere/north-mini-code:free", TEST_API_KEY)
 
 
 def test_documented_free_tier_key_metadata_is_required(
@@ -435,6 +464,37 @@ def test_nonzero_model_price_fails_before_completion(monkeypatch: pytest.MonkeyP
 
     with pytest.raises(openrouter_repair.InferenceError, match="zero prompt and completion"):
         openrouter_repair.verify_free_model("vendor/model:free", TEST_API_KEY)
+
+
+def test_openrouter_model_context_and_output_limits_are_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response = {
+        "data": [
+            {
+                "id": "cohere/north-mini-code:free",
+                "pricing": {"prompt": "0", "completion": "0"},
+                "context_length": 256_000,
+                "top_provider": {"context_length": 256_000, "max_completion_tokens": 65_536},
+            }
+        ]
+    }
+    monkeypatch.setattr(openrouter_repair, "_request", lambda *_args, **_kwargs: response)
+    openrouter_repair.verify_free_model(
+        "cohere/north-mini-code:free",
+        TEST_API_KEY,
+        minimum_context_tokens=32_768,
+        minimum_completion_tokens=4_096,
+    )
+
+    response["data"][0]["top_provider"]["max_completion_tokens"] = 2_048
+    with pytest.raises(openrouter_repair.InferenceError, match="output limit"):
+        openrouter_repair.verify_free_model(
+            "cohere/north-mini-code:free",
+            TEST_API_KEY,
+            minimum_context_tokens=32_768,
+            minimum_completion_tokens=4_096,
+        )
 
     monkeypatch.setattr(
         openrouter_repair,

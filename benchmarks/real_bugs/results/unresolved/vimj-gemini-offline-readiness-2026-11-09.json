@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "vimj-gemini-2.5-flash-context-v1-2026-11-09",
+  "provider": "gemini_api",
+  "model": "gemini-2.5-flash",
+  "live_provider_calls": 0,
+  "live_call_authorized": false,
+  "genuine_model_generated_patch": null,
+  "permitted_source_paths": ["app/routers/fees.py"],
+  "per_case_token_cap": 32768,
+  "per_case_request_cap": 10,
+  "max_case_seconds": 600,
+  "per_case_cost_cap_usd": "0",
+  "gemini_account_free_quota_verified": false,
+  "gemini_account_billing_disabled_verified": false,
+  "api_cost_usd": "0",
+  "api_cost_basis": "verified zero provider requests; account quota and billing status were not verified",
+  "offline_baseline_preflight": {
+    "status": "baseline_failed_as_expected",
+    "provider_calls": 0,
+    "evidence_file": "vimj-gemini-offline-preflight-2026-11-09.jsonl",
+    "observed_failure": "Decimal('125.00') != Decimal('175')"
+  },
+  "offline_gemini_client_workflow": {
+    "status": "passed_with_mocked_generate_content",
+    "coverage": [
+      "MCP tool-call loop through GeminiApiClient",
+      "out-of-allowlist patch rejected",
+      "permitted synthetic patch applied",
+      "synthetic regression tool passed",
+      "full-suite tool path exercised"
+    ],
+    "is_genuine_model_evidence": false,
+    "test_file": "tests/test_unresolved_real_bug_eval.py"
+  },
+  "full_backend_suite": {
+    "status": "passed",
+    "command": "python scripts/test_with_ephemeral_postgres.py",
+    "database": "disposable PostgreSQL 16.2 cluster; database selfheal_test; random loopback port",
+    "passed": 922,
+    "skipped": 12,
+    "failed": 0,
+    "duration_seconds": 824.87
+  },
+  "database_diagnosis": {
+    "localhost_5432_listener": false,
+    "127_0_0_1_5434_listener": true,
+    "5434_read_only_auth_check": "invalid password for app selfheal_test credentials",
+    "database_modified": false
+  },
+  "frozen_regression_after_repair": "not_run_no_genuine_patch",
+  "autonomous_repair_verdict": "NO-GO",
+  "benchmark_verdict": "NO-GO",
+  "blockers": [
+    "separate user authorization is required before any live Gemini request",
+    "Google AI Studio free quota and disabled billing are not verified",
+    "GEMINI_API_KEY and live attestations are unavailable",
+    "valid credentials for isolated selfheal_real_bug_test on port 5434 are unavailable"
+  ]
+}

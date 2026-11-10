@@ -1,0 +1,55 @@
+{
+  "audit_rule": "A later-commit message is a collision only when its complete text occurs case-insensitively, with runs of whitespace normalized and word boundaries around the message in the model context. A collision is GENERIC only when it has at most four whitespace-separated words, occurs as a whole phrase in ordinary prepared-repository text, contains none of the fixed defect/fix/test/error/security terms or issue/version/path/commit/code identifiers, and does not otherwise describe a defect, fix, or related issue. Ambiguous matches are INFORMATIVE. A case is retained only when all its matches are GENERIC; a case with no matches passes. Repeated identical messages are deduplicated per case while retaining the count and union of locations.",
+  "checks": [
+    {
+      "case_id": "attrs-73dc0d2e2860",
+      "fix_and_later_commit_hashes_absent": true,
+      "fix_commit_message_absent": true,
+      "fix_message_in_initial_prompt": false,
+      "fix_message_in_repository_files": false,
+      "forbidden_token_count_checked": 201,
+      "history_tools_not_exposed": true,
+      "human_fix_diff_absent": true,
+      "later_git_history_absent": true,
+      "later_message_in_initial_prompt": false,
+      "later_message_in_repository_files": true,
+      "later_message_strings_absent_from_model_context": false,
+      "later_message_text_collision_count": 1,
+      "later_message_text_collisions": [
+        {
+          "classification": "GENERIC",
+          "classification_reason": "at most four words; occurs as a whole phrase in repository text; no defect/fix/test/error/security terms or technical identifiers",
+          "initial_user_messages": false,
+          "occurrence_count": 1,
+          "repository_paths": [
+            ".github/CONTRIBUTING.md",
+            "docs/types.md",
+            "src/attr/_cmp.py",
+            "src/attr/_make.py",
+            "tests/test_compat.py",
+            "tests/test_make.py"
+          ],
+          "system_prompt": false,
+          "text": "update",
+          "word_count": 1
+        }
+      ],
+      "metadata_hashes_absent": true,
+      "no_informative_message_leakage": true,
+      "scoring_metadata_and_diff_absent": true,
+      "snapshot_contains_only_synthetic_commit": true
+    }
+  ],
+  "config_sha256": "01f9782d1e70bbcb6bb09a78f92048708bd119b1a318a66948d61616f09da544",
+  "dropped_cases": [],
+  "generated_at": "2026-11-08T22:22:58.863375+00:00",
+  "kept_case_ids": [
+    "attrs-73dc0d2e2860"
+  ],
+  "method": "Audited every case ID in the supplied config. Built the same initial user message and system prompt as the benchmark, scanned all readable workspace files, and checked fixing-commit metadata, human scoring artifacts, model-visible Git history, safe tool names, and complete later-message strings. Applied the written audit rule uniformly; any informative or ambiguous match drops its case.",
+  "passed": true,
+  "sample_case_ids": [
+    "attrs-73dc0d2e2860"
+  ],
+  "sample_size": 1
+}

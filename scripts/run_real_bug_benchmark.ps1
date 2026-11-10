@@ -2,26 +2,132 @@ $ErrorActionPreference = "Stop"
 $RootDir = Split-Path -Parent $PSScriptRoot
 Set-Location $RootDir
 $Python = if ($env:PYTHON) { $env:PYTHON } else { "python" }
-$Date = & $Python -c "from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime('%Y-%m-%d'))"
+$FrozenConfig = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4.json"
+$FrozenHash = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4.sha256"
+$LeakageAudit = "benchmarks/real_bugs/frozen/2026-11-08-gemini-3.8-flash-v4-leakage-check.json"
+$RunId = "2026-11-08-gemini-3.8-flash-v4"
 $Results = "benchmarks/real_bugs/results"
 $Runs = Join-Path $Results "runs"
-New-Item -ItemType Directory -Force -Path $Runs | Out-Null
+$Logs = Join-Path $Results "logs"
+$TranscriptPath = Join-Path $Logs "$RunId.log"
+$HadAppDatabaseUrl = -not [string]::IsNullOrEmpty($env:DATABASE_URL)
+$OriginalAppDatabaseUrl = $env:DATABASE_URL
 
-if (!$env:REAL_BUG_PROVIDER) { throw "Set REAL_BUG_PROVIDER to groq_api or openrouter_api and configure its free-tier key." }
-if (!$env:REAL_BUG_DATABASE_URL) { throw "Set REAL_BUG_DATABASE_URL to a running, disposable local PostgreSQL database ending in _test." }
+New-Item -ItemType Directory -Force -Path $Runs, $Logs | Out-Null
+if (-not (Test-Path -LiteralPath $FrozenConfig) -or -not (Test-Path -LiteralPath $FrozenHash)) {
+    throw "The committed frozen case config or hash is missing."
+}
+$ExpectedHash = (Get-Content -LiteralPath $FrozenHash -Raw).Trim().Split()[0].ToLowerInvariant()
+$ActualHash = (Get-FileHash -LiteralPath $FrozenConfig -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($ActualHash -ne $ExpectedHash) { throw "Frozen case config hash mismatch." }
+if (-not (Test-Path -LiteralPath $LeakageAudit)) { throw "The committed leakage audit is missing." }
+$AuditReport = Get-Content -LiteralPath $LeakageAudit -Raw | ConvertFrom-Json
+if (-not $AuditReport.passed -or $AuditReport.config_sha256 -ne $ActualHash) {
+    throw "The leakage audit did not pass for this frozen config."
+}
 
-& $Python -m benchmarks.real_bugs.mine
-if ($LASTEXITCODE -ne 0) { throw "Historical bug mining failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.prepare
-if ($LASTEXITCODE -ne 0) { throw "Historical bug preparation failed with exit code $LASTEXITCODE." }
-$Full = Join-Path $Runs "$Date-full.jsonl"
-$RepeatA = Join-Path $Runs "$Date-repeat-a.jsonl"
-$RepeatB = Join-Path $Runs "$Date-repeat-b.jsonl"
-& $Python -m benchmarks.real_bugs.run --run-file $Full --token-cap 40000 --cost-cap-usd 0 --timeout 240 --resume
-if ($LASTEXITCODE -ne 0) { throw "Full benchmark run failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.run --run-file $RepeatA --token-cap 40000 --cost-cap-usd 0 --timeout 240 --limit 20 --resume
-if ($LASTEXITCODE -ne 0) { throw "First repeat run failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.run --run-file $RepeatB --token-cap 40000 --cost-cap-usd 0 --timeout 240 --limit 20 --resume
-if ($LASTEXITCODE -ne 0) { throw "Second repeat run failed with exit code $LASTEXITCODE." }
-& $Python -m benchmarks.real_bugs.score $Full $RepeatA $RepeatB --output-dir $Results
-if ($LASTEXITCODE -ne 0) { throw "Scoring failed with exit code $LASTEXITCODE." }
+if ([string]::IsNullOrEmpty($env:GEMINI_API_KEY)) { throw "GEMINI_API_KEY is missing." }
+if ([string]::IsNullOrEmpty($env:PGPASSWORD)) { throw "PGPASSWORD is missing." }
+if ($env:I_CONFIRM_GEMINI_FREE_TIER_AND_NO_BILLING -cne "yes") {
+    throw "The free-tier/no-billing confirmation is missing or invalid."
+}
+foreach ($Name in @(
+    "REAL_BUG_FREE_TIER_CONFIRMED",
+    "REAL_BUG_BILLING_DISABLED",
+    "GEMINI_FREE_TIER_CONFIRMED",
+    "GEMINI_38_FLASH_FREE_QUOTA"
+)) {
+    if ([Environment]::GetEnvironmentVariable($Name, "Process") -cne "true") {
+        throw "Required operator attestation is missing or invalid."
+    }
+}
+
+$EncodedPassword = [Uri]::EscapeDataString($env:PGPASSWORD)
+$env:REAL_BUG_DATABASE_URL = "postgresql+asyncpg://postgres:$EncodedPassword@127.0.0.1:5434/selfheal_real_bug_test"
+$env:REAL_BUG_PROVIDER = "gemini_api"
+$env:GEMINI_API_MODEL = "gemini-3.8-flash"
+if (-not $HadAppDatabaseUrl) {
+    # Used only by the runner's database-name safety check; benchmark code
+    # replaces DATABASE_URL with REAL_BUG_DATABASE_URL before connecting.
+    $env:DATABASE_URL = "postgresql+asyncpg://postgres@127.0.0.1:5434/selfheal"
+}
+
+$Full = Join-Path $Runs "$RunId-full.jsonl"
+$RepeatA = Join-Path $Runs "$RunId-repeat-a.jsonl"
+$RepeatB = Join-Path $Runs "$RunId-repeat-b.jsonl"
+$RunSpecs = @(
+    @{ Path = $Full; Limit = 0 },
+    @{ Path = $RepeatA; Limit = 20 },
+    @{ Path = $RepeatB; Limit = 20 }
+)
+
+function Invoke-BenchmarkRun {
+    param([string]$RunFile, [int]$Limit = 0)
+
+    $ParsedQuotaTimestamp = [DateTimeOffset]::MinValue
+    $TimestampValid = [DateTimeOffset]::TryParseExact(
+        $env:GEMINI_QUOTA_CHECKED_UTC,
+        "yyyy-MM-ddTHH:mm:ssZ",
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$ParsedQuotaTimestamp
+    )
+    if (-not $TimestampValid -or $ParsedQuotaTimestamp.Offset -ne [TimeSpan]::Zero) {
+        throw "GEMINI_QUOTA_CHECKED_UTC must be an operator-provided UTC timestamp ending in Z."
+    }
+    $QuotaAge = [DateTimeOffset]::UtcNow - $ParsedQuotaTimestamp.ToUniversalTime()
+    if ($QuotaAge.TotalSeconds -lt 0 -or $QuotaAge.TotalSeconds -gt 900) {
+        throw "Gemini quota timestamp is stale; operator must refresh it before running or resuming."
+    }
+
+    $RunArgs = @(
+        "-m", "benchmarks.real_bugs.run",
+        "--run-file", $RunFile,
+        "--case-list", $FrozenConfig,
+        "--token-cap", "40000",
+        "--cost-cap-usd", "0",
+        "--timeout", "240",
+        "--resume"
+    )
+    if ($Limit -gt 0) { $RunArgs += @("--limit", "$Limit") }
+    & $Python @RunArgs | Out-Host
+    return $LASTEXITCODE
+}
+
+$TranscriptStarted = $false
+$FinalStatus = 0
+try {
+    Start-Transcript -LiteralPath $TranscriptPath -Append | Out-Null
+    $TranscriptStarted = $true
+    foreach ($Spec in $RunSpecs) {
+        $RunStatus = Invoke-BenchmarkRun -RunFile $Spec.Path -Limit $Spec.Limit
+        if ($RunStatus -eq 75) {
+            $Inputs = @($Full, $RepeatA, $RepeatB) | Where-Object {
+                Test-Path -LiteralPath $_ -PathType Leaf
+            }
+            if ($Inputs.Count -gt 0) {
+                & $Python -m benchmarks.real_bugs.score @Inputs --output-dir $Results
+                if ($LASTEXITCODE -ne 0) { throw "Partial scoring failed." }
+            }
+            Write-Warning "Provider stopped safely. Attempt records and partial aggregates were saved."
+            $FinalStatus = 75
+            break
+        }
+        if ($RunStatus -ne 0) { throw "Benchmark run failed with exit code $RunStatus." }
+    }
+    if ($FinalStatus -eq 0) {
+        & $Python -m benchmarks.real_bugs.score $Full $RepeatA $RepeatB --output-dir $Results
+        if ($LASTEXITCODE -ne 0) { throw "Scoring failed." }
+    }
+} finally {
+    if ($TranscriptStarted) { Stop-Transcript | Out-Null }
+    Remove-Item Env:REAL_BUG_DATABASE_URL -ErrorAction SilentlyContinue
+    if (-not $HadAppDatabaseUrl) {
+        Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+    } else {
+        $env:DATABASE_URL = $OriginalAppDatabaseUrl
+    }
+    Remove-Variable EncodedPassword, OriginalAppDatabaseUrl -ErrorAction SilentlyContinue
+}
+
+exit $FinalStatus

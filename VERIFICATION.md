@@ -1,5 +1,73 @@
 # Verification report
 
+## GroqCloud integration verification — 2026-11-09
+
+The preserved v2 diagnostic has two failed attempts on `attrs-73dc0d2e2860`. The validation arm
+received TPM 429 with limit 8,000, 5,630 used, 7,689 requested, and a 39.8925-second server delay
+after `get_error`, `read_file`, and `run_tests`. The no-validation arm got HTTP 400 asking to reduce
+message/completion length after `get_error` and `list_files`. The saved records include aggregate
+usage (validation: 8,909 input/151 output; no-validation: 1,503 input/35 output), but not per-tool
+byte counts or rejected request payloads. Thus history growth is confirmed; the exact per-tool and
+prompt-versus-reservation contributions are not recoverable offline. Neither arm repaired the bug.
+
+V3 preserves the same 41 cases, original 10 pilot IDs, prompts, scoring, and case limits. It
+budgets prompt plus output against 8,000 TPM and the model's documented 131,072-token context,
+uses a two-byte-per-estimated-token serialized-request heuristic (not exact tokenizer telemetry)
+and lower remaining-token response headers when available, visibly compacts rediscoverable file
+listings and non-diagnostic test-log lines, and never truncates `read_file`. If essential context
+does not fit, it fails before sending. A temporary TPM retry uses the exact provider delay at most
+once, only if no more than 60 seconds and within the remaining case deadline; daily quota is never
+retried. V3 SHA-256:
+`9f81fe6a0dc75db874d7f6246ce51039330e42a9e194d8da75761e6c353a5e29`. Its leakage audits passed
+for 41/41, 10/10, and the separate diagnostic 1/1. The v3 diagnostic then recorded one successful
+API response (1,505 input/89 output tokens) followed by a local budget rejection at
+`prompt_estimate=6818`, `available_tpm=5936`; duration was 2.438 seconds, cost unknown, no repair.
+The preserved JSONL is [`groq-v3-diagnostic-1.jsonl`](benchmarks/real_bugs/results/published/groq-v3-diagnostic-1.jsonl).
+It confirms the v3 adapter did not wait for the server reset header after a successful turn.
+
+V4 adds that one bounded reset-header wait only when the history plus minimum output can fit a fresh
+8,000 TPM window and the request deadline permits it. The v4 SHA-256 is
+`f63154b3b6b9fa110a450ff69a524753f335652f6c6c80eb5824c948ce7b8335`; its 41-case, 10-case, and
+one-case leakage audits pass. V1-v3, all previous result records, and the Gemini evidence are
+unchanged. V4 has not been sent to Groq.
+
+Offline verification: Groq adapter and benchmark regressions **67 passed, 1 skipped**; repository-
+wide Ruff and formatting passed; scoped mypy passed for 90 files. Full CI and Kubernetes CI passed
+on Selfheal commit [`0bdc670`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/0bdc670cd9140480891c99f3b5bd1d78f91c83f4). The new v4 changes still require updated hosted CI.
+No live provider request was made for v4.
+
+VIMJ PR [#1](https://github.com/Deepak20466/vimj-studio-os-saas/pull/1) is a separate Codex-assisted
+SQLite password-reset timestamp fix, not a Selfheal repair. Its backend suite passed 30 tests and
+both PR CI runs passed. The reproduction was not verified against production PostgreSQL. No
+production database or service was accessed or changed.
+
+The local `pip-audit --progress-spinner off` check exited nonzero and reported 132 advisories across
+11 packages in the active Python environment; it also could not identify the project distribution
+there. This is an environment-level result, not a verified audit of the repository's CI-resolved
+dependency set. The CI dependency audit must be checked separately after push.
+
+## Current feature-branch verification — feat/gemini-benchmark-route (2026-11-09)
+
+The frozen real-bug pilot remains partial. Five v5/v7/v8 records cover two of ten selected bugs:
+two Gemini request timeouts and three Gemini HTTP 400 `INVALID_ARGUMENT` errors caused by missing
+thought signatures in reconstructed function-call history. Zero repairs completed; eight IDs were
+not attempted. Resolve and full-suite-green rates are 0/5; false-positive rate is undefined and
+cost was not reported. See [`docs/benchmark-real-bugs.md`](docs/benchmark-real-bugs.md) and the
+scored artifacts under [`benchmarks/real_bugs/results/published/`](benchmarks/real_bugs/results/published/).
+
+v9 preserves the 41-case cohort and the original 10 pilot IDs, changes only adapter serialization
+and regression-test sources, and has hash
+`ffb0dd226184027dde73ca031e7c88cd4e51aa2c6f366e7ea2ccbc7063da0e33`. Both 41-case and pilot
+leakage audits pass with zero drops. The adapter round-trips original Gemini model Parts, including
+opaque thought signatures, and returns function responses with matching names and IDs. No
+thought-signature value is synthesized or logged. Offline focused tests: adapter tests **19 passed**;
+Ruff and formatting passed; scoped mypy passed for the adapter. No provider call or database access
+was made. Full repository CI for this fix is pending until the pushed commit completes.
+
+The report includes the earlier diagnostic-request disclosure: a mock-mismatch test sent requests
+with the deliberately fake test key and received HTTP 400. These were not benchmark attempts and
+no user key was used.
+
 ## Main verification - 2026-11-08
 
 Selfheal main is at [c659c68](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c659c68e0f0d2f0c429326fe2cd1c95ac9185448). The post-merge [CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42405117568) and [Kubernetes CI run](https://github.com/Deepak20466/selfheal-mcp-agent/actions/runs/42405117517) both passed. Local checks passed: ruff check, ruff format check (265 files), mypy core sentinel mcp_server healer cli (94 source files), and the offline CLI/benchmark tests (48 passed, 1 skipped).
@@ -128,7 +196,7 @@ repairs. The full evidence notes, confidence statements, and source inventory ar
 
 ### Repositories with no recovered Selfheal run
 
-As of the 2026-11-07 GitHub CLI search, no Selfheal run or related PR/issue was found in the reviewed PR, issue, or Actions listings for [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas/pulls), [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter/pulls), or [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system/pulls). This is a scoped “no record found” result; it does not establish that undocumented local work never occurred. The VIMJ Actions runs inspected were scheduled database activity checks, unrelated to Selfheal.
+As of the 2026-11-09 review, no Selfheal run was found for [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas/pulls), [`attendance-academy-go-flutter`](https://github.com/Deepak20466/attendance-academy-go-flutter/pulls), or [`attendance-academy-management-system`](https://github.com/Deepak20466/attendance-academy-management-system/pulls). VIMJ PR #1 is a separate Codex-assisted fix with passing backend CI; it is not an autonomous Selfheal outcome. This is a scoped search of recorded PR, issue, and Actions evidence, not a claim about undocumented local work.
 
 ## Historical acceptance status as of 2026-10-20
 

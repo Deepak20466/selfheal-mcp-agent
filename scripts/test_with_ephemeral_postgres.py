@@ -24,7 +24,11 @@ import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from core.process_env import sanitized_subprocess_env
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from core.process_env import sanitized_subprocess_env  # noqa: E402
 
 
 def _free_loopback_port() -> int:
@@ -138,7 +142,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         result = subprocess.run(
             [sys.executable, "-m", "pytest", *pytest_args],
-            cwd=Path(__file__).resolve().parents[1],
+            cwd=_REPO_ROOT,
             env=env,
             check=False,
         )
