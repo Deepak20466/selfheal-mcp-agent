@@ -1,0 +1,21 @@
+diff --git a/app/routers/fees.py b/app/routers/fees.py
+--- a/app/routers/fees.py
++++ b/app/routers/fees.py
+@@ -155,11 +155,17 @@
+     elif "status" in updates and "balance_amount" not in updates:
+         if fee.status == FeeStatus.PAID:
+             fee.balance_amount = Decimal("0")
+             fee.paid_date = fee.paid_date or date.today()
+         elif fee.balance_amount <= 0:
+             fee.balance_amount = fee.amount + fee.product_amount
+ 
++    # Recompute balance_amount if amount or product_amount changed and neither balance_amount nor status is being updated
++    if "balance_amount" not in updates and "status" not in updates:
++        if "amount" in updates or "product_amount" in updates:
++            if fee.status != FeeStatus.PAID:
++                fee.balance_amount = fee.amount + fee.product_amount
++
+     log_action(db, current_user.id, "UPDATE", "StudentFee", fee.id)
+     db.commit()
+     db.refresh(fee)
+     return fee
