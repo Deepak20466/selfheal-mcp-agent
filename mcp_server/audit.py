@@ -21,6 +21,7 @@ can never be forgotten on a new tool.
 from __future__ import annotations
 
 import functools
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, ParamSpec, TypeVar, cast
@@ -33,6 +34,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 _MAX_LOGGED_VALUE_LENGTH = 500
+_SAFE_ERROR_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,79}$")
 
 
 def _truncate_values(data: dict[str, Any]) -> dict[str, Any]:
@@ -62,7 +64,7 @@ async def log_tool_call(
     *,
     success: bool,
     duration_ms: float,
-    error: str | None = None,
+    error_type: str | None = None,
 ) -> None:
     scrubbed_args = _safe_logged_args(tool_name, kwargs)
     details: dict[str, Any] = {
@@ -71,8 +73,12 @@ async def log_tool_call(
         "success": success,
         "duration_ms": round(duration_ms, 2),
     }
-    if error is not None:
-        details["error"] = error[:2000]
+    if error_type is not None:
+        # Store only a bounded class name. Exception messages can contain
+        # repository source, tool output, credentials, or user-provided data.
+        details["error_type"] = (
+            error_type if _SAFE_ERROR_TYPE.fullmatch(error_type) else "Exception"
+        )
 
     async with session_scope() as session:
         session.add(AuditLog(action="tool_call", actor="mcp", details=details))
@@ -97,7 +103,7 @@ def audited_tool(
                     dict(kwargs),
                     success=False,
                     duration_ms=(time.monotonic() - start) * 1000,
-                    error=str(exc),
+                    error_type=type(exc).__name__,
                 )
                 raise
             else:

@@ -11,15 +11,17 @@ of those instead.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
-from mcp_server.audit import audited_tool, log_tool_call
+import pytest
 
 
 async def test_successful_call_is_logged_with_scrubbed_and_truncated_args(db_session) -> None:
     from sqlalchemy import select
 
     from core.models import AuditLog
+    from mcp_server.audit import log_tool_call
 
     await log_tool_call(
         "read_file",
@@ -38,44 +40,70 @@ async def test_successful_call_is_logged_with_scrubbed_and_truncated_args(db_ses
     assert row.details["args"]["path"] == "apps/target_app/bugs.py"
 
 
-async def test_failed_call_logs_the_error_message(db_session) -> None:
-    from sqlalchemy import select
-
+async def test_failed_call_audit_keeps_error_type_but_not_sensitive_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from core.models import AuditLog
+    from mcp_server.audit import audited_tool
 
-    await log_tool_call(
-        "get_error",
-        {"error_id": 999999},
-        success=False,
-        duration_ms=5.0,
-        error="No error with id 999999",
-    )
+    records: list[AuditLog] = []
 
-    stmt = select(AuditLog).where(AuditLog.action == "tool_call").order_by(AuditLog.id.desc())
-    rows = (await db_session.execute(stmt)).scalars().all()
-    matching = [r for r in rows if r.details.get("tool") == "get_error"]
-    assert matching
-    assert matching[0].details["success"] is False
-    assert "999999" in matching[0].details["error"]
+    class CaptureSession:
+        def add(self, record: AuditLog) -> None:
+            records.append(record)
+
+    @asynccontextmanager
+    async def capture_session_scope():
+        yield CaptureSession()
+
+    monkeypatch.setattr("mcp_server.audit.session_scope", capture_session_scope)
+
+    private_marker = "PRIVATE_EXCEPTION_SOURCE_0d2c71f9"
+    credential_marker = "sk-ant-sensitive-fixture-DO-NOT-LOG"
+
+    @audited_tool(_FakeMcp(), "get_error")
+    async def fake_error_tool(error_id: int) -> dict[str, Any]:
+        raise RuntimeError(f"{private_marker} {credential_marker} error_id={error_id}")
+
+    with pytest.raises(RuntimeError, match=private_marker):
+        await fake_error_tool(error_id=999999)
+
+    assert len(records) == 1
+    details = records[0].details
+    assert details["success"] is False
+    assert details["error_type"] == "RuntimeError"
+    assert "error" not in details
+    assert private_marker not in str(details)
+    assert credential_marker not in str(details)
 
 
-async def test_patch_arguments_are_omitted_from_audit_logs(db_session) -> None:
-    from sqlalchemy import select
-
+async def test_patch_arguments_are_omitted_from_audit_logs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from core.models import AuditLog
+    from mcp_server.audit import log_tool_call
+
+    records: list[AuditLog] = []
+
+    class CaptureSession:
+        def add(self, record: AuditLog) -> None:
+            records.append(record)
+
+    @asynccontextmanager
+    async def capture_session_scope():
+        yield CaptureSession()
+
+    monkeypatch.setattr("mcp_server.audit.session_scope", capture_session_scope)
 
     private_source_marker = "PRIVATE_PATCH_SOURCE_MARKER_3f54c7e1"
     long_diff = private_source_marker + "x" * 5000
     await log_tool_call("propose_patch", {"unified_diff": long_diff}, success=True, duration_ms=1.0)
 
-    stmt = select(AuditLog).where(AuditLog.action == "tool_call").order_by(AuditLog.id.desc())
-    rows = (await db_session.execute(stmt)).scalars().all()
-    matching = [r for r in rows if r.details.get("tool") == "propose_patch"]
-    assert matching
-    logged_args = matching[0].details["args"]
+    assert len(records) == 1
+    logged_args = records[0].details["args"]
     assert "unified_diff" not in logged_args
     assert logged_args["unified_diff_bytes"] == len(long_diff.encode("utf-8"))
-    assert private_source_marker not in str(matching[0].details)
+    assert private_source_marker not in str(records[0].details)
 
 
 class _FakeMcp:
@@ -98,6 +126,8 @@ async def test_audited_tool_scrubs_the_returned_result_not_just_logged_args(
     mcp-pod) -- log_tool_call only ever scrubbed the logged args, never the
     result handed back to the caller. This is the regression test for that
     gap."""
+
+    from mcp_server.audit import audited_tool
 
     @audited_tool(_FakeMcp(), "fake_tool_with_a_leaky_result")
     async def fake_tool(error_id: int) -> dict[str, Any]:
