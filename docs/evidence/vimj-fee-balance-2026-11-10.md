@@ -3,8 +3,10 @@
 **Scope:** one frozen VIMJ fee-balance case, executed in an isolated local checkout. This is not a
 corpus benchmark, production repair, or complete autonomous repair-to-pull-request demonstration.
 
-**Demo video:** [1080p MP4 (2:08)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo.mp4)
-  SHA-256: `EF775A288B4601AB288D9E1FE879A31A2858C3182D4D2B0F2F5CE42CFCFD6FE4`.
+**Demo video:** [updated 1080p MP4 (1:52)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo-2026-11-10-v2.mp4)
+  SHA-256: `F0FC4F9262C6AD93F1499DA82666B487E00CD7CB0E4DA2A13C778110206B7DFA`.
+
+**Prior version retained:** [original 1080p MP4 (2:08)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo.mp4).
 
 ## Outcome
 

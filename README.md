@@ -6,10 +6,10 @@ isolated tests, and human-reviewed pull requests.
 [![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
 [![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
 
-![Synthetic Selfheal repair-to-PR demo](docs/demo-e2e-repairs.gif)
+![Controlled synthetic Selfheal repair-to-PR demo](docs/demo-e2e-repairs-portfolio-2026-11-10.gif)
 
-[Synthetic repair-to-PR walkthrough](docs/demo-e2e-repairs.mp4) ·
-[VIMJ single-case repair demo (1080p, 2:08)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo.mp4) ·
+[Controlled synthetic repair-to-PR walkthrough (2:13)](docs/demo-e2e-repairs-portfolio-2026-11-10.mp4) ·
+[VIMJ isolated repair demo (1080p, 1:52)](https://github.com/Deepak20466/selfheal-mcp-agent/releases/download/portfolio-demo-vimj-2026-11-10/selfheal-mcp-agent-demo-2026-11-10-v2.mp4) ·
 [Terminal walkthrough](docs/demo-terminal.mp4)
 
 Python 3.11+ · FastAPI · PostgreSQL · SQLAlchemy/Alembic · MCP · Typer · GitHub Actions

@@ -7,7 +7,7 @@ never merges.
 
 ## Published full-flow recording
 
-The [2:13 MP4](demo-e2e-repairs.mp4) and [animated preview](demo-e2e-repairs.gif) show live public GitHub pages for all three successful repair workflows, generated fixes, review-only PRs, and passing PR CI. The updated capture includes Demo-01 PR #16's exact +1 correction; its former comment-only PR #11 is closed and excluded. The browser returned HTTP 200 for every evidence page. Intro/outro cards and lower-third captions identify each step; GitHub pages and results are live evidence. No credentials, secret values, or private settings are shown.
+The [updated 2:13 MP4](demo-e2e-repairs-portfolio-2026-11-10.mp4) and [updated animated preview](demo-e2e-repairs-portfolio-2026-11-10.gif) show live public GitHub pages for all three successful repair workflows, generated fixes, review-only PRs, and passing PR CI. The refreshed ending preserves the 2026-10-20 recording snapshot and adds current PR status verified on 2026-11-10. The updated capture includes Demo-01 PR #16's exact +1 correction; its former comment-only PR #11 is closed and excluded. The browser returned HTTP 200 for every evidence page. Intro/outro cards and lower-third captions identify each step; GitHub pages and results are live evidence. No credentials, secret values, or private settings are shown.
 
 ## Run only after the gates pass
 
@@ -73,7 +73,7 @@ failures, substitute fixture output, or merge the repair.
 Capture real Actions pages and terminal output with a screen recorder, disable notifications, and close unrelated tabs. Do not show API-key settings, secrets, personal email, billing pages, unrelated repositories, or local paths. Review the export before sharing it.
 ## Current evidence status — 2026-10-20
 
-**Three out of three independent public fixture trials passed the controlled repair-to-PR acceptance criteria.** The [published recording](demo-e2e-repairs.mp4) follows these real evidence pages:
+**Three out of three independent public fixture trials passed the controlled repair-to-PR acceptance criteria.** The [published recording](demo-e2e-repairs-portfolio-2026-11-10.mp4) follows these real evidence pages:
 
 | Trial | Secure repair workflow | Review-only repair PR | Passing PR CI |
 |---|---|---|---|
@@ -81,6 +81,6 @@ Capture real Actions pages and terminal output with a screen recorder, disable n
 | demo-02 | [run 39362641443](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362641443) | [PR #13](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13) | [run 39362822047](https://github.com/Deepak20466/selfheal-e2e-demo-02/actions/runs/39362822047) |
 | demo-03 | [run 39364506704](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364506704) — real Gemini 3.5 Flash-Lite diagnosis and four isolated tests | [PR #10](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10) | [run 39364640789](https://github.com/Deepak20466/selfheal-e2e-demo-03/actions/runs/39364640789) |
 
-Show the controlled failing seed, the actual generated diff, the secret-free sandbox test result, and the passing PR CI for each trial. Demo-01 PR #11 was a comment-only proposal and is closed; PR #16 is the valid fix. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. The three valid repair PRs are for human review and intentionally remain unmerged.
+Show the controlled failing seed, the actual generated diff, the secret-free sandbox test result, and the passing PR CI for each trial. Demo-01 PR #11 was a comment-only proposal and is closed; PR #16 is the valid fix. Demo-03 diagnosed a multiplication/addition defect and generated a one-line `*` to `+` change. At recording time (2026-10-20), all three valid PRs were open for human review. Current status was rechecked on 2026-11-10: PR #16 merged on 2026-11-07; PR #13 and PR #10 remain open.
 
-The updated [full-flow MP4](demo-e2e-repairs.mp4) was captured from live public GitHub pages at 1280x720 and encoded as H.264. The lower-thirds are editorial labels only; every workflow, repair commit, PR, and CI result shown belongs to the linked real run. The separate [50-second terminal walkthrough](demo-terminal.mp4) remains a local CLI overview.
+The updated [full-flow MP4](demo-e2e-repairs-portfolio-2026-11-10.mp4) was captured from live public GitHub pages at 1280x720 and encoded as H.264. The lower-thirds are editorial labels only; every workflow, repair commit, PR, and CI result shown belongs to the linked real run. The separate [50-second terminal walkthrough](demo-terminal.mp4) remains a local CLI overview.
