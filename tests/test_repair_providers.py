@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from scripts import openrouter_repair, repair_providers
 from scripts.repair_providers import (
     FreeQuotaUnavailable,
