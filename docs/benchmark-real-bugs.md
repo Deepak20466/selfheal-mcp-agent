@@ -78,6 +78,12 @@ and retains a bounded exact candidate plus SHA256 when safe. Its request account
 by both daily headroom and the per-case allowance, reserving one in-budget request for a correction
 when possible. See [patch-format follow-up](evidence/openrouter-v10-patch-format-2026-11-10.md).
 
+A requested v11 single-case live run was stopped at preflight because the local UTC ledger showed
+40/40 benchmark completion requests used, leaving zero headroom for an initial patch and its
+correction. No OpenRouter API request or database connection was made; no benchmark attempt row
+or repair outcome exists. See the
+[blocked preflight report](evidence/openrouter-v11-live-preflight-blocked-2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
