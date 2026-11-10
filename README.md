@@ -3,8 +3,8 @@
 AI-powered incident-to-patch automation with scoped MCP repository tools, policy-checked diffs,
 isolated tests, and human-reviewed pull requests.
 
-[![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
-[![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
+[![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Amain)
+[![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=main)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Amain)
 
 ![Controlled synthetic Selfheal repair-to-PR demo](docs/demo-e2e-repairs-portfolio-2026-11-10.gif)
 
@@ -13,6 +13,16 @@ isolated tests, and human-reviewed pull requests.
 [Terminal walkthrough](docs/demo-terminal.mp4)
 
 Python 3.11+ · FastAPI · PostgreSQL · SQLAlchemy/Alembic · MCP · Typer · GitHub Actions
+
+## Project at a glance
+
+SelfHeal turns runtime or CI failures into a proposed repository patch, verifies it in an isolated
+test environment, and prepares a pull request for human review. The demos show three controlled
+synthetic repair-to-PR runs and one AI-generated repair in an isolated real-application checkout;
+the VIMJ repair created no VIMJ PR. The broader real-bug benchmark is incomplete, so these examples
+do not establish general repair accuracy. See the [verification report](VERIFICATION.md),
+[evidence ledger](docs/history/RECOVERED_EVIDENCE.md), and [real-bug benchmark report](docs/benchmark-real-bugs.md)
+for full results and limitations.
 
 ## Quick start
 
@@ -27,12 +37,16 @@ For native PostgreSQL setup, local services, and credentials needed to run repai
 
 ## Providers and MCP tools
 
-The repair loop supports Claude, Codex, and Gemini CLI backends; Anthropic-compatible API,
-OpenRouter, Gemini API, and Groq API adapters; and explicitly configured backend chains. Availability
-depends on operator credentials, model access, and quota. Benchmark commands select one frozen
-provider and do not fall back to another. The repository MCP surface includes error lookup, scoped
-file listing/reading, patch proposal, and sandboxed test execution. See [backend selection](docs/operations.md)
-and [security boundaries](docs/architecture.md).
+The codebase includes integrations for Claude, Codex, and Gemini command-line tools, plus API
+adapters for Anthropic-compatible services, OpenRouter, Gemini, and Groq. An integration being
+present does not mean its execution mode is available: provider CLI execution currently fails closed
+on Linux and other platforms until a network-aware OS sandbox can contain the provider and its
+child processes. Do not treat CLI execution as a working live path. API-backed runs require operator
+credentials, model access, and quota; API adapter coverage includes mocked offline tests, and no
+live provider result is implied here. Benchmark commands use one frozen provider without fallback.
+The MCP surface provides error lookup, scoped file listing and reading, patch proposal, and
+sandboxed test execution. See [provider setup and current execution limits](docs/operations.md) and
+[security boundaries](docs/architecture.md).
 
 ## Demonstrations & Verified Results
 
@@ -53,58 +67,21 @@ then use `selfheal fix owner/repo <finding-id> --suggest`; this path always open
 human-review-only suggestion and cannot claim the normal verified route. See
 [manual bug reporting](docs/manual-bug-reports.md).
 
-## Real-world dogfooding
+## Additional results and limitations
 
-Engineer-directed, Claude-assisted dogfooding against `multi-agent-workspace` exposed two bugs in
-Selfheal itself: dependency-audit findings were dropped when stderr corrupted JSON, and an
-uncaught remote-verification exception could stop the worker. Both fixes have regression tests in
-[`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503)
-and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6).
-They were not produced by Selfheal's repair loop. The PyPDF2 repair attempt did not converge; a
-separate manual dependency PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1)
-merged even though its required CI failed in an unrelated setup step.
+Real-world exploration found both successes and failures. Engineer-directed dogfooding uncovered two
+SelfHeal defects that were fixed with regression tests. The PyPDF2 repair did not converge, and
+ShopCart's pagination bug was fixed manually rather than by SelfHeal. The mined real-bug benchmark
+has no completed repair in five saved Gemini attempts; eight selected cases and the wider 41-case
+corpus remain unmeasured. Groq diagnostic attempts also did not complete a repair. The isolated VIMJ
+repair is a single case, not an aggregate benchmark result, and created no VIMJ PR or merge.
 
-ShopCart's onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) was opened by
-Selfheal's `selfheal prepare` flow but needed manual repair commit
-[`b758bb1`](https://github.com/Deepak20466/ShopCart/commit/b758bb18dddefa67ec6bf9d69784135149fae035)
-before CI could run: the workflow was nested, Vitest was unpinned and incompatible with the
-project's Vite 4 line, and test imports used paths absent from the repository. The pagination bug
-was found manually and fixed manually (engineer-directed, Claude-assisted) in ShopCart PR
-[#2](https://github.com/Deepak20466/ShopCart/pull/2); this was not a Selfheal-generated repair.
-
-The dated outcomes and evidence links are in [VERIFICATION.md](VERIFICATION.md) and the
-[recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md).
-
-## Real-bug benchmark status
-
-The mined Gemini benchmark's predetermined 10-case pilot remains incomplete. Five attempt records across
-v5, v7, and v8 cover two selected bugs; two v5/v7 requests timed out, and three v8 requests failed
-with Gemini HTTP 400 because conversation history omitted thought signatures for function calls.
-No pilot repair completed; eight selected cases remain unattempted. v9 preserves the original cohort and
-pilot IDs and fixes Gemini Part/function-response round-tripping. See the [real-bug benchmark
-report](docs/benchmark-real-bugs.md) and [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
-The historical fixture benchmark remains separate.
-
-GroqCloud is available through the existing OpenAI-compatible adapter. Its preserved v1/v2
-diagnostics recorded a TPM 429 and a request-length HTTP 400; neither completed a repair. The v3
-diagnostic made one successful API call (1,505 input and 89 output tokens), then stopped locally
-when its 6,818-token prompt estimate exceeded 5,936 remaining TPM. It made no second request and
-completed no repair. Frozen v4 can wait once for the server's token-reset header only when the
-history can fit a fresh 8,000-token window and the request deadline allows it; its full, pilot, and
-diagnostic leakage audits pass. No v4 provider run has occurred. See the [Groq repair runbook](docs/groqcloud-repair.md).
-
-The separate frozen VIMJ fee-balance evaluation retains two Groq attempts. The first exposed and
-fixed a Selfheal MCP tracer recursion bug (commit `0c1f8c3`). The second stopped before a second
-request at the local TPM budget; no repair completed. The separately versioned current route uses
-Gemini 2.5 Flash through the existing `GeminiApiClient`. It preserves the frozen VIMJ baseline and
-regression, exact source allowlist, 32,768-token budget, 10-request cap, 600-second timeout, and $0
-free-only requirement. Historical Cohere/OpenRouter and Groq evidence remains unchanged. Mocked
-offline tests exercise the Gemini MCP patch workflow; no live Gemini attempt or autonomous repair
-result is claimed. See the [VIMJ evaluation record](docs/unresolved-bug-evaluation.md).
-
-The completed isolated fee-balance repair in the results table is separate from these benchmark
-attempts and is not an aggregate benchmark result. Aggregate performance across the 41-case corpus
-remains unmeasured; the pilot and single-case results are not general success rates.
+Generated pull requests are review artifacts: passing tests do not prove every change correct, and
+SelfHeal does not automatically merge repairs. The [verification report](VERIFICATION.md) and
+[recovered evidence ledger](docs/history/RECOVERED_EVIDENCE.md) preserve dated outcomes and historical
+records. See the [real-bug benchmark report](docs/benchmark-real-bugs.md), [saved partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md),
+[Groq runbook](docs/groqcloud-repair.md), and [VIMJ evaluation record](docs/unresolved-bug-evaluation.md)
+for methods, detailed attempts, and limitations.
 
 ## Architecture
 
