@@ -19,11 +19,16 @@ remain unattempted. These outcomes and all raw records are saved under
 file is preserved unchanged. The v9 adapter fix and both leakage audits are committed separately
 from these historical outcomes. Do not resume into an existing result file.
 
-A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
-repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
-normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
-create a VIMJ commit or pull request and is not a result from this benchmark runner. See the
-[VIMJ evidence report](evidence/vimj-fee-balance-2026-11-10.md).
+A separate VIMJ fee-balance case study used an AI-authored code hunk against frozen repository
+commit `6490833d178b71624d024b16046240a20a3f78a6`. The OpenRouter response failed Selfheal's normal
+patch-format gate because it lacked parseable unified-diff headers and coordinates. A
+formatting-only recovery preserved the AI-authored code bytes; saved isolated logs then report the
+frozen regression passed (1 test) and the VIMJ backend suite passed (30 tests). This demonstrates
+that the recovered candidate fixed one frozen case offline. It does **not** demonstrate a
+successful live autonomous Selfheal repair: the accepted patch workflow did not complete, no VIMJ
+commit or pull request was created, and the case is separate from this benchmark runner. A later
+OpenRouter attempt returned no usable text and is classified `no_patch`; its logs record no patch
+or post-repair tests. See the [VIMJ evidence report and reproduction steps](evidence/vimj-fee-balance-2026-11-10.md).
 
 **Diagnostic-request disclosure:** before the test environment was made hermetic, one targeted
 test rerun sent unmatched diagnostic requests to Gemini's endpoint using the deliberately fake
