@@ -69,17 +69,9 @@ human-review-only suggestion and cannot claim the normal verified route. See
 
 ## Benchmarks & Real-World Evaluation
 
-- **Historical synthetic fixture:** 20/20 scenarios passed in one disposable FastAPI repository.
-  This is a recorded synthetic result, not an estimate of reliability across repositories. See the
-  [benchmark report](docs/benchmark.md).
-- **Recorded Gemini real-bug pilot:** 0/5 completed repairs. The five unsuccessful attempts cover
-  two of ten selected cases; eight cases remain unattempted. See the [real-bug benchmark report](docs/benchmark-real-bugs.md)
-  and [saved results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
-- **Isolated VIMJ real-application repair:** one frozen case was repaired with AI-generated code.
-  Saved logs report the frozen regression passed (1 test) and the backend suite passed (30 tests).
-  This was an isolated local repair with no VIMJ PR or merge, and is not a corpus benchmark result.
-  See the [VIMJ evidence report](docs/evidence/vimj-fee-balance-2026-11-10.md).
-
+- **Historical synthetic fixture:** 20/20 scenarios passed in one disposable FastAPI repository. This is a recorded synthetic result, not an estimate of reliability across repositories. See the [benchmark report](docs/benchmark.md).
+- **VIMJ offline recovery:** the recovered AI-authored code change passed the saved frozen regression (1 test) and backend suite (30 tests) after formatting-only patch normalization. This validates one isolated candidate offline; it does not establish a successful live autonomous repair. No VIMJ PR was created. See the [VIMJ evidence report, patch, and reproduction steps](docs/evidence/vimj-fee-balance-2026-11-10.md).
+- **Gemini adapter fixed and offline-tested; live pilot rerun pending.** The saved pilot records five attempts across two of ten selected cases; none completed an end-to-end repair, and eight cases remain unattempted. The adapter fix has offline regression coverage but no live verification yet. See the [real-bug benchmark report](docs/benchmark-real-bugs.md) and [saved results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
 Other historical results include two SelfHeal defects found during engineer-directed dogfooding,
 a PyPDF2 attempt that did not converge, and a ShopCart pagination fix performed manually. The
 [verification report](VERIFICATION.md) and [evidence ledger](docs/history/RECOVERED_EVIDENCE.md)
@@ -110,19 +102,7 @@ The PyPDF2 repair did not converge, so no fix to that issue is claimed. ShopCart
 was fixed manually (engineer-directed, Claude-assisted) in PR #2, not by Selfheal's repair loop.
 Earlier seeded trials also include failed AI repair attempts and CI checks; the evidence ledger
 links each result rather than counting only successful attempts.
-The five saved Gemini attempt records have a 0/5 resolve rate and 0/5 full-suite-green resolve rate;
-no repair completed. False-positive rate is not measurable (zero eligible human-fix denominator),
-and cost is unknown for every attempt. Their overall median time is 121.094s. Failure categories
-are `provider_error` (2) and `repair_error` (3). Eight selected bugs and the full 41-case run remain
-unattempted. The scorer's failure categories are `no_patch`, `invalid_patch`,
-`rejected_by_policy`, `tests_still_failing`, `timeout`, `provider_error`, `token_cap`, `cost_cap`,
-`cost_unknown`, and `repair_error`; these are labels in the harness, not measured frequencies.
-The v5/v7 timeouts occurred during Gemini `generateContent`, not MCP. The v8 HTTP 400 records show
-Gemini rejected function-call history because the adapter dropped original signed Parts and sent
-incorrect function-response names/IDs. v9 returns the original Parts and maps responses back to
-their calls; offline regression coverage includes the `run_tests` rejection and multiple calls.
-No live verification of this fix has been made. See the [partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md)
-and [Gemini adapter tests](tests/test_healer_api_adapters.py).
+The Gemini pilot exposed a model-adapter compatibility issue. Three v8 calls were rejected because function-call history lost Gemini's signed Parts and `thoughtSignature` data; two earlier requests timed out at `generateContent`. The v9 adapter fix preserves those Parts and maps responses to their original calls; offline regression tests cover the affected flow, including `run_tests` and multiple calls. The fix has not had a live rerun, and the saved pilot remains incomplete: five attempts, no completed repairs, and eight of ten selected cases unattempted. The scorer reports 0/5 resolves and 0/5 full-suite-green resolves; false-positive rate is undefined, cost is unknown, and median time was 121.094 seconds. See the [partial results](benchmarks/real_bugs/results/published/pilot-through-v8.md) and [Gemini adapter tests](tests/test_healer_api_adapters.py).
 
 The separate Groq v3 diagnostic made one successful provider call, then stopped locally at the
 6,818-estimated / 5,936-remaining TPM boundary; it made no repair. V4 adds an offline-tested bounded
