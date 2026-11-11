@@ -187,6 +187,317 @@ def test_windows_resume_skips_attempted_arm_and_allocates_fresh_workspace(
     assert not allocated[0].root.exists()
 
 
+def test_tracing_baseline_returns_patch_apply_failure_as_recoverable_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from healer.mcp_client import MCPToolError
+
+    async def fail_patch(_self: Any, _arguments: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("git apply failed: malformed unified diff")
+
+    monkeypatch.setattr(run_module.TracingMCPClient, "_apply_without_policy", fail_patch)
+    tracer = run_module.TracingMCPClient(object(), validated=False, error_id=1)
+    tracer.allowed_source_paths = {"src/module.py"}
+    patch = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+
+    with pytest.raises(MCPToolError, match="malformed unified diff"):
+        asyncio.run(
+            tracer.call_tool(
+                "propose_patch",
+                {"unified_diff": patch, "worktree": "fixture", "heal_job_id": 1},
+            )
+        )
+
+    assert tracer.patch_error == "git apply failed: malformed unified diff"
+    assert tracer.events[-1]["ok"] is False
+
+
+def test_benchmark_patch_requires_valid_source_only_diff() -> None:
+    from healer.mcp_client import MCPToolError
+
+    good = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    run_module._validate_benchmark_patch(good, {"src/module.py"})
+
+    for invalid, message in (
+        (None, "patch is missing"),
+        ("prefix text\n" + good, "malformed patch"),
+        (good.replace("@@ -1 +1 @@", "@@ not a hunk @@"), "at least one unified hunk"),
+        (
+            good.replace("src/module.py", "../src/module.py"),
+            "traversal|Invalid patch path",
+        ),
+        (
+            good.replace("src/module.py", "tests/test_bug.py"),
+            "outside the allowed scope",
+        ),
+        (
+            good.replace(
+                "diff --git a/src/module.py b/src/module.py",
+                "diff --git a/src/module.py b/src/other.py",
+            ),
+            "must name one unchanged source path",
+        ),
+    ):
+        with pytest.raises(MCPToolError, match=message):
+            run_module._validate_benchmark_patch(invalid, {"src/module.py"})
+
+
+def test_benchmark_patch_normalizes_supported_unambiguous_headers_and_fences() -> None:
+    bare = (
+        "--- src/module.py\n+++ src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    expected = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    assert run_module._validate_benchmark_patch(bare, {"src/module.py"}) == expected
+
+    missing_file_headers = (
+        "diff --git a/src/module.py b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    assert (
+        run_module._validate_benchmark_patch(missing_file_headers, {"src/module.py"})
+        == expected
+    )
+    assert run_module._validate_benchmark_patch(
+        f"```diff\n{expected}```", {"src/module.py"}
+    ) == expected
+
+
+def test_normalized_patch_applies_and_passes_test_in_isolated_checkout(tmp_path: Path) -> None:
+    checkout = tmp_path / "isolated-checkout"
+    source = checkout / "src" / "module.py"
+    test = checkout / "tests" / "test_bug.py"
+    source.parent.mkdir(parents=True)
+    test.parent.mkdir()
+    (source.parent / "__init__.py").write_text("", encoding="utf-8")
+    source.write_text("def fixed():\n    return True\n", encoding="utf-8")
+    test.write_text(
+        "from src.module import fixed\n\n"
+        "def test_frozen_regression():\n"
+        "    assert fixed() is False\n",
+        encoding="utf-8",
+    )
+    _git(checkout, "init", "--quiet")
+    _git(checkout, "config", "user.name", "Offline fixture")
+    _git(checkout, "config", "user.email", "offline@example.invalid")
+    _git(checkout, "add", "src", "tests")
+    _git(checkout, "commit", "--quiet", "-m", "baseline")
+
+    regression = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests/test_bug.py"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert regression.returncode != 0
+
+    candidate = (
+        "--- src/module.py\n+++ src/module.py\n@@ -1,2 +1,2 @@\n"
+        " def fixed():\n-    return True\n+    return False\n"
+    )
+    normalized = run_module._validate_benchmark_patch(candidate, {"src/module.py"})
+    checked = subprocess.run(
+        ["git", "apply", "--check", "-"],
+        cwd=checkout,
+        input=normalized,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    applied = subprocess.run(
+        ["git", "apply", "-"],
+        cwd=checkout,
+        input=normalized,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert applied.returncode == 0, applied.stderr
+
+    verified = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "tests/test_bug.py"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert "1 passed" in verified.stdout
+
+
+def test_openrouter_request_budget_reserves_single_correction_within_caps() -> None:
+    assert run_module._bounded_openrouter_case_request_limit(100) == 10
+    assert run_module._bounded_openrouter_case_request_limit(2) == 2
+    assert run_module._bounded_openrouter_case_request_limit(0) == 0
+    assert run_module._openrouter_request_budget(2) == (1, 1)
+    assert run_module._openrouter_request_budget(10) == (9, 1)
+    assert run_module._openrouter_request_budget(1) == (1, 0)
+
+
+def test_safe_patch_candidate_evidence_retains_exact_output_and_digest() -> None:
+    import hashlib
+
+    candidate = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+    evidence = run_module._patch_candidate_evidence(candidate)
+    assert evidence["patch_candidate"] == candidate
+    assert evidence["patch_candidate_sha256"] == hashlib.sha256(
+        candidate.encode("utf-8")
+    ).hexdigest()
+
+
+def test_tracing_rejects_worktree_prefixed_inspection_path() -> None:
+    from healer.mcp_client import MCPToolError
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            self.calls.append(name)
+            return {"content": "source"}
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(
+        client,
+        validated=True,
+        error_id=1,
+        allowed_source_paths=["src/module.py"],
+        max_inspection_tool_calls=1,
+    )
+    with pytest.raises(MCPToolError, match="repository-relative"):
+        asyncio.run(
+            tracer.call_tool(
+                "read_file", {"path": "rb-attempt/s/src/module.py"}
+            )
+        )
+    assert client.calls == []
+
+
+def test_tracing_allows_one_correction_only_after_verification_failure() -> None:
+    from healer.mcp_client import MCPToolError
+
+    patch = (
+        "diff --git a/src/module.py b/src/module.py\n"
+        "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    )
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.patches = 0
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            if name == "propose_patch":
+                self.patches += 1
+                return {"applied": True}
+            if name == "run_tests":
+                return {"passed": False, "output": "assert expected false, got true"}
+            raise AssertionError(name)
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(
+        client,
+        validated=True,
+        error_id=1,
+        allowed_source_paths=["src/module.py"],
+        target_test_paths=["tests/test_bug.py"],
+    )
+
+    async def scenario() -> None:
+        tracer.begin_model_turn()
+        await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        with pytest.raises(MCPToolError, match="regression test successfully"):
+            await tracer.call_tool("run_tests", {})
+        with pytest.raises(MCPToolError, match="only after.*failure"):
+            await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        await tracer.call_tool("run_tests", {"test_path": "tests/test_bug.py"})
+        assert tracer.retry_ready
+        tracer.begin_model_turn()
+        await tracer.call_tool("propose_patch", {"unified_diff": patch})
+        with pytest.raises(MCPToolError, match="retry limit"):
+            await tracer.call_tool("propose_patch", {"unified_diff": patch})
+
+    asyncio.run(scenario())
+    assert client.patches == 2
+
+
+def test_tracing_limits_supplemental_repository_inspection_to_one_call() -> None:
+    from healer.mcp_client import MCPToolError
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def call_tool(self, name: str, _arguments: dict[str, Any]) -> Any:
+            self.calls.append(name)
+            return {"path": "src/module.py", "content": "source"}
+
+    client = FakeClient()
+    tracer = run_module.TracingMCPClient(client, validated=True, error_id=1)
+    assert asyncio.run(tracer.call_tool("read_file", {"path": "src/module.py"}))[
+        "content"
+    ] == "source"
+
+    with pytest.raises(MCPToolError, match="no more repository inspection calls"):
+        asyncio.run(tracer.call_tool("list_files", {}))
+
+    assert client.calls == ["read_file"]
+    assert tracer.events[-1]["ok"] is False
+
+
+def test_benchmark_context_primes_failing_test_and_imported_source_without_metadata(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "prepared-parent"
+    test_file = repo / "tests" / "test_bug.py"
+    source_file = repo / "src" / "pkg" / "module.py"
+    test_file.parent.mkdir(parents=True)
+    source_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from pkg import module as implementation\n\n"
+        "def test_nested_state():\n"
+        "    with implementation.disabled():\n"
+        "        assert implementation.state is False\n",
+        encoding="utf-8",
+    )
+    source_file.write_text(
+        "state = True\n\n"
+        "def disabled():\n"
+        "    global state\n"
+        "    state = False\n"
+        "    yield\n"
+        "    state = True\n",
+        encoding="utf-8",
+    )
+
+    context = run_module._benchmark_context(
+        repository_path=repo,
+        repository_name="fixture",
+        test_paths=["tests/test_bug.py"],
+        failure="tests/test_bug.py:4: AssertionError: expected nested state to remain disabled",
+    )
+
+    assert "Repository: fixture" in context
+    assert "MCP inspection paths are repository-relative" in context
+    assert "Do not prefix a worktree name" in context
+    assert "Frozen failing test context" in context
+    assert "Imported source context" in context
+    assert "def disabled():" in context
+    assert "expected nested state to remain disabled" in context
+    assert "human_fix" not in context
+
+
 def test_exception_group_summary_records_sanitized_nested_cause() -> None:
     nested = TimeoutError("provider request timed out; token=do-not-record-this")
     error = ExceptionGroup(
@@ -862,9 +1173,9 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         expected = ("127.0.0.1", 5434, "selfheal_real_bug_test")
         assert rows == []
         assert observed == [
+            ("runner", *expected),
             ("verify", *expected),
             ("alembic", *expected),
-            ("runner", *expected),
         ]
         assert os.environ["DATABASE_URL"] == os.environ["REAL_BUG_DATABASE_URL"]
 
@@ -886,6 +1197,7 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         else:
             raise AssertionError("runner did not fail closed on database verification error")
         assert observed == [
+            ("runner", *expected),
             ("verify", *expected),
             ("alembic", *expected),
             ("runner", *expected),
@@ -901,6 +1213,39 @@ def test_runner_configures_database_before_importing_cached_settings(tmp_path: P
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_provider_attestation_precedes_database_verification_and_migrations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(run_module, "_prepared_cases", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(run_module, "_configure_database", lambda: "isolated-db-url")
+
+    def reject_unattested_provider(_provider_name: str) -> Any:
+        calls.append("provider-check")
+        raise RuntimeError("operator billing attestation missing")
+
+    monkeypatch.setattr(run_module, "_provider", reject_unattested_provider)
+    monkeypatch.setattr(
+        run_module,
+        "_verify_database_connection",
+        lambda _url: calls.append("database-verification"),
+    )
+    monkeypatch.setattr(run_module, "_migrate_database", lambda: calls.append("migration"))
+
+    with pytest.raises(RuntimeError, match="billing attestation missing"):
+        run_module.run_benchmark(
+            provider_name="gemini_api",
+            run_file=tmp_path / "attempts.jsonl",
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout=1,
+            resume=True,
+        )
+
+    assert calls == ["provider-check"]
 
 
 def test_rate_limit_backoff_honors_retry_after() -> None:
@@ -1159,6 +1504,92 @@ def test_score_reader_preserves_every_attempt_row(tmp_path: Path) -> None:
     rows = score_module._read_rows([run_file])
 
     assert [row["status"] for row in rows] == ["failed", "resolved"]
+
+
+def test_openrouter_daily_budget_counts_every_same_day_record(tmp_path: Path) -> None:
+    run_file = tmp_path / "attempts.jsonl"
+    now = datetime(2026, 11, 10, 12, tzinfo=UTC)
+    records = [
+        {
+            "case_id": "same-case",
+            "arm": "with_validation",
+            "provider_request_count": 10,
+            "recorded_at": "2026-11-10T10:00:00+00:00",
+        },
+        {
+            "case_id": "same-case",
+            "arm": "with_validation",
+            "provider_request_count": 4,
+            "recorded_at": "2026-11-10T11:00:00+00:00",
+        },
+        {
+            "case_id": "older-case",
+            "arm": "with_validation",
+            "provider_request_count": 20,
+            "recorded_at": "2026-11-09T23:59:00+00:00",
+        },
+    ]
+    run_file.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
+    (tmp_path / "second-run.jsonl").write_text(
+        json.dumps(
+            {
+                "case_id": "another-case",
+                "arm": "without_validation",
+                "provider_request_count": 2,
+                "recorded_at": "2026-11-10T11:30:00+00:00",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert run_module._openrouter_requests_used_today(run_file, now=now) == 14
+    assert run_module._openrouter_requests_used_today(tmp_path, now=now) == 16
+
+
+def test_openrouter_resumed_run_passes_only_remaining_daily_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen_limits: list[int | None] = []
+
+    async def fake_arm(**kwargs: Any) -> dict[str, Any]:
+        seen_limits.append(kwargs["request_limit"])
+        return {
+            "case_id": kwargs["metadata"]["case_id"],
+            "arm": kwargs["arm"],
+            "provider_request_count": int(kwargs["request_limit"] or 0),
+            "failure_category": "request_cap",
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+
+    monkeypatch.setattr(run_module, "_run_arm", fake_arm)
+    run_file = tmp_path / "partial.jsonl"
+    prior = {
+        "case_id": "fixture-case",
+        "arm": "with_validation",
+        "provider_request_count": 10,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+    run_file.write_text(json.dumps(prior) + "\n", encoding="utf-8")
+    metadata = {"case_id": "fixture-case", "parent_sha": "a" * 40, "repository": "fixture"}
+
+    rows = asyncio.run(
+        run_module._run_cases(
+            cases=[(tmp_path, metadata, {})],
+            provider_name="openrouter_api",
+            run_file=run_file,
+            token_limit=100,
+            cost_limit=run_module.Decimal("0"),
+            timeout_seconds=10,
+            resume=True,
+            provider_client=object(),
+            model="fixture-model",
+            attested_free=True,
+        )
+    )
+
+    assert seen_limits == [run_module.OPENROUTER_BENCHMARK_REQUEST_LIMIT]
+    assert len(rows) == 1
 
 
 def test_model_tool_wrapper_rejects_git_history_tools() -> None:

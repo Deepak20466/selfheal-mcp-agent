@@ -2018,6 +2018,44 @@ async def test_openrouter_compacts_actual_mcp_read_file_json_without_corrupting_
     assert "owner@example.invalid" not in result["content"]
 
 
+def test_openrouter_deduplicates_repeated_source_reads_on_outgoing_history() -> None:
+    from healer.api_adapters import _compact_openrouter_tool_messages
+
+    read_result = json.dumps(
+        {
+            "path": "src/repair.py",
+            "start_line": 4,
+            "end_line": 8,
+            "total_lines": 40,
+            "content": "def repair():\\n    return True",
+        }
+    )
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "read-1", "function": {"name": "read_file", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "read-1", "content": read_result},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "read-2", "function": {"name": "read_file", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "read-2", "content": read_result},
+    ]
+
+    outgoing = _compact_openrouter_tool_messages(messages)
+
+    old_result = json.loads(outgoing[1]["content"])
+    current_result = json.loads(outgoing[3]["content"])
+    assert "Repeated source read omitted" in old_result["content"]
+    assert current_result["content"] == "def repair():\\n    return True"
+    assert json.loads(messages[1]["content"])["content"] == "def repair():\\n    return True"
+
+
 def test_openrouter_compaction_keeps_tool_results_associated_with_their_turn() -> None:
     import structlog
 
