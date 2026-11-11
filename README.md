@@ -3,8 +3,8 @@
 AI-powered incident-to-patch automation with scoped MCP repository tools, policy-checked diffs,
 isolated tests, and human-reviewed pull requests.
 
-[![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
-[![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=feat/gemini-benchmark-route)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Afeat%2Fgemini-benchmark-route)
+[![CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/ci.yml?query=branch%3Amain)
+[![Kubernetes CI](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml/badge.svg?branch=main)](https://github.com/Deepak20466/selfheal-mcp-agent/actions/workflows/k8s-ci.yml?query=branch%3Amain)
 
 ![Synthetic Selfheal repair-to-PR demo](docs/demo-e2e-repairs.gif)
 
@@ -13,6 +13,14 @@ isolated tests, and human-reviewed pull requests.
 [Terminal walkthrough](docs/demo-terminal.mp4)
 
 Python 3.11+ · FastAPI · PostgreSQL · SQLAlchemy/Alembic · MCP · Typer · GitHub Actions
+
+## Verified project outcomes
+
+- **20/20 repairs verified** in a historical benchmark of seeded failures in one synthetic FastAPI repository. [Method and per-case results](docs/benchmark.md)
+- **3/3 controlled synthetic repair-to-PR demos** reached passing CI, with human review retained. [PRs and live run evidence](docs/demo-recording.md)
+- **VIMJ offline case study:** the recovered AI-authored change passed the saved frozen regression (1 test) and backend suite (30 tests). This was one offline recovery case, not a successful live autonomous VIMJ repair. [Patch, evidence, limitations, and reproduction steps](docs/evidence/vimj-fee-balance-2026-11-10.md)
+
+The benchmark and demo results use synthetic fixtures. The VIMJ result is a single recovered candidate tested offline; overall real-repository repair performance has not been established.
 
 ## Quick start
 
@@ -41,8 +49,8 @@ and [security boundaries](docs/architecture.md).
 | Evaluation | Result | Scope and evidence |
 |---|---|---|
 | Synthetic repair benchmark | **20/20 diagnoses and 20/20 repairs verified**; 0 terminal false fixes; 0 manual interventions. One case used a retry (21 model generations total); mean repair and verification time was 15.8649s. | Historical Codex CLI run on 20 seeded failures in one synthetic FastAPI repository; [full method, per-case results, and limitations](docs/benchmark.md); [raw run](benchmarks/results/codex-full-2026-10-19-run5.json). |
+| Synthetic repair-to-PR demos | **3/3 controlled trials reached CI-passing PRs.** PRs remain subject to human review. | Demo repos: [#16, merged](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16), [#13, open](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13), [#10, open](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10); [recording and run evidence](docs/demo-recording.md). |
 | VIMJ fee-balance offline recovery case | On the frozen baseline, the saved isolated regression passed **1 test** and the saved backend suite passed **30 tests** after applying the preserved AI-authored code hunk. | This is a limited offline case study at VIMJ commit [`6490833`](https://github.com/Deepak20466/vimj-studio-os-saas/commit/6490833d178b71624d024b16046240a20a3f78a6), not a successful live autonomous SelfHeal repair. The OpenRouter response failed SelfHeal's patch-format gate; a later OpenRouter attempt returned no usable patch (`no_patch`). The AI hunk was recovered with formatting-only diff normalization before the saved tests. No VIMJ PR or merge was created. [Evidence, patch, saved outcomes, and reproduction steps](docs/evidence/vimj-fee-balance-2026-11-10.md). |
-| Synthetic repair-to-PR demos | Three controlled repairs reached CI-passing PRs. | Demo repos: [#16, merged](https://github.com/Deepak20466/selfheal-e2e-demo-01/pull/16), [#13, open](https://github.com/Deepak20466/selfheal-e2e-demo-02/pull/13), [#10, open](https://github.com/Deepak20466/selfheal-e2e-demo-03/pull/10). |
 
 The synthetic 20/20 result is a fixed-fixture historical benchmark, not an estimate of performance
 on arbitrary repositories or current production reliability. The VIMJ result is one isolated
