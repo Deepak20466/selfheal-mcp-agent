@@ -71,9 +71,9 @@ backend directory shows exactly those eight failures (8 failed, 43 passed).
 | File | Where it is kept | SHA-256 |
 |---|---|---|
 | `vimj-coach-deletion-post-merge-2026-11-17.jsonl` (post-merge run, merged `acf11b6e`) | this repository, `docs/evidence/` | `3b116a1dcb0fe5597f0c0c9ce8057893d88febd43e3eb58122df4469ef562a9f` |
-| `coach-delete-baseline-20261117T142934Z.jsonl` (pre-merge baseline) | benchmark workspace only | `0d16905ea876fcde68a66ea071b73c60bdb495c28c74166bb3ed34d32597fed2` |
-| `coach-delete-repaired-20261117T142934Z.jsonl` (pre-merge repaired branch) | benchmark workspace only | `353052c318ffc15ba15f5cd54f8b8b4196336a37136f5c8ea16d599016a83b3f` |
-| `coach-delete-baseline-20261117T141631Z.jsonl` (earlier baseline, kept as history) | benchmark workspace only | `0238b3d863732ef2fa0788f26aa03f2c306da8f635280b67553e95ac6402287d` |
+| `coach-delete-baseline-20261117T142934Z.jsonl` (pre-merge baseline) | `benchmarks/real_bugs/results/unresolved/` on main (PR #61, merge `47c6c73`) | `0d16905ea876fcde68a66ea071b73c60bdb495c28c74166bb3ed34d32597fed2` |
+| `coach-delete-repaired-20261117T142934Z.jsonl` (pre-merge repaired branch) | `benchmarks/real_bugs/results/unresolved/` on main (PR #61, merge `47c6c73`) | `353052c318ffc15ba15f5cd54f8b8b4196336a37136f5c8ea16d599016a83b3f` |
+| `coach-delete-baseline-20261117T141631Z.jsonl` (earlier baseline, kept as history) | `benchmarks/real_bugs/results/unresolved/` on main (PR #61, merge `47c6c73`) | `0238b3d863732ef2fa0788f26aa03f2c306da8f635280b67553e95ac6402287d` |
 
 The post-merge evidence file records integrity for each line and confirms `provider_calls: 0` and
 `live: false`. It contains no credentials, personal email addresses or account metadata. It does
