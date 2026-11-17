@@ -1,0 +1,15 @@
+{
+ "purpose": "Offline re-evaluation of existing baseline evidence with the corrected whole-directory comparison. No sandbox run, no provider call, no overwrite.",
+ "source_evidence": "benchmarks/real_bugs/results/unresolved/coach-delete-baseline-20261117T142934Z.jsonl",
+ "source_sha256": "0d16905ea876fcde68a66ea071b73c60bdb495c28c74166bb3ed34d32597fed2",
+ "source_integrity": [
+  true,
+  true
+ ],
+ "whole_failed_names_match_blocked_set": true,
+ "whole_failed_count": 8,
+ "expected_blocked_count": 8,
+ "whole_summary": "8 failed, 43 passed, 16 warnings",
+ "per_test_outcomes_match": true,
+ "corrected_criterion_whole_tests_dir_matches_expectation": true
+}

@@ -11,9 +11,9 @@
 | Fix on a real VIMJ branch, pushed, PR open | **DONE and MERGED**: PR #3 (https://github.com/Deepak20466/vimj-studio-os-saas/pull/3), merged by the owner; `master` tip `5af0ab49bbfe1e4b8bf1dc0f74a9d87101d5d5f4` |
 | Post-merge sandboxed benchmark on `master` | **PASS** (section 5) |
 | Blind single-shot model repair (fresh Claude CLI process, Pro login) | **PASS** (section 6) |
-| Multi-turn tool-using agent repair (own harness, real sandboxed tools) | **PASS 9/10** (section 8) |
+| Multi-turn tool-using agent repair (own harness, real sandboxed tools) | **PASS 12/13** (section 8; corrected in section 14) |
 | Second real VIMJ bug | **DONE** (section 8) |
-| Repeated multi-model trials | **DONE**: 14/14 single-shot, 9/10 agentic (section 8) |
+| Repeated multi-model trials | **DONE**: 15/15 single-shot, 12/13 agentic (section 8; corrected in section 14) |
 | Repair through the evaluator's own provider loop (`unresolved_eval --provider claude_cli`) | **NOT DONE** (superseded by the harness in section 8; evaluator unchanged) |
 
 ## 1. Root cause of the earlier benchmark stop
@@ -101,7 +101,7 @@ Authorized by the owner (Claude Pro route, same session). Everything below ran i
 | Earlier limitation | Resolution |
 |---|---|
 | One case only | Added a second real VIMJ bug: password reset fails with `TypeError: can't compare offset-naive and offset-aware datetimes` when the database returns a naive `expires_at` (case `password-reset-expiry`, `app/routers/auth.py`, same base `6490833d`). Its test overlay and a human reference patch come from the owner's upstream commit `766765d`; that fix is **not** in `master`, so it is still an open bug there. Pins: source `9333b972...`, overlay `6cffbe7d...`, staged test `d9c96a91...`, reference patch `234b541d...`; pinned from a baseline observation made before any model ran. |
-| One sample, one model | 14 independent blind single-shot trials (per case: 3 sonnet, 2 opus, 2 haiku) and 10 agentic trials. |
+| One sample, one model | 15 blind single-shot attempts (per case: 3 sonnet, 2 opus, 2 haiku, plus one earlier sonnet run on fee-balance) and 13 agentic attempts (corrected in section 14). |
 | No multi-turn loop | Own harness: the model starts with only the task and failure text and must use `list_files`, `read_file`, `run_tests` and `propose_patch`. Tests run in Bubblewrap through a file-queue worker (`vimj_sandbox_worker.py`) so the loop needs no password handling. `propose_patch` is restricted to the case's one source file. |
 | Whole-suite coverage for blind patches | `vimj_bench.py` runs the frozen test and the whole `tests/` directory (30 tests) for every candidate and requires all to pass. |
 | Verifier trust | The verifier was self-checked first: a known-good fix passes and a comment-only negative control FAILS, on both cases (`harness-selfcheck-*` evidence). |
@@ -135,7 +135,7 @@ Per-trial patches, diagnoses, transcripts and generation records: `vimj-multicas
 
 1. **Same vendor family.** All models are Claude. A different vendor needs its own credential (none available).
 2. **Subscription terms.** Anthropic's written permission for automated use of a Pro login is still unconfirmed. Usage is unmetered, so cost and quota consumed are unknown.
-3. **Small, easy-looking sample.** Two bugs, 24 model trials, 23 passes. Both bugs have a short, local fix; the high pass rate may mean the tasks are easy, not that the models are strong. No claim is made about harder bugs.
+3. **Small, easy-looking sample.** Two bugs, 28 model attempts, 27 passes (corrected in section 14; earlier summary said 24 and 23). Both bugs have a short, local fix; the high pass rate may mean the tasks are easy, not that the models are strong. No claim is made about harder bugs.
 4. **Agentic loop is my harness, not the evaluator's provider loop.** `unresolved_eval --provider claude_cli` remains unwired and the evaluator's Gemini-pinned budget/context documents were not changed. The harness's tool set is small (4 tools) and its model turns are emulated tool calls via structured output.
 5. **Prompt visibility.** The single-shot prompt supplies the source and test directly; the agentic runs do not, but the failure text (an assertion/traceback line) is shared by both.
 6. **Environment specificity.** Results depend on the `benchmark` user, the fresh pinned venv and the 64-process cap on this machine.
@@ -178,3 +178,42 @@ Scope: validate the existing repair (upstream commit `766765d`, reference patch 
 - The branch's new backend CI workflow was not run.
 - The master-tip result uses a ported test, not the frozen pin, so it is a validation of the repair's behaviour on master, not a new frozen case.
 - No production data or deployment was checked.
+
+## 11. Password-reset PR (2026-11-17, owner-approved)
+
+- **Merged earlier:** guard tests, PR #4 (merged by the owner at `9442cee`).
+- **Opened:** PR #5, `fix/password-reset-expiry-and-guards` into `master`, head commit `483c7f1bf5a9d2a8d2548cb869f3546a338da29c`. Repair in `auth.py` (53/−2 across two files), regression test ported onto `master`. Open and mergeable; **not merged**. CI: none runs on this repo for PRs.
+- **Sandbox check of the PR tree:** `results/unresolved/password-reset-pr-tree-20261117T140157Z.jsonl`, sha256 `d8630a808e6b8e3cee7e7015753e6c6d613e54473979dcfa160f2f837ca46bf4`. PR tree: whole `backend/tests` directory **41 passed**. Base `master` `9442cee`: two guard tests fail with the naive-timestamp `TypeError` (same base tree as the earlier guard evidence).
+- **Recorded `overall_pass: false` in that file is a runner error, not a test failure.** The runner expected the regression test to exist on the base, but `master` does not contain it. The other criteria are true. The file is kept unchanged.
+- **Scope:** Postgres and production were not tested. No deployment.
+
+## 12. Merge and post-merge check (2026-11-17)
+
+- **PR #5 merged** by the owner at `2026-11-17T14:03:28Z`, merge commit `a7cc609b3110c20e91c26897b505e88201e3c658`. `master` tip is now `a7cc609b`.
+- **Post-merge check** (`vimj_tree_check.py`, Bubblewrap, `benchmark` user, pinned requirements): the whole `backend/tests` directory on the merged tip gives **41 passed, 0 failed**. Evidence `results/unresolved/master-post-merge-a7cc609-20261117T140431Z.jsonl`, sha256 `d7eb06b8ce18540cce8e49ed8b733215f946c6945e489f69588b19f068331589`. Integrity verified, overall pass.
+- **Earlier PR-tree evidence** (`password-reset-pr-tree-20261117T140157Z.jsonl`) keeps its recorded `overall_pass: false` (runner criterion error, explained in section 11).
+- **Status of the mission:** the password-reset bug is fixed and merged, and verified on the merged tip. The rest of the mission is not complete: see the open list in section 10 (provider wiring, a harder real bug, sandbox probes, full SelfHeal suite, CI proposal), each needing a decision or approval.
+
+## 13. Coach-deletion data-loss fix (PR #6, opened 2026-11-17, not merged)
+
+- **Branch:** `fix/coach-delete-data-loss` at `409edf57` (three commits on `master` `a7cc609b`: tests, expanded tests, guard). Diff against `master`: 2 files, +263 / −1.
+- **Change:** `DELETE /coaches/{id}` returns 409 Conflict when the coach has class sessions, student or facility attendance, salary, fee receipts, reminder drafts, leave or activity assignments. The message says to deactivate instead. Coaches without records can still be deleted.
+- **Evidence (Bubblewrap, `benchmark` user):**
+  - Baseline: 8 blocked-record tests fail; the whole directory shows 8 failed, 43 passed; the 8 failures are exactly the blocked set. File `results/unresolved/coach-delete-baseline-20261117T142934Z.jsonl`, sha256 `0d16905ea876fcde68a66ea071b73c60bdb495c28c74166bb3ed34d32597fed2`.
+  - Repaired: 10 of 10 pass; whole directory 51 passed. File `results/unresolved/coach-delete-repaired-20261117T142934Z.jsonl`, sha256 `353052c318ffc15ba15f5cd54f8b8b4196336a37136f5c8ea16d599016a83b3f`.
+  - Earlier baseline run kept as history: `coach-delete-baseline-20261117T141631Z.jsonl`, sha256 `0238b3d863732ef2fa0788f26aa03f2c306da8f635280b67553e95ac6402287d`.
+- **Runner bug:** the harness compared node IDs with bare test names for the baseline whole-directory check, so that criterion was false although the outcome was correct. The harness is corrected (backup kept as `vimj_coach_delete_check.py.pre-whole-fix`). The existing baseline evidence was re-checked offline with the corrected logic (`evidence/coach-delete-baseline-reevaluation-20261117T143724Z.json`, sha256 `646e1ca510182cb8a0412bae74e4a08c1e56c375c73eff80a1ff6ddbe871e155`). No new sandbox run and no overwrite.
+- **CI:** none ran on PR #6. The head commit has 0 check runs and 0 statuses, and the repository has no pull-request workflow. Nothing failed, but nothing was checked by CI.
+- **Not merged, not deployed.** Candidate B (batch coach reassignment) is not addressed.
+
+## 14. Corrections to attempt counts (2026-11-17)
+
+Question asked: were only successful repairs counted? Checked against the evidence: no. Every model attempt folder on disk has a verification record, the batch error files are empty, and the one failed agentic attempt is kept. Three counting problems were found and corrected:
+
+1. **One-off blind run omitted.** The sonnet blind run on fee-balance (patch `88fb36...`, `vimj-v2-blind-claude-repair-check-20261117T130857Z.jsonl`) passed and was left out of the tallies. Blind is **15/15**, not 14/14.
+2. **Stale agentic summary.** Section 8's "9/10" predates the three haiku retries. Agentic is **12/13**.
+3. **Earlier total.** The "24 trials, 23 passes" line was out of date. The corrected total is **28 attempts, 27 passes**, with one failure kept.
+
+Corrected per-attempt accounting: `evidence/reliability-accounting-2026-11-17-corrected.json` (sha256 `04cd9f356e5d895e88d3b4ba23d9e9bfc025bf17b2e96aa8215e2cd0d2af233d`). The earlier `reliability-summary-2026-11-17.json` is unchanged.
+
+Caveats that stay: the haiku retries were run after the first failure, so they are not an independent sample. The excluded categories (human-authored, scripted, in-session AI-assisted, harness self-checks, infrastructure stops, and the external Gemini/Groq/OpenRouter pilot) are listed in that JSON.

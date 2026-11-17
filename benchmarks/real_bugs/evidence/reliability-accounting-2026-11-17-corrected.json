@@ -1,0 +1,360 @@
+{
+ "generated_utc": "2026-11-17T17:34:17.268968+00:00",
+ "supersedes_counts_in": "vimj-final-status-2026-11-17.md sections 8 and 9 (earlier 14/14 blind, 12/13 agentic, 23/24 summary)",
+ "summary_passed_over_attempts": {
+  "blind|fee-balance": "8/8",
+  "blind|password-reset-expiry": "7/7",
+  "blind|ALL": "15/15",
+  "agentic|fee-balance": "5/5",
+  "agentic|password-reset-expiry": "7/8",
+  "agentic|ALL": "12/13",
+  "ALL_MODEL_ATTEMPTS": "27/28"
+ },
+ "by_category_and_model": {
+  "agentic|haiku": "4/5",
+  "agentic|opus": "2/2",
+  "agentic|sonnet": "6/6",
+  "blind|haiku": "4/4",
+  "blind|opus": "4/4",
+  "blind|sonnet": "7/7"
+ },
+ "failures_kept": [
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-run1",
+   "model_alias": "haiku",
+   "passed": false,
+   "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  }
+ ],
+ "attempts": [
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run1",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "304bc9a92b7db56f699d74cc62ec08cd6049d4958715f87b5c246a81feab34be",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run2",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "2961583f98269cbe07a1cbda0e31eac0ff442422f4dc341eb4a4883ab884e61e",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run3",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "1d918057e97c9715153c49beb62a4fa4b901fd395b372561734ba053e73a116d",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "opus-run1",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "c70116de494917b65bb9710ea0a5797d21f39ca5934e36d015b9bfc425591898",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "opus-run2",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "f76813e4e50332b031ad397de8c515c76d92d32d1649d8e3ebdbbbc4193e81a8",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "haiku-run1",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "0d9c85729821843fe70c1088f261c813d4925829136d591f9acfe90c74f57422",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "haiku-run2",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "7d6661822199b273c006ed1b52fb3c1c7f76c02ac788777ba484d7d2a9fd188b",
+   "evidence_file": "blind-trials-fee-balance-20261117T132106Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run1",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "a49afeaccbbeba8cbe5e5b4caf6d08179577e938ffeba0a134c805f355af1907",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run2",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "3f73356ce7fd912a57ee13d5a7992334c9d81a17bfddcae9798c5f164a761c95",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run3",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "3c5e69475e8f5cba3b5ce74515facf3f5d0918a55a92da57810fc29df2fa4591",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "opus-run1",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "5316fbfcf4729b3a7701b451c781a9be3fa3f1e252c0034969e9f4a9f13f3c84",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "opus-run2",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "a211f7497c8d6bff3c3fadb187f021a51bbf38269887b99ce41d41c9caa3fb0c",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-run1",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "be75f14c8e1d025ceb25d63fd79692e4c5bbb6494b24d668f4149e3f64af18a1",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-run2",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "f09402f747aa3a7376561924a4637e5adfb5ed5a0db5691972fd3e31e724cb8c",
+   "evidence_file": "blind-trials-password-reset-20261117T132226Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription"
+  },
+  {
+   "category": "blind",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-oneoff",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "88fb36df44f4db3961e4a8b90ca854540f518e833ee0fc77c959148f847e3f97",
+   "evidence_file": "vimj-v2-blind-claude-repair-check-20261117T130857Z.jsonl",
+   "claim_level": "blind_single_shot_claude_cli_subscription",
+   "case_inferred_from": "patch_paths app/routers/fees.py and fee-balance prompt"
+  },
+  {
+   "category": "agentic",
+   "case_id": "fee-balance",
+   "attempt": "haiku-run1",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "a0f4ef4dd663224872d6d4c28bb71ace747368d41e44261b11155ec5e2d966ac",
+   "evidence_file": "agentic-trials-fee-balance-20261117T133206Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "fee-balance",
+   "attempt": "opus-run1",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "aee349c5ebf555e4f00c62f36d99f7c71e4f5e5e8860c49fba6258f68729f52c",
+   "evidence_file": "agentic-trials-fee-balance-20261117T133206Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run1",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "6550597a28580199cfaac0de92a8b4b8df61fcfd6f579671264a16ec9b1ea6fe",
+   "evidence_file": "agentic-trials-fee-balance-20261117T133206Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run2",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "ddde338f70852a111c334d9196c1b39cb117c069dfa9f6a0d18a4af9635bcd46",
+   "evidence_file": "agentic-trials-fee-balance-20261117T133206Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "fee-balance",
+   "attempt": "sonnet-run3",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "de31959c58179ba5c59e8167ea3115fa0b3bd70bf445af00167f70b7cad3c852",
+   "evidence_file": "agentic-trials-fee-balance-20261117T133206Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-run1",
+   "model_alias": "haiku",
+   "passed": false,
+   "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "opus-run1",
+   "model_alias": "opus",
+   "passed": true,
+   "patch_sha256": "3f7315b99f7b0e0f8c86fe3c5ea7bad3df9c5481881add567e77aec2288e352f",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run1",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "4cde968261f78c245356f596ed7451dd44bb9f447e355392ab0932a6b5c6381a",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run2",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "114884bc76b13e58afa34c653394b71c9dd070e82441f36766d4ea385c3e61e4",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "sonnet-run3",
+   "model_alias": "sonnet",
+   "passed": true,
+   "patch_sha256": "a1b691a5bbccea0114303afb0983000c5c826372ceec94bfada4a75322a7a13d",
+   "evidence_file": "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-retry1",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "3bf0c6ef772937d590e92146da1bfce64a0874d4344dce7279cafc857abe9a21",
+   "evidence_file": "agentic-retry-haiku-password-reset-20261117T133826Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription_retry"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-retry2",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "2e5bb09e75b6964a23bd82782386a8fb3b606f9c28b45cd2c5e4c4043a1f92f6",
+   "evidence_file": "agentic-retry-haiku-password-reset-20261117T133826Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription_retry"
+  },
+  {
+   "category": "agentic",
+   "case_id": "password-reset-expiry",
+   "attempt": "haiku-retry3",
+   "model_alias": "haiku",
+   "passed": true,
+   "patch_sha256": "899449ca901760a50e776ca62ea18f97018936526a4e5e41fb456d2f93ee7e9d",
+   "evidence_file": "agentic-retry-haiku-password-reset-20261117T133826Z.jsonl",
+   "claim_level": "agentic_tool_loop_claude_cli_subscription_retry"
+  }
+ ],
+ "evidence_sources": {
+  "blind-trials-fee-balance-20261117T132106Z.jsonl": {
+   "sha256": "d802a6c6914ca2438fb484fbdcec8785a5d951b4ff9bbb379ed1ebd0c421f99a",
+   "records": 10,
+   "integrity_ok": true
+  },
+  "blind-trials-password-reset-20261117T132226Z.jsonl": {
+   "sha256": "28921c6cb386a85f8a7378089df3fd93176ff1c7c19951a9eeb28e6132014a4e",
+   "records": 10,
+   "integrity_ok": true
+  },
+  "vimj-v2-blind-claude-repair-check-20261117T130857Z.jsonl": {
+   "sha256": "fc28ec0251c0579ffa4cd417fde5b8f1a821b25199cb262fe813e0df5c8e7558",
+   "records": 2,
+   "integrity_ok": true
+  },
+  "agentic-trials-fee-balance-20261117T133206Z.jsonl": {
+   "sha256": "51e62a3c67d48f48e61ad91615f9eb96e49ff591555537cbe34ff08d63e44d33",
+   "records": 8,
+   "integrity_ok": true
+  },
+  "agentic-trials-password-reset-expiry-20261117T133236Z.jsonl": {
+   "sha256": "fab34182dba152db11fbd6f6cb3f90874d4c01939961c3e9ed0c8afaee1a070c",
+   "records": 8,
+   "integrity_ok": true
+  },
+  "agentic-retry-haiku-password-reset-20261117T133826Z.jsonl": {
+   "sha256": "d9f9fade665a87ac44b929cc2808848909bb4196efac157288681c09f5d5eb0c",
+   "records": 6,
+   "integrity_ok": true
+  }
+ },
+ "excluded_categories": [
+  "human-authored repair (upstream commit 766765d, owner)",
+  "operator-authored scripted fixture (fee-balance)",
+  "in-session AI-assisted patch, not blind (fee-balance; claim_level ai_generated_patch_sandboxed_check)",
+  "harness self-checks (known-good and negative-control patches)",
+  "sandbox/infrastructure stops (EAGAIN process cap, path mistakes): not model attempts; kept as stopped records",
+  "external SelfHeal real-bug pilot runs (Gemini, Groq, OpenRouter; different cases and harness); reported in the published pilot results"
+ ],
+ "notes": [
+  "Haiku password-reset: one original failure, then three retries run after that failure; not an independent sample.",
+  "The first agentic sonnet fee-balance run hit a harness target-path error during the run and still passed."
+ ]
+}
