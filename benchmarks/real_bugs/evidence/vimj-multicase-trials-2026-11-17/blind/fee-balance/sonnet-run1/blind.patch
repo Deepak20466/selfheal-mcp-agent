@@ -1,0 +1,21 @@
+--- a/app/routers/fees.py
++++ b/app/routers/fees.py
+@@ -122,9 +122,18 @@
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+ 
+     updates = payload.model_dump(exclude_unset=True)
++    old_total = fee.amount + fee.product_amount
++    old_status = fee.status
+     for field, value in updates.items():
+         setattr(fee, field, value)
+ 
++    if "balance_amount" not in updates and old_status != FeeStatus.PAID and (
++        "amount" in updates or "product_amount" in updates
++    ):
++        new_total = fee.amount + fee.product_amount
++        if new_total != old_total:
++            fee.balance_amount = max(Decimal("0"), fee.balance_amount + new_total - old_total)
++
+     if "balance_amount" in updates and "status" not in updates:
+         if fee.balance_amount <= 0:
+             fee.status = FeeStatus.PAID

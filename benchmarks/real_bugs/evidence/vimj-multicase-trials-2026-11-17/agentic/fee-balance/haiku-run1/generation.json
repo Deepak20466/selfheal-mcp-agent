@@ -1,0 +1,98 @@
+{
+ "case_id": "fee-balance",
+ "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+ "model_requested": "haiku",
+ "finish_reason": "model_finished",
+ "model_requests": 5,
+ "tool_call_counts": {
+  "read_file": 4,
+  "propose_patch": 1,
+  "run_tests": 2
+ },
+ "wall_seconds": 63.3,
+ "patch_proposed": true,
+ "patch_sha256": "a0f4ef4dd663224872d6d4c28bb71ace747368d41e44261b11155ec5e2d966ac",
+ "usage": {
+  "metered": false,
+  "cost_enforcement": "not_enforced_subscription_unmetered",
+  "billed_cost_usd": null,
+  "unverified_api_equivalent_estimate_usd": "0.0199121600000000011",
+  "cli_invocations": 5,
+  "model": "haiku",
+  "verified_login": {
+   "loggedIn": true,
+   "authMethod": "claude.ai",
+   "subscriptionType": "pro",
+   "apiProvider": "firstParty",
+   "api_key_env_present_and_stripped": false
+  },
+  "calls": [
+   {
+    "index": 1,
+    "duration_seconds": 6.321,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 668,
+    "cache_creation_input_tokens": 2690,
+    "cache_read_input_tokens": 0,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.0012674000000000001"
+   },
+   {
+    "index": 2,
+    "duration_seconds": 10.091,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 1526,
+    "cache_creation_input_tokens": 9131,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.00354784"
+   },
+   {
+    "index": 3,
+    "duration_seconds": 26.187,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 5930,
+    "cache_creation_input_tokens": 10625,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "propose_patch"
+    ],
+    "reported_estimate_usd_unverified": "0.006196840000000001"
+   },
+   {
+    "index": 4,
+    "duration_seconds": 7.581,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 1193,
+    "cache_creation_input_tokens": 11225,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "run_tests",
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.00400904"
+   },
+   {
+    "index": 5,
+    "duration_seconds": 7.74,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 1016,
+    "cache_creation_input_tokens": 14464,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [],
+    "reported_estimate_usd_unverified": "0.00489104"
+   }
+  ]
+ }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "evaluation_id": "vimj-gemini-2.5-flash-budget-v2-2026-11-17",
+  "challenge_id": "vimj-offline-candidate-2026-11-17",
+  "baseline_commit": "6490833d178b71624d024b16046240a20a3f78a6",
+  "challenge_freeze_sha256": "b67eebaea953c1393d82961c6b8376456ed149c34852b7e35ba8ce4b000ca24f",
+  "model_visible_freeze_sha256": "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc",
+  "provider": "gemini_api",
+  "model": "gemini-2.5-flash",
+  "per_case_token_cap": 32768,
+  "per_case_request_cap": 10,
+  "per_case_cost_cap_usd": "0",
+  "max_case_seconds": 600
+}

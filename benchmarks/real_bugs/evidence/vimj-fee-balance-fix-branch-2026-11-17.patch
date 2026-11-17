@@ -1,0 +1,88 @@
+From 03ef0d12f7d578dfda1c125c47f9d9683965ba04 Mon Sep 17 00:00:00 2001
+From: Claude-assisted <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 18:19:48 +0530
+Subject: [PATCH 1/2] Keep outstanding fee balance in sync when amount changes
+
+update_fee copied amount/product_amount onto the row but only recalculated
+balance_amount when balance_amount or status was in the payload, so changing a
+fee's amount left a stale balance (100+25 fee updated to 150 kept balance 125).
+
+When amount or product_amount changes, balance_amount is not set explicitly and
+the fee is not PAID, move the balance by the change in total (never below zero).
+This preserves any partial payment already recorded.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/app/routers/fees.py | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/backend/app/routers/fees.py b/backend/app/routers/fees.py
+index d110869..0ef7243 100644
+--- a/backend/app/routers/fees.py
++++ b/backend/app/routers/fees.py
+@@ -142,9 +142,20 @@ def update_fee(
+         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+ 
+     updates = payload.model_dump(exclude_unset=True)
++    previous_total = (fee.amount or Decimal("0")) + (fee.product_amount or Decimal("0"))
+     for field, value in updates.items():
+         setattr(fee, field, value)
+ 
++    if (
++        ("amount" in updates or "product_amount" in updates)
++        and "balance_amount" not in updates
++        and fee.status != FeeStatus.PAID
++    ):
++        # Keep the outstanding balance in step with the new total, preserving any
++        # amount already paid (balance moves by the same difference, never below zero).
++        new_total = (fee.amount or Decimal("0")) + (fee.product_amount or Decimal("0"))
++        fee.balance_amount = max(Decimal("0"), fee.balance_amount + (new_total - previous_total))
++
+     if "balance_amount" in updates and "status" not in updates:
+         if fee.balance_amount <= 0:
+             fee.status = FeeStatus.PAID
+-- 
+2.43.0
+
+
+From 95aec74df5dbe55cb122c157abd91247b9418bea Mon Sep 17 00:00:00 2001
+From: Claude-assisted <noreply@anthropic.com>
+Date: Tue, 17 Nov 2026 18:20:09 +0530
+Subject: [PATCH 2/2] Add regression test for fee balance sync on amount update
+
+Creates a 100 + 25 fee, updates amount to 150, and expects the outstanding
+balance to become 175.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ backend/tests/test_requested_changes.py | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/backend/tests/test_requested_changes.py b/backend/tests/test_requested_changes.py
+index eda1a87..2f4adb5 100644
+--- a/backend/tests/test_requested_changes.py
++++ b/backend/tests/test_requested_changes.py
+@@ -316,4 +316,20 @@ class RequestedChanges(unittest.TestCase):
+         self.assertEqual(len(coach_search.json()), 1)
+         self.assertEqual(coach_search.json()[0]['status'], 'ABSENT')
+ 
++    def test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync(self):
++        created = self.client.post('/fees', json={
++            'student_id': self.s1.id,
++            'month': 10,
++            'year': 2026,
++            'amount': '100',
++            'product_amount': '25',
++            'due_date': '2026-10-31',
++        })
++        self.assertEqual(created.status_code, 201, created.text)
++
++        updated = self.client.put(f"/fees/{created.json()['id']}", json={'amount': '150'})
++
++        self.assertEqual(updated.status_code, 200, updated.text)
++        self.assertEqual(Decimal(updated.json()['balance_amount']), Decimal('175'))
++
+ if __name__ == '__main__': unittest.main()
+-- 
+2.43.0
+

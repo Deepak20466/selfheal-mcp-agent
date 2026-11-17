@@ -1,0 +1,77 @@
+{
+  "record_id": "vimj-fee-balance-v2-freeze-record-2026-11-17",
+  "record_date_utc": "2026-11-17",
+  "status": "AUTHORITATIVE_FREEZE_IDENTITY",
+  "authoritative": true,
+  "authority_scope": "Freeze identity and hash chain only. This record does not claim that any benchmark ran or that the regression was re-executed.",
+  "approved_by": "repository owner, Option A approval (2026-11-17)",
+  "supersedes_for_selection": "Explicit --freeze-version v2. V1 remains the default and is not superseded or modified.",
+  "challenge": {
+    "evaluation_id": "vimj-offline-candidate-2026-11-17",
+    "repository": "Deepak20466/vimj-studio-os-saas",
+    "baseline_commit": "6490833d178b71624d024b16046240a20a3f78a6",
+    "source_path": "backend/app/routers/fees.py",
+    "source_sha256": "6d131b6b91d079f61af2d78b1e80e54ab9512093951b8caae0ff5a4735d09d28",
+    "regression_test": "tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync",
+    "regression_test_canonical_sha256": "c5dd62175204e73a82cd3741178debf0d71a340080e17187a371d3986242e67a",
+    "regression_test_raw_crlf_sha256": "1bd8dcbec1edfa404723df1ecbfc496dc14eabfcbbcd37a814e90733f447a007",
+    "overlay_path": "benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-test.patch",
+    "overlay_sha256": "c77b210cef093b15370493e96daf76219f5f16c3f13224a26b955a40e70c61d4"
+  },
+  "hash_chain": [
+    {
+      "artifact": "model-visible freeze",
+      "path": "benchmarks/real_bugs/unresolved/vimj-fee-balance-v2-model-visible-freeze.json",
+      "sha256": "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc",
+      "byte_identical_to": ["benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-model-visible-freeze.json", "git blob f94c3d86b8ee4d1d517fe74d6650f9c330ba6b21 at commit 066bcf8a2393646857d8d801f08a3770b8038d58"]
+    },
+    {
+      "artifact": "challenge config",
+      "path": "benchmarks/real_bugs/unresolved/vimj-fee-balance-v2.json",
+      "sha256": "b67eebaea953c1393d82961c6b8376456ed149c34852b7e35ba8ce4b000ca24f",
+      "pins": "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc"
+    },
+    {
+      "artifact": "budget",
+      "path": "benchmarks/real_bugs/unresolved/vimj-gemini-2.5-flash-budget-v2.json",
+      "sha256": "786952c696095481fddc40b08a1d47c80f939e1ebf4051f2ecc65895fad62818",
+      "pins": ["b67eebaea953c1393d82961c6b8376456ed149c34852b7e35ba8ce4b000ca24f", "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc"]
+    },
+    {
+      "artifact": "context policy",
+      "path": "benchmarks/real_bugs/unresolved/vimj-gemini-2.5-flash-context-v2.json",
+      "sha256": "7eaa23bcc4a3e7540cb89573b08e262dfc61977d2cbfc72ddbe33c3c60c5eb66",
+      "pins": "786952c696095481fddc40b08a1d47c80f939e1ebf4051f2ecc65895fad62818"
+    }
+  ],
+  "identities": {
+    "challenge_id": "vimj-offline-candidate-2026-11-17",
+    "budget_evaluation_id": "vimj-gemini-2.5-flash-budget-v2-2026-11-17",
+    "context_evaluation_id": "vimj-gemini-2.5-flash-context-v2-2026-11-17",
+    "freeze_source_challenge_id": "vimj-offline-candidate-2026-11-09"
+  },
+  "caps": {
+    "per_case_token_cap": 32768,
+    "per_case_request_cap": 10,
+    "per_case_cost_cap_usd": "0 (operator attestation; not enforced for subscription usage)",
+    "max_case_seconds": 600
+  },
+  "historical_v1_pin_preserved": {
+    "model_visible_freeze_sha256_pinned": "9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6",
+    "status": "UNREPRODUCIBLE; preserved unchanged in V1 files and in the evaluator's V1 constants"
+  },
+  "verification_on_implementation": [
+    {"check": "Every V2 file sha256 equals its full pinned value", "result": "pass", "executed": true},
+    {"check": "V2 freeze bytes equal V1 freeze bytes and committed 066bcf8 bytes", "result": "pass", "executed": true},
+    {"check": "All V2 cross-references (freeze to challenge to budget to context, identities, source commit)", "result": "pass", "executed": true},
+    {"check": "V2 documents validate under V2 and fail under V1 (and the reverse)", "result": "pass", "executed": true},
+    {"check": "V2 freeze gate passes without override; altered freeze and altered challenge fail closed", "result": "pass", "executed": true},
+    {"check": "V1 files, V1 constants, V1 default, and V1 compatibility tests", "result": "pass", "executed": true},
+    {"check": "Expected baseline failure (125.00 vs 175) re-executed in the sandbox", "result": "not executed; sandbox blocked by process cap", "executed": false}
+  ],
+  "pending_before_any_benchmark_run": [
+    "Bubblewrap sandbox available with fewer than 60 tasks for the executing user (MAX_PROCESSES unchanged at 64)",
+    "Baseline regression re-executed inside the sandbox and recorded",
+    "Anthropic permission decision (for any Claude-powered run)"
+  ]
+}

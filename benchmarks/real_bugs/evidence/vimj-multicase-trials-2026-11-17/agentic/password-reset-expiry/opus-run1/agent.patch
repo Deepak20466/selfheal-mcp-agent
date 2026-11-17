@@ -1,0 +1,16 @@
+--- a/app/routers/auth.py
++++ b/app/routers/auth.py
+@@ -157,5 +157,12 @@
+ @router.post("/reset-password")
+ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+     entry = db.query(PasswordResetToken).filter(PasswordResetToken.token == payload.token).first()
+-    if not entry or entry.used or entry.expires_at < datetime.now(timezone.utc):
++    if not entry or entry.used:
++        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
++    expires_at = entry.expires_at
++    # Some backends (e.g. SQLite) return naive datetimes; stored values are UTC.
++    if expires_at.tzinfo is None:
++        expires_at = expires_at.replace(tzinfo=timezone.utc)
++    if expires_at < datetime.now(timezone.utc):
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+ 

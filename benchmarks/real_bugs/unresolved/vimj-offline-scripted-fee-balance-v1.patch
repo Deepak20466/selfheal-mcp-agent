@@ -1,0 +1,15 @@
+diff --git a/app/routers/fees.py b/app/routers/fees.py
+index d110869..0c473c3 100644
+--- a/app/routers/fees.py
++++ b/app/routers/fees.py
+@@ -145,6 +145,10 @@ def update_fee(
+     for field, value in updates.items():
+         setattr(fee, field, value)
+ 
++    if ("amount" in updates or "product_amount" in updates) and "balance_amount" not in updates:
++        if fee.status != FeeStatus.PAID:
++            fee.balance_amount = fee.amount + (fee.product_amount or Decimal("0"))
++
+     if "balance_amount" in updates and "status" not in updates:
+         if fee.balance_amount <= 0:
+             fee.status = FeeStatus.PAID

@@ -1,0 +1,55 @@
+{
+ "case_id": "password-reset-expiry",
+ "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+ "model_requested": "haiku",
+ "finish_reason": "model_finished",
+ "model_requests": 2,
+ "tool_call_counts": {
+  "read_file": 2
+ },
+ "wall_seconds": 38.9,
+ "patch_proposed": false,
+ "patch_sha256": null,
+ "usage": {
+  "metered": false,
+  "cost_enforcement": "not_enforced_subscription_unmetered",
+  "billed_cost_usd": null,
+  "unverified_api_equivalent_estimate_usd": "0.00858628",
+  "cli_invocations": 2,
+  "model": "haiku",
+  "verified_login": {
+   "loggedIn": true,
+   "authMethod": "claude.ai",
+   "subscriptionType": "pro",
+   "apiProvider": "firstParty",
+   "api_key_env_present_and_stripped": false
+  },
+  "calls": [
+   {
+    "index": 1,
+    "duration_seconds": 6.121,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 667,
+    "cache_creation_input_tokens": 1999,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.00097754"
+   },
+   {
+    "index": 2,
+    "duration_seconds": 32.81,
+    "num_turns": 3,
+    "input_tokens": 4,
+    "output_tokens": 7979,
+    "cache_creation_input_tokens": 13969,
+    "cache_read_input_tokens": 8294,
+    "tool_calls": [],
+    "reported_estimate_usd_unverified": "0.00760874"
+   }
+  ]
+ }
+}

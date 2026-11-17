@@ -1,0 +1,13 @@
+--- a/app/routers/fees.py
++++ b/app/routers/fees.py
+@@ -144,5 +144,10 @@
+     updates = payload.model_dump(exclude_unset=True)
++    old_total = fee.amount + fee.product_amount
+     for field, value in updates.items():
+         setattr(fee, field, value)
+ 
++    if "balance_amount" not in updates and ("amount" in updates or "product_amount" in updates) and fee.status != FeeStatus.PAID:
++        new_total = fee.amount + fee.product_amount
++        fee.balance_amount = max(Decimal("0"), fee.balance_amount + new_total - old_total)
++
+     if "balance_amount" in updates and "status" not in updates:

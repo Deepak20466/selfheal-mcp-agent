@@ -1,0 +1,127 @@
+{
+ "case_id": "fee-balance",
+ "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+ "model_requested": "sonnet",
+ "finish_reason": "model_finished",
+ "model_requests": 7,
+ "tool_call_counts": {
+  "read_file": 2,
+  "propose_patch": 1,
+  "run_tests": 7,
+  "list_files": 1
+ },
+ "wall_seconds": 80.2,
+ "patch_proposed": true,
+ "patch_sha256": "6550597a28580199cfaac0de92a8b4b8df61fcfd6f579671264a16ec9b1ea6fe",
+ "usage": {
+  "metered": false,
+  "cost_enforcement": "not_enforced_subscription_unmetered",
+  "billed_cost_usd": null,
+  "unverified_api_equivalent_estimate_usd": "0.413020900000000006",
+  "cli_invocations": 7,
+  "model": "sonnet",
+  "verified_login": {
+   "loggedIn": true,
+   "authMethod": "claude.ai",
+   "subscriptionType": "pro",
+   "apiProvider": "firstParty",
+   "api_key_env_present_and_stripped": false
+  },
+  "calls": [
+   {
+    "index": 1,
+    "duration_seconds": 6.47,
+    "num_turns": 4,
+    "input_tokens": 4,
+    "output_tokens": 299,
+    "cache_creation_input_tokens": 2904,
+    "cache_read_input_tokens": 2666,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.0152658"
+   },
+   {
+    "index": 2,
+    "duration_seconds": 26.86,
+    "num_turns": 4,
+    "input_tokens": 4,
+    "output_tokens": 3753,
+    "cache_creation_input_tokens": 12102,
+    "cache_read_input_tokens": 10254,
+    "tool_calls": [
+     "propose_patch"
+    ],
+    "reported_estimate_usd_unverified": "0.0879138"
+   },
+   {
+    "index": 3,
+    "duration_seconds": 6.914,
+    "num_turns": 4,
+    "input_tokens": 4,
+    "output_tokens": 493,
+    "cache_creation_input_tokens": 9815,
+    "cache_read_input_tokens": 10804,
+    "tool_calls": [
+     "run_tests",
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.046274100000000006"
+   },
+   {
+    "index": 4,
+    "duration_seconds": 6.364,
+    "num_turns": 3,
+    "input_tokens": 4,
+    "output_tokens": 381,
+    "cache_creation_input_tokens": 11647,
+    "cache_read_input_tokens": 12696,
+    "tool_calls": [
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.0528602"
+   },
+   {
+    "index": 5,
+    "duration_seconds": 6.649,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 608,
+    "cache_creation_input_tokens": 13523,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "list_files"
+    ],
+    "reported_estimate_usd_unverified": "0.0616307"
+   },
+   {
+    "index": 6,
+    "duration_seconds": 5.097,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 379,
+    "cache_creation_input_tokens": 13790,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "run_tests",
+     "run_tests",
+     "run_tests",
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.060435"
+   },
+   {
+    "index": 7,
+    "duration_seconds": 10.706,
+    "num_turns": 3,
+    "input_tokens": 6,
+    "output_tokens": 1124,
+    "cache_creation_input_tokens": 18419,
+    "cache_read_input_tokens": 18995,
+    "tool_calls": [],
+    "reported_estimate_usd_unverified": "0.0886413"
+   }
+  ]
+ }
+}

@@ -1,0 +1,634 @@
+Task: make the failing regression test below pass by fixing the bug in
+app/routers/fees.py.
+
+Rules:
+- Modify only app/routers/fees.py. Do not change any test.
+- Keep all other behaviour unchanged. Make the smallest correct change.
+- Return the fix as a unified diff in the "patch" field, using the paths
+  "--- a/app/routers/fees.py" and "+++ b/app/routers/fees.py", with enough unchanged context
+  lines for `git apply` to locate each hunk exactly. Copy context lines exactly as shown.
+- Put your root-cause analysis in the "diagnosis" field.
+
+Failing command:
+python -m pytest -q tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync
+
+Failure output (baseline):
+FAILED tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync
+tests/test_requested_changes.py:333: in test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync
+    self.assertEqual(Decimal(updated.json()['balance_amount']), Decimal('175'))
+E   AssertionError: Decimal('125.00') != Decimal('175')
+1 failed
+
+=== tests/test_requested_changes.py ===
+import base64
+import io
+import unittest
+from datetime import date, time
+from decimal import Decimal
+from unittest.mock import patch
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from PIL import Image
+from app.database import Base, get_db
+from app.models import User, UserRole, Activity, CoachActivity, StudentEnrollment, ClassSession, StudentAttendance, AttendanceStatus, StudentFee, FeeStatus, CoachAttendance, CoachAttendanceStatus
+from app.routers import fees, students, receipts, reports, activities, coaches, attendance
+from app.security import require_admin, require_coach, require_admin_or_coach, get_current_user
+from app.models.user import UserDetails
+
+class RequestedChanges(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        Base.metadata.create_all(self.engine)
+        self.db = sessionmaker(bind=self.engine)()
+        self.admin = User(name="Admin", email="admin@example.com", role=UserRole.ADMIN, password_hash="unused")
+        self.coach = User(name="Coach", email="coach@example.com", role=UserRole.COACH, password_hash="unused")
+        self.yoga = Activity(name="Yoga")
+        self.dance = Activity(name="Dance")
+        self.s1 = User(name="Yoga Student", email="yoga@example.com", role=UserRole.STUDENT, password_hash="unused", phone="1234567890", phone_secondary="0987654321")
+        self.s2 = User(name="Dance Student", email="dance@example.com", role=UserRole.STUDENT, password_hash="unused")
+        self.db.add_all([self.admin, self.coach, self.yoga, self.dance, self.s1, self.s2]); self.db.flush()
+        self.db.add_all([StudentEnrollment(student_id=self.s1.id, activity_id=self.yoga.id), StudentEnrollment(student_id=self.s2.id, activity_id=self.dance.id), CoachActivity(coach_id=self.coach.id, activity_id=self.yoga.id)])
+        self.cls = ClassSession(activity_id=self.yoga.id, coach_id=self.coach.id, date=date(2026,9,10), start_time=time(9), end_time=time(10))
+        self.db.add(self.cls); self.db.commit()
+        self.app = FastAPI()
+        for router in [fees.router, students.router, receipts.router, reports.router, activities.router, coaches.router, attendance.router]: self.app.include_router(router)
+        self.app.dependency_overrides[get_db] = lambda: self.db
+        self.app.dependency_overrides[require_admin] = lambda: self.admin
+        self.app.dependency_overrides[require_coach] = lambda: self.coach
+        self.app.dependency_overrides[require_admin_or_coach] = lambda: self.admin
+        self.app.dependency_overrides[get_current_user] = lambda: self.admin
+        self.client = TestClient(self.app)
+        self.patches = [patch("app.routers.receipts.notify_and_push"), patch("app.routers.receipts.notify"), patch("app.routers.fees.notify")]
+        for p in self.patches: p.start()
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.db.close(); self.engine.dispose()
+    def test_activity_filter_and_contacts(self):
+        result = self.client.get("/students", params={"activity_id": self.yoga.id}).json()
+        self.assertEqual([r['id'] for r in result], [self.s1.id])
+        self.assertEqual(result[0]['activities'][0]['name'], 'Yoga')
+        roster = self.client.get(f"/activities/{self.yoga.id}/roster").json()
+        self.assertEqual(roster[0]['phone'], '1234567890')
+        self.assertEqual(roster[0]['phone_secondary'], '0987654321')
+    def test_admin_can_update_student_email(self):
+        response = self.client.put(f"/students/{self.s1.id}", json={"email": "updated@example.com"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['email'], 'updated@example.com')
+
+        duplicate = self.client.put(f"/students/{self.s1.id}", json={"email": self.s2.email})
+        self.assertEqual(duplicate.status_code, 400, duplicate.text)
+        self.assertEqual(self.db.query(User).filter_by(id=self.s1.id).one().email, 'updated@example.com')
+
+        self.app.dependency_overrides[require_admin_or_coach] = lambda: self.coach
+        coach_update = self.client.put(f"/students/{self.s1.id}", json={"email": "coach-change@example.com"})
+        self.assertEqual(coach_update.status_code, 200, coach_update.text)
+        self.assertEqual(coach_update.json()['email'], 'updated@example.com')
+    def test_product_invoice_receipt_and_reports(self):
+        r = self.client.post('/fees', json={'student_id': self.s1.id, 'month':9, 'year':2026, 'amount':'100', 'product_amount':'25', 'due_date':'2026-09-10'})
+        self.assertEqual(r.status_code,201, r.text)
+        self.assertEqual(Decimal(r.json()['balance_amount']), Decimal('125'))
+        fid = r.json()['id']
+        self.client.post('/fees/mark-paid', json={'fee_id':fid})
+        pdf = self.client.get(f'/fees/{fid}/receipt')
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+        csv = self.client.get(f'/fees/{fid}/receipt', params={'fmt':'csv'}).text
+        self.assertIn('Product Amount',csv); self.assertIn('125',csv)
+        self.db.add(StudentAttendance(student_id=self.s1.id, class_id=self.cls.id, status=AttendanceStatus.PRESENT)); self.db.commit()
+        result = self.client.get('/reports', params={'month':9,'year':2026}).json()
+        self.assertEqual(Decimal(result['total_revenue']), Decimal('125'))
+        self.assertEqual(result['activities'][0]['present'],1)
+        self.assertEqual(self.client.get('/reports',params={'month':8,'year':2026}).json()['total_revenue'],0)
+        for kind in ['students','attendance','revenue']:
+            r = self.client.get('/reports',params={'month':9,'year':2026,'kind':kind,'fmt':'pdf'})
+            self.assertTrue(r.content.startswith(b'%PDF'),r.text)
+    def test_coach_reports_include_fee_ledger_for_assigned_students_only(self):
+        assigned_paid = StudentFee(student_id=self.s1.id, month=9, year=2026, amount=Decimal('100'), product_amount=Decimal('20'), balance_amount=Decimal('0'), status=FeeStatus.PAID, due_date=date(2026,9,10))
+        assigned_pending_student = User(name="Second Yoga Student", email="yoga2@example.com", role=UserRole.STUDENT, password_hash="unused")
+        self.db.add(assigned_pending_student); self.db.flush()
+        self.db.add(StudentEnrollment(student_id=assigned_pending_student.id, activity_id=self.yoga.id))
+        assigned_pending = StudentFee(student_id=assigned_pending_student.id, month=9, year=2026, amount=Decimal('150'), product_amount=Decimal('0'), balance_amount=Decimal('50'), status=FeeStatus.UNPAID, due_date=date(2026,9,10))
+        other_student_fee = StudentFee(student_id=self.s2.id, month=9, year=2026, amount=Decimal('900'), product_amount=Decimal('0'), balance_amount=Decimal('900'), status=FeeStatus.UNPAID, due_date=date(2026,9,10))
+        self.db.add_all([assigned_paid, assigned_pending, other_student_fee])
+        self.db.add(StudentAttendance(student_id=self.s1.id, class_id=self.cls.id, status=AttendanceStatus.PRESENT, coach_id=self.coach.id))
+        self.db.commit()
+        self.app.dependency_overrides[require_admin_or_coach] = lambda: self.coach
+        rendered = {}
+        def capture_pdf(title, headers, rows):
+            rendered.update(title=title, headers=headers, rows=rows)
+            return io.BytesIO(b"%PDF-test")
+        with patch("app.routers.reports.rows_to_pdf", side_effect=capture_pdf):
+            detail_response = self.client.get('/reports', params={'month':9,'year':2026,'day':10,'kind':'classes_detail','fmt':'pdf'})
+        self.assertEqual(detail_response.content, b"%PDF-test")
+        self.assertEqual(rendered['headers'], ["Class Time", "Activity", "Student", "Status", "Approval"])
+        self.assertIn(["09:00 - 10:00", "Yoga", "Yoga Student", "PRESENT", "PENDING"], rendered['rows'])
+        self.assertEqual(rendered['rows'][-1], ["Total classes", 1, "Student attendance records", 1, ""])
+        report = self.client.get('/reports', params={'month':9,'year':2026}).json()
+        self.assertEqual(Decimal(report['fee_paid_total']), Decimal('120'))
+        self.assertEqual(Decimal(report['fee_pending_total']), Decimal('50'))
+        self.assertEqual(report['fee_paid_count'], 1)
+        self.assertEqual(report['fee_pending_count'], 1)
+        self.assertEqual(report['classes_done'], 1)
+        for kind in ['students_summary','classes','classes_detail','fees_paid','fees_pending']:
+            response = self.client.get('/reports', params={'month':9,'year':2026,'kind':kind,'fmt':'pdf'})
+            self.assertTrue(response.content.startswith(b'%PDF'), response.text)
+        detail = self.client.get('/reports', params={'month':9,'year':2026,'day':10,'kind':'classes_detail','fmt':'pdf'})
+        self.assertTrue(detail.content.startswith(b'%PDF'), detail.text)
+        self.assertIn('2026-09-10', detail.headers['content-disposition'])
+    def test_coach_attendance_date_filter(self):
+        self.db.add_all([
+            CoachAttendance(coach_id=self.coach.id, date=date(2026, 9, 10), status=CoachAttendanceStatus.PRESENT),
+            CoachAttendance(coach_id=self.coach.id, date=date(2026, 10, 6), status=CoachAttendanceStatus.ABSENT),
+        ])
+        self.db.commit()
+        response = self.client.get(f'/coaches/{self.coach.id}/attendance', params={'date_from':'2026-10-01','date_to':'2026-10-31'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([row['date'][:10] for row in response.json()], ['2026-10-06'])
+    def test_dated_receipts_and_multiple_collections(self):
+        payload = {'student_id':self.s1.id,'month':9,'year':2026,'amount':'100','product_amount':'25','billing_date':'2026-09-10'}
+        for day in [10,11]:
+            payload['billing_date'] = f'2026-09-{day}'
+            r = self.client.post('/receipts',json=payload)
+            self.assertEqual(r.status_code,201,r.text)
+            rid = r.json()['id']
+            self.assertEqual(self.client.put(f'/receipts/{rid}/approve',json={}).status_code,200)
+            self.assertEqual(self.client.put(f'/receipts/{rid}/approve',json={}).status_code,400)
+            self.assertTrue(self.client.get(f'/receipts/{rid}/pdf').content.startswith(b'%PDF'))
+        fee = self.db.query(StudentFee).one()
+        self.assertEqual(fee.amount + fee.product_amount,Decimal('250'))
+        payload['billing_date']='2026-08-10'
+        self.assertEqual(self.client.post('/receipts',json=payload).status_code,400)
+        payload['amount']='-1'
+        self.assertEqual(self.client.post('/receipts',json=payload).status_code,422)
+    def test_approval_does_not_duplicate_invoiced_products(self):
+        invoice = self.client.post('/fees', json={'student_id': self.s1.id, 'month':9, 'year':2026, 'amount':'100', 'product_amount':'25', 'due_date':'2026-09-10'}).json()
+        receipt = self.client.post('/receipts',json={'student_id':self.s1.id,'month':9,'year':2026,'amount':'100','product_amount':'25'}).json()
+        result = self.client.put(f"/receipts/{receipt['id']}/approve",json={})
+        self.assertEqual(result.status_code,200,result.text)
+        fee = self.db.query(StudentFee).filter_by(id=invoice['id']).one()
+        self.assertEqual(fee.product_amount,Decimal('25'))
+        self.assertEqual(fee.balance_amount,Decimal('0'))
+        self.assertEqual(fee.amount + fee.product_amount,Decimal('125'))
+
+    def test_coach_photo_to_admin(self):
+        image = io.BytesIO(); Image.new('RGB',(20,20),'red').save(image,format='JPEG')
+        r = self.client.post(f'/activities/classes/{self.cls.id}/group-photo', json={'photo_base64':base64.b64encode(image.getvalue()).decode()})
+        self.assertEqual(r.status_code,200,r.text)
+        self.assertTrue(r.json()['has_group_photo'])
+        gallery = self.client.get('/activities/session-photos')
+        self.assertEqual(gallery.status_code, 200, gallery.text)
+        self.assertEqual(gallery.json()[0]['class_id'], self.cls.id)
+        self.assertEqual(gallery.json()[0]['activity_name'], 'Yoga')
+        r = self.client.get(f'/activities/classes/{self.cls.id}/group-photo')
+        self.assertEqual(r.status_code,200); self.assertEqual(r.headers['content-type'],'image/jpeg')
+        other_coach = User(name="Other Coach", email="other@example.com", role=UserRole.COACH, password_hash="unused")
+        self.db.add(other_coach); self.db.flush()
+        other_class = ClassSession(activity_id=self.yoga.id, coach_id=other_coach.id, date=date(2026,9,11), start_time=time(9), end_time=time(10), group_photo=image.getvalue())
+        self.db.add(other_class); self.db.commit()
+        self.app.dependency_overrides[get_current_user] = lambda: self.coach
+        coach_gallery = self.client.get('/activities/session-photos')
+        self.assertEqual(coach_gallery.status_code, 200)
+        self.assertEqual([p['class_id'] for p in coach_gallery.json()], [self.cls.id])
+        self.assertEqual(self.client.get(f'/activities/classes/{other_class.id}/group-photo').status_code, 403)
+        self.assertEqual(self.client.delete(f'/activities/classes/{other_class.id}/group-photo').status_code, 403)
+        self.assertEqual(self.client.delete(f'/activities/classes/{self.cls.id}/group-photo').status_code, 204)
+        self.assertEqual(self.client.get('/activities/session-photos').json(), [])
+        self.app.dependency_overrides[get_current_user] = lambda: self.admin
+        self.assertEqual(self.client.get('/activities/session-photos').json()[0]['class_id'], other_class.id)
+        self.assertEqual(self.client.delete(f'/activities/classes/{other_class.id}/group-photo').status_code, 204)
+        self.assertEqual(self.client.get(f'/activities/classes/{other_class.id}/group-photo').status_code, 404)
+        self.app.dependency_overrides[get_current_user] = lambda: self.s2
+        self.assertEqual(self.client.get('/activities/session-photos').status_code, 403)
+        self.assertEqual(self.client.get(f'/activities/classes/{self.cls.id}/group-photo').status_code,404)
+
+    def test_student_photo_delete_and_coach_scope(self):
+        self.db.add_all([
+            UserDetails(user_id=self.s1.id, profile_photo=b"student-photo"),
+            UserDetails(user_id=self.s2.id, profile_photo=b"other-activity-photo"),
+        ])
+        self.db.commit()
+        self.app.dependency_overrides[require_admin_or_coach] = lambda: self.coach
+        self.assertEqual(self.client.delete(f"/students/{self.s2.id}/photo").status_code, 403)
+        self.assertEqual(self.client.delete(f"/students/{self.s1.id}/photo").status_code, 204)
+        self.assertEqual(self.client.get(f"/students/{self.s1.id}/photo").status_code, 404)
+        self.assertEqual(self.client.delete(f"/students/{self.s1.id}/photo").status_code, 404)
+        self.assertIsNotNone(self.db.query(User).filter_by(id=self.s1.id).first())
+
+    def test_admin_attendance_visibility_is_saved_per_admin(self):
+        default = self.client.get('/attendance/list-visibility')
+        self.assertEqual(default.status_code, 200, default.text)
+        self.assertEqual(default.json(), {
+            'show_student_attendance_records': True,
+            'show_coach_attendance_records': True,
+            'configured': False,
+        })
+
+        saved = self.client.put('/attendance/list-visibility', json={
+            'show_student_attendance_records': False,
+            'show_coach_attendance_records': True,
+        })
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json(), {
+            'show_student_attendance_records': False,
+            'show_coach_attendance_records': True,
+            'configured': True,
+        })
+        self.assertEqual(self.client.get('/attendance/list-visibility').json(), saved.json())
+
+        other_admin = User(
+            name="Second Admin",
+            email="second-admin@example.com",
+            role=UserRole.ADMIN,
+            password_hash="unused",
+        )
+        self.db.add(other_admin)
+        self.db.commit()
+        self.app.dependency_overrides[require_admin] = lambda: other_admin
+        other_defaults = self.client.get('/attendance/list-visibility')
+        self.assertEqual(other_defaults.status_code, 200, other_defaults.text)
+        self.assertEqual(other_defaults.json()['configured'], False)
+        self.assertTrue(other_defaults.json()['show_student_attendance_records'])
+
+        self.app.dependency_overrides.pop(require_admin)
+        self.app.dependency_overrides[get_current_user] = lambda: self.coach
+        self.assertEqual(self.client.get('/attendance/list-visibility').status_code, 403)
+
+    def test_attendance_lists_support_limit_and_offset(self):
+        student_rows = [
+            StudentAttendance(
+                student_id=student.id,
+                class_id=self.cls.id,
+                coach_id=self.coach.id,
+                status=AttendanceStatus.PRESENT,
+            )
+            for student in (self.s1, self.s2)
+        ]
+        coach_rows = [
+            CoachAttendance(
+                coach_id=self.coach.id,
+                date=date(2026, 9, day),
+                status=CoachAttendanceStatus.PRESENT,
+            )
+            for day in (10, 11)
+        ]
+        self.db.add_all(student_rows + coach_rows)
+        self.db.commit()
+
+        for path in ('/attendance/students', '/attendance/coaches'):
+            first_page = self.client.get(path, params={'limit': 1, 'offset': 0})
+            second_page = self.client.get(path, params={'limit': 1, 'offset': 1})
+            self.assertEqual(first_page.status_code, 200, first_page.text)
+            self.assertEqual(second_page.status_code, 200, second_page.text)
+            self.assertEqual(len(first_page.json()), 1)
+            self.assertEqual(len(second_page.json()), 1)
+            self.assertNotEqual(first_page.json()[0]['id'], second_page.json()[0]['id'])
+
+        large_page = self.client.get('/attendance/students', params={'limit': 1000})
+        self.assertEqual(large_page.status_code, 200, large_page.text)
+        too_many = self.client.get('/attendance/students', params={'limit': 1001})
+        self.assertEqual(too_many.status_code, 422)
+
+    def test_attendance_search_spans_history_and_applies_coach_status(self):
+        dance_class = ClassSession(
+            activity_id=self.dance.id,
+            coach_id=self.coach.id,
+            date=date(2026, 9, 11),
+            start_time=time(9),
+            end_time=time(10),
+        )
+        self.db.add(dance_class)
+        self.db.flush()
+        self.db.add_all([
+            StudentAttendance(
+                student_id=self.s1.id,
+                class_id=self.cls.id,
+                coach_id=self.coach.id,
+                status=AttendanceStatus.PRESENT,
+            ),
+            StudentAttendance(
+                student_id=self.s2.id,
+                class_id=dance_class.id,
+                coach_id=self.coach.id,
+                status=AttendanceStatus.ABSENT,
+            ),
+            CoachAttendance(
+                coach_id=self.coach.id,
+                date=date(2026, 9, 10),
+                status=CoachAttendanceStatus.ABSENT,
+            ),
+        ])
+        self.db.commit()
+
+        student_search = self.client.get(
+            '/attendance/students', params={'search': 'yoga_student'}
+        )
+        self.assertEqual(student_search.status_code, 200, student_search.text)
+        self.assertEqual(
+            [row['student_name'] for row in student_search.json()],
+            ['Yoga Student'],
+        )
+
+        coach_search = self.client.get(
+            '/attendance/coaches',
+            params={'search': 'coach', 'status_filter': 'ABSENT'},
+        )
+        self.assertEqual(coach_search.status_code, 200, coach_search.text)
+        self.assertEqual(len(coach_search.json()), 1)
+        self.assertEqual(coach_search.json()[0]['status'], 'ABSENT')
+
+    def test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync(self):
+        created = self.client.post('/fees', json={
+            'student_id': self.s1.id,
+            'month': 10,
+            'year': 2026,
+            'amount': '100',
+            'product_amount': '25',
+            'due_date': '2026-10-31',
+        })
+        self.assertEqual(created.status_code, 201, created.text)
+
+        updated = self.client.put(f"/fees/{created.json()['id']}", json={'amount': '150'})
+
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(Decimal(updated.json()['balance_amount']), Decimal('175'))
+
+if __name__ == '__main__': unittest.main()
+
+
+=== app/routers/fees.py ===
+import io
+from datetime import date
+from decimal import Decimal
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.activity import Activity
+from app.models.enrollment import StudentEnrollment
+from app.models.user import User
+from app.models.fee import StudentFee, FeeStatus
+from app.schemas.fee import FeeCreate, FeeMarkPaid, FeeUpdate, FeeOut, FeeAdminOut
+from app.security import require_admin
+from app.services.audit import log_action
+from app.services.notifications import notify
+from app.services.receipt_pdf import build_fee_receipt_pdf
+from app.services.export import rows_to_csv
+
+router = APIRouter(prefix="/fees", tags=["fees"])
+
+
+@router.post("", response_model=FeeOut, status_code=status.HTTP_201_CREATED)
+def create_fee(
+    payload: FeeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    existing = (
+        db.query(StudentFee)
+        .filter(
+            StudentFee.student_id == payload.student_id,
+            StudentFee.month == payload.month,
+            StudentFee.year == payload.year,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Fee record already exists for this period")
+
+    fee = StudentFee(**payload.model_dump(), balance_amount=payload.amount + payload.product_amount)
+    db.add(fee)
+    db.flush()
+    log_action(db, current_user.id, "CREATE", "StudentFee", fee.id)
+    db.commit()
+    db.refresh(fee)
+    return fee
+
+
+@router.get("/unpaid", response_model=List[FeeOut])
+def unpaid_fees(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    return (
+        db.query(StudentFee)
+        .filter(StudentFee.status.in_([FeeStatus.UNPAID, FeeStatus.OVERDUE]))
+        .order_by(StudentFee.due_date)
+        .all()
+    )
+
+
+@router.get("", response_model=List[FeeAdminOut])
+def list_fees(
+    student_id: Optional[int] = None,
+    status_filter: Optional[FeeStatus] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    query = db.query(StudentFee)
+    if student_id:
+        query = query.filter(StudentFee.student_id == student_id)
+    if status_filter:
+        query = query.filter(StudentFee.status == status_filter)
+    if month:
+        query = query.filter(StudentFee.month == month)
+    if year:
+        query = query.filter(StudentFee.year == year)
+
+    fees = (
+        query.order_by(StudentFee.year.desc(), StudentFee.month.desc(), StudentFee.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    students = {u.id: u.name for u in db.query(User).filter(User.id.in_([f.student_id for f in fees])).all()}
+    return [
+        FeeAdminOut(
+            id=f.id,
+            student_id=f.student_id,
+            student_name=students.get(f.student_id, "Unknown"),
+            month=f.month,
+            year=f.year,
+            amount=f.amount,
+            product_amount=f.product_amount,
+            product_name=f.product_name,
+            balance_amount=f.balance_amount,
+            status=f.status,
+            due_date=f.due_date,
+            paid_date=f.paid_date,
+            created_at=f.created_at,
+        )
+        for f in fees
+    ]
+
+
+@router.post("/mark-paid", response_model=FeeOut)
+def mark_paid(
+    payload: FeeMarkPaid,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    fee = db.query(StudentFee).filter(StudentFee.id == payload.fee_id).first()
+    if not fee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+
+    fee.status = FeeStatus.PAID
+    fee.balance_amount = Decimal("0")
+    fee.paid_date = payload.paid_date or date.today()
+    log_action(db, current_user.id, "MARK_PAID", "StudentFee", fee.id)
+    db.commit()
+    db.refresh(fee)
+
+    student = db.query(User).filter(User.id == fee.student_id).first()
+    if student and student.phone:
+        notify(student.phone, f"Your fee payment of Rs {fee.amount} for {fee.month}/{fee.year} has been confirmed. Thank you!")
+    return fee
+
+
+@router.put("/{fee_id}", response_model=FeeOut)
+def update_fee(
+    fee_id: int,
+    payload: FeeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    fee = db.query(StudentFee).filter(StudentFee.id == fee_id).first()
+    if not fee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(fee, field, value)
+
+    if "balance_amount" in updates and "status" not in updates:
+        if fee.balance_amount <= 0:
+            fee.status = FeeStatus.PAID
+            fee.paid_date = fee.paid_date or date.today()
+        elif fee.status == FeeStatus.PAID:
+            fee.status = FeeStatus.OVERDUE if fee.due_date < date.today() else FeeStatus.UNPAID
+            fee.paid_date = None
+    elif "status" in updates and "balance_amount" not in updates:
+        if fee.status == FeeStatus.PAID:
+            fee.balance_amount = Decimal("0")
+            fee.paid_date = fee.paid_date or date.today()
+        elif fee.balance_amount <= 0:
+            fee.balance_amount = fee.amount + fee.product_amount
+
+    log_action(db, current_user.id, "UPDATE", "StudentFee", fee.id)
+    db.commit()
+    db.refresh(fee)
+    return fee
+
+
+@router.delete("/{fee_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_fee(
+    fee_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    fee = db.query(StudentFee).filter(StudentFee.id == fee_id).first()
+    if not fee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+
+    log_action(db, current_user.id, "DELETE", "StudentFee", fee.id)
+    db.delete(fee)
+    db.commit()
+
+
+@router.post("/{fee_id}/remind")
+def send_reminder(
+    fee_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    fee = db.query(StudentFee).filter(StudentFee.id == fee_id).first()
+    if not fee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+
+    # Manual dashboard/MCP reminders are queued as a free mock WhatsApp action.
+    # Do not invoke the optional paid Twilio integration from this endpoint.
+    log_action(db, current_user.id, "QUEUE_MOCK_REMINDER", "StudentFee", fee.id)
+    db.commit()
+    return {"status": "queued", "detail": "Reminder queued (mock WhatsApp)", "fee_id": fee.id}
+
+
+@router.get("/{fee_id}/receipt")
+def fee_receipt(
+    fee_id: int,
+    fmt: str = "pdf",
+    disposition: str = "attachment",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Fee receipt as PDF or CSV, for inline viewing or download (requirement: view/download in both formats)."""
+    fee = db.query(StudentFee).filter(StudentFee.id == fee_id).first()
+    if not fee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fee record not found")
+    if fee.status != FeeStatus.PAID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fee must be marked paid by admin before a receipt can be issued",
+        )
+
+    student = db.query(User).filter(User.id == fee.student_id).first()
+    activity_names = [
+        name
+        for (name,) in (
+            db.query(Activity.name)
+            .join(StudentEnrollment, StudentEnrollment.activity_id == Activity.id)
+            .filter(StudentEnrollment.student_id == fee.student_id)
+            .all()
+        )
+    ]
+    disposition = "inline" if disposition == "inline" else "attachment"
+
+    if fmt == "csv":
+        headers = ["Receipt No", "Student", "Activities", "Period", "Fees Amount", "Product Amount", "Total", "Balance", "Paid Date", "Approved By"]
+        rows = [[
+            f"FEE-{fee.id:06d}",
+            student.name if student else "Unknown",
+            ", ".join(activity_names) or "N/A",
+            f"{fee.month:02d}/{fee.year}",
+            fee.amount,
+            fee.product_amount,
+            fee.amount + fee.product_amount,
+            fee.balance_amount,
+            (fee.paid_date or date.today()).isoformat(),
+            current_user.name,
+        ]]
+        buffer = rows_to_csv(headers, rows)
+        log_action(db, current_user.id, "DOWNLOAD_RECEIPT_CSV", "StudentFee", fee.id)
+        db.commit()
+        return Response(
+            content=buffer.read(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"{disposition}; filename=receipt_fee_{fee.id}.csv"},
+        )
+
+    pdf_bytes = build_fee_receipt_pdf(
+        receipt_no=f"FEE-{fee.id:06d}",
+        student_name=student.name if student else "Unknown",
+        activity_names=activity_names,
+        month=fee.month,
+        year=fee.year,
+        amount_paid=fee.amount,
+        product_amount=fee.product_amount,
+        product_name=fee.product_name,
+        balance_amount=fee.balance_amount,
+        payment_mode="N/A",
+        paid_date=fee.paid_date or date.today(),
+        approved_by=current_user.name,
+    )
+    log_action(db, current_user.id, "DOWNLOAD_RECEIPT_PDF", "StudentFee", fee.id)
+    db.commit()
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"{disposition}; filename=receipt_fee_{fee.id}.pdf"},
+    )
+

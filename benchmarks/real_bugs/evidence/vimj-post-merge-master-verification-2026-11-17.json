@@ -1,0 +1,50 @@
+{
+ "base/frozen": {
+  "rc": 4,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "(none)",
+  "failed": [],
+  "assert_line": []
+ },
+ "base/requested_changes_file": {
+  "rc": 0,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "12 passed, 14 warnings",
+  "failed": [],
+  "assert_line": []
+ },
+ "base/all_tests_dir": {
+  "rc": 0,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "29 passed, 19 warnings",
+  "failed": [],
+  "assert_line": []
+ },
+ "master/frozen": {
+  "rc": 0,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "1 passed, 11 warnings",
+  "failed": [],
+  "assert_line": []
+ },
+ "master/requested_changes_file": {
+  "rc": 0,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "13 passed, 11 warnings",
+  "failed": [],
+  "assert_line": []
+ },
+ "master/all_tests_dir": {
+  "rc": 0,
+  "sandbox": "bubblewrap",
+  "unavailable": false,
+  "summary": "37 passed, 16 warnings",
+  "failed": [],
+  "assert_line": []
+ }
+}

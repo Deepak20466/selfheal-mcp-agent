@@ -59,10 +59,17 @@ class SandboxUnavailableError(RuntimeError):
 
 
 def _bubblewrap_permission_denied(output: str) -> bool:
-    """Identify Bubblewrap startup failures caused by host namespace policy."""
+    """Identify Bubblewrap startup failures caused by host namespace policy or limits.
+
+    "Resource temporarily unavailable" (EAGAIN) is what Bubblewrap reports when the per-user
+    process cap is already exhausted before it can create the namespace. It is a sandbox
+    startup failure, so it must surface as "sandbox unavailable" (fail closed) rather than being
+    mistaken for a failed test run.
+    """
     return bool(
         re.search(
-            r"(?im)^bwrap:.*(?:operation not permitted|permission denied)",
+            r"(?im)^bwrap:.*(?:operation not permitted|permission denied"
+            r"|resource temporarily unavailable)",
             output,
         )
     )
