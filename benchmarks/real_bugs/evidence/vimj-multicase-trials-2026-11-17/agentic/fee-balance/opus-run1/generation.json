@@ -1,0 +1,84 @@
+{
+ "case_id": "fee-balance",
+ "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+ "model_requested": "opus",
+ "finish_reason": "model_finished",
+ "model_requests": 4,
+ "tool_call_counts": {
+  "read_file": 2,
+  "propose_patch": 1,
+  "run_tests": 2
+ },
+ "wall_seconds": 43.4,
+ "patch_proposed": true,
+ "patch_sha256": "aee349c5ebf555e4f00c62f36d99f7c71e4f5e5e8860c49fba6258f68729f52c",
+ "usage": {
+  "metered": false,
+  "cost_enforcement": "not_enforced_subscription_unmetered",
+  "billed_cost_usd": null,
+  "unverified_api_equivalent_estimate_usd": "0.350333099999999994",
+  "cli_invocations": 4,
+  "model": "opus",
+  "verified_login": {
+   "loggedIn": true,
+   "authMethod": "claude.ai",
+   "subscriptionType": "pro",
+   "apiProvider": "firstParty",
+   "api_key_env_present_and_stripped": false
+  },
+  "calls": [
+   {
+    "index": 1,
+    "duration_seconds": 5.33,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 183,
+    "cache_creation_input_tokens": 2658,
+    "cache_read_input_tokens": 0,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.025177200000000004"
+   },
+   {
+    "index": 2,
+    "duration_seconds": 19.453,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 2116,
+    "cache_creation_input_tokens": 9013,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "propose_patch",
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.1154995"
+   },
+   {
+    "index": 3,
+    "duration_seconds": 4.954,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 155,
+    "cache_creation_input_tokens": 11405,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.09565599999999999"
+   },
+   {
+    "index": 4,
+    "duration_seconds": 7.983,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 483,
+    "cache_creation_input_tokens": 12860,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [],
+    "reported_estimate_usd_unverified": "0.1140004"
+   }
+  ]
+ }
+}

@@ -16,6 +16,7 @@ import shutil
 import sys
 import tempfile
 import venv
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -69,6 +70,104 @@ class EvaluationSafetyError(RuntimeError):
     """The frozen challenge or one of its isolation checks did not match."""
 
 
+# Freeze versions. V1 is the historical 2026-11-09 freeze and stays the default.
+# Its values below are the existing constants, unchanged. Its model-visible pin
+# (9c9f1e6e...) does not match the committed file (921fe894...); that mismatch is
+# preserved as-is. V2 (approved 2026-11-17) pins the committed bytes from commit
+# 066bcf8. See benchmarks/real_bugs/unresolved/freeze-records/ and
+# benchmarks/real_bugs/evidence/vimj-freeze-review-2026-11-17.md.
+DEFAULT_FREEZE_VERSION = "v1"
+FREEZE_VERSION_CHOICES = ("v1", "v2")
+V2_CHALLENGE_ID = "vimj-offline-candidate-2026-11-17"
+V2_CHALLENGE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v2.json"
+V2_MODEL_VISIBLE_FREEZE_PATH = ROOT / "unresolved" / "vimj-fee-balance-v2-model-visible-freeze.json"
+V2_BUDGET_CONFIG_PATH = ROOT / "unresolved" / "vimj-gemini-2.5-flash-budget-v2.json"
+V2_CONTEXT_POLICY_PATH = ROOT / "unresolved" / "vimj-gemini-2.5-flash-context-v2.json"
+V2_BUDGET_EVALUATION_ID = "vimj-gemini-2.5-flash-budget-v2-2026-11-17"
+V2_CONTEXT_EVALUATION_ID = "vimj-gemini-2.5-flash-context-v2-2026-11-17"
+V2_MODEL_VISIBLE_FREEZE_SOURCE_COMMIT = "066bcf8a2393646857d8d801f08a3770b8038d58"
+EXPECTED_V2_CHALLENGE_SHA256 = "b67eebaea953c1393d82961c6b8376456ed149c34852b7e35ba8ce4b000ca24f"
+EXPECTED_V2_MODEL_VISIBLE_FREEZE_SHA256 = (
+    "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc"
+)
+EXPECTED_V2_BUDGET_CONFIG_SHA256 = (
+    "786952c696095481fddc40b08a1d47c80f939e1ebf4051f2ecc65895fad62818"
+)
+EXPECTED_V2_CONTEXT_POLICY_SHA256 = (
+    "7eaa23bcc4a3e7540cb89573b08e262dfc61977d2cbfc72ddbe33c3c60c5eb66"
+)
+
+
+@dataclass(frozen=True)
+class FreezeVersion:
+    """Every identity, path, and hash one freeze version's validators must match."""
+
+    name: str
+    challenge_id: str
+    freeze_source_challenge_id: str
+    challenge_config_path: Path
+    challenge_config_sha256: str
+    model_visible_freeze_path: Path
+    model_visible_freeze_sha256: str
+    challenge_provider: str
+    challenge_model: str
+    budget_config_path: Path
+    budget_config_sha256: str
+    budget_evaluation_id: str
+    context_policy_path: Path
+    context_policy_sha256: str
+    context_evaluation_id: str
+    model_visible_freeze_source_commit: str | None
+
+
+FREEZE_V1 = FreezeVersion(
+    name="v1",
+    challenge_id=CHALLENGE_ID,
+    freeze_source_challenge_id=CHALLENGE_ID,
+    challenge_config_path=FREEZE_PATH,
+    challenge_config_sha256=EXPECTED_FREEZE_SHA256,
+    model_visible_freeze_path=MODEL_VISIBLE_FREEZE_PATH,
+    model_visible_freeze_sha256=EXPECTED_MODEL_VISIBLE_FREEZE_SHA256,
+    challenge_provider="groq_api",
+    challenge_model="openai/gpt-oss-120b",
+    budget_config_path=BUDGET_CONFIG_PATH,
+    budget_config_sha256=EXPECTED_BUDGET_CONFIG_SHA256,
+    budget_evaluation_id=BUDGET_EVALUATION_ID,
+    context_policy_path=CONTEXT_POLICY_PATH,
+    context_policy_sha256=EXPECTED_CONTEXT_POLICY_SHA256,
+    context_evaluation_id=EVALUATION_ID,
+    model_visible_freeze_source_commit=None,
+)
+FREEZE_V2 = FreezeVersion(
+    name="v2",
+    challenge_id=V2_CHALLENGE_ID,
+    freeze_source_challenge_id=CHALLENGE_ID,
+    challenge_config_path=V2_CHALLENGE_PATH,
+    challenge_config_sha256=EXPECTED_V2_CHALLENGE_SHA256,
+    model_visible_freeze_path=V2_MODEL_VISIBLE_FREEZE_PATH,
+    model_visible_freeze_sha256=EXPECTED_V2_MODEL_VISIBLE_FREEZE_SHA256,
+    challenge_provider="gemini_api",
+    challenge_model=GEMINI_MODEL,
+    budget_config_path=V2_BUDGET_CONFIG_PATH,
+    budget_config_sha256=EXPECTED_V2_BUDGET_CONFIG_SHA256,
+    budget_evaluation_id=V2_BUDGET_EVALUATION_ID,
+    context_policy_path=V2_CONTEXT_POLICY_PATH,
+    context_policy_sha256=EXPECTED_V2_CONTEXT_POLICY_SHA256,
+    context_evaluation_id=V2_CONTEXT_EVALUATION_ID,
+    model_visible_freeze_source_commit=V2_MODEL_VISIBLE_FREEZE_SOURCE_COMMIT,
+)
+FREEZE_VERSIONS = {"v1": FREEZE_V1, "v2": FREEZE_V2}
+
+
+def select_freeze_version(name: str) -> FreezeVersion:
+    """Return the named freeze version. Unknown names fail closed."""
+    if name not in FREEZE_VERSIONS:
+        raise EvaluationSafetyError(
+            f"unknown freeze version {name!r}; choose one of {', '.join(FREEZE_VERSION_CHOICES)}"
+        )
+    return FREEZE_VERSIONS[name]
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file:
@@ -83,7 +182,7 @@ def sha256_text_file(path: Path) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def validate_model_config(document: Any) -> None:
+def validate_model_config(document: Any, version: FreezeVersion = FREEZE_V1) -> None:
     """Allow only non-diagnostic challenge metadata in the model config."""
     if not isinstance(document, dict):
         raise EvaluationSafetyError("frozen evaluation config must be an object")
@@ -91,15 +190,20 @@ def validate_model_config(document: Any) -> None:
         raise EvaluationSafetyError("frozen baseline commit mismatch")
     if document.get("permitted_source_paths") != [SOURCE_PATH]:
         raise EvaluationSafetyError("frozen source allowlist mismatch")
-    if document.get("evaluation_id") != CHALLENGE_ID:
+    if document.get("evaluation_id") != version.challenge_id:
         raise EvaluationSafetyError("frozen challenge identity mismatch")
     if document.get("regression_test_sha256") != EXPECTED_FROZEN_TEST_RAW_SHA256:
         raise EvaluationSafetyError("operator-frozen regression test hash mismatch")
     if document.get("regression_test_canonical_sha256") != EXPECTED_TEST_SHA256:
         raise EvaluationSafetyError("canonical regression test hash mismatch")
-    if document.get("model_visible_freeze_sha256") != EXPECTED_MODEL_VISIBLE_FREEZE_SHA256:
+    if document.get("model_visible_freeze_sha256") != version.model_visible_freeze_sha256:
         raise EvaluationSafetyError("model-visible freeze hash mismatch")
-    frozen = json.loads(MODEL_VISIBLE_FREEZE_PATH.read_text(encoding="utf-8"))
+    if version.model_visible_freeze_source_commit is not None and (
+        document.get("model_visible_freeze_source_commit")
+        != version.model_visible_freeze_source_commit
+    ):
+        raise EvaluationSafetyError("model-visible freeze source commit mismatch")
+    frozen = json.loads(version.model_visible_freeze_path.read_text(encoding="utf-8"))
     frozen_text = json.dumps(frozen).lower()
     forbidden_terms = ("root_cause", "diagnosis", "suggested_fix", "human_fix")
     if any(term in frozen_text for term in forbidden_terms):
@@ -107,7 +211,7 @@ def validate_model_config(document: Any) -> None:
     inputs = frozen.get("model_visible_inputs", {})
     criteria = frozen.get("evaluation_criteria", {})
     if (
-        frozen.get("evaluation_id") != CHALLENGE_ID
+        frozen.get("evaluation_id") != version.freeze_source_challenge_id
         or frozen.get("baseline_commit") != EXPECTED_BASELINE
         or frozen.get("repair_attempts") != 0
         or frozen.get("provider_calls") != 0
@@ -122,7 +226,10 @@ def validate_model_config(document: Any) -> None:
         or criteria.get("verification") != "frozen regression test and full backend test suite pass"
     ):
         raise EvaluationSafetyError("evaluation config differs from the operator freeze")
-    if document.get("provider") != "groq_api" or document.get("model") != "openai/gpt-oss-120b":
+    if (
+        document.get("provider") != version.challenge_provider
+        or document.get("model") != version.challenge_model
+    ):
         raise EvaluationSafetyError("frozen provider/model mismatch")
     if document.get("test_overlay_sha256") != EXPECTED_PATCH_SHA256:
         raise EvaluationSafetyError("frozen test overlay hash mismatch")
@@ -131,17 +238,17 @@ def validate_model_config(document: Any) -> None:
         raise EvaluationSafetyError("model config contains evaluator-only fields")
 
 
-def validate_budget_config(document: Any) -> None:
+def validate_budget_config(document: Any, version: FreezeVersion = FREEZE_V1) -> None:
     """Require the versioned run budget to match this evaluator exactly."""
     if not isinstance(document, dict):
         raise EvaluationSafetyError("benchmark budget config must be an object")
     expected = {
         "schema_version": 1,
-        "evaluation_id": BUDGET_EVALUATION_ID,
-        "challenge_id": CHALLENGE_ID,
+        "evaluation_id": version.budget_evaluation_id,
+        "challenge_id": version.challenge_id,
         "baseline_commit": EXPECTED_BASELINE,
-        "challenge_freeze_sha256": EXPECTED_FREEZE_SHA256,
-        "model_visible_freeze_sha256": EXPECTED_MODEL_VISIBLE_FREEZE_SHA256,
+        "challenge_freeze_sha256": version.challenge_config_sha256,
+        "model_visible_freeze_sha256": version.model_visible_freeze_sha256,
         "provider": "gemini_api",
         "model": GEMINI_MODEL,
         "per_case_token_cap": TOKEN_CAP,
@@ -153,13 +260,13 @@ def validate_budget_config(document: Any) -> None:
         raise EvaluationSafetyError("versioned benchmark budget differs from its frozen policy")
 
 
-def validate_context_policy(document: Any) -> None:
+def validate_context_policy(document: Any, version: FreezeVersion = FREEZE_V1) -> None:
     """Require the new context and repair-loop policy to be explicitly versioned."""
     expected = {
         "schema_version": 1,
-        "evaluation_id": EVALUATION_ID,
-        "challenge_id": CHALLENGE_ID,
-        "budget_config_sha256": EXPECTED_BUDGET_CONFIG_SHA256,
+        "evaluation_id": version.context_evaluation_id,
+        "challenge_id": version.challenge_id,
+        "budget_config_sha256": version.budget_config_sha256,
         "model": GEMINI_MODEL,
         "model_visible_traceback_chars": MODEL_VISIBLE_TRACEBACK_CHARS,
         "tool_result_max_bytes": TOOL_RESULT_MAX_BYTES,
@@ -279,10 +386,12 @@ def _validate_candidate(candidate_root: Path) -> Path:
     return backend
 
 
-def _prepare_model_workspace(candidate_backend: Path) -> tuple[Path, Path, str]:
+def _prepare_model_workspace(
+    candidate_backend: Path, version: FreezeVersion = FREEZE_V1
+) -> tuple[Path, Path, str]:
     """Copy a clean checkout, add only the frozen regression test, and prove failure."""
-    document = json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
-    validate_model_config(document)
+    document = json.loads(version.challenge_config_path.read_text(encoding="utf-8"))
+    validate_model_config(document, version)
     staging = PREPARED_ROOT / CASE_ID / "repo"
     venv_path = VENV_ROOT / CASE_ID
     if staging.exists():
@@ -918,7 +1027,12 @@ def _patch_proposal_evidence(events: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 async def _execute(
-    staged: Path, python: Path, provider: Any, model: str, free_attested: bool
+    staged: Path,
+    python: Path,
+    provider: Any,
+    model: str,
+    free_attested: bool,
+    provider_name: str = "gemini_api",
 ) -> dict[str, Any]:
     from benchmarks.real_bugs import run as runner
 
@@ -979,7 +1093,7 @@ async def _execute(
             prepared_record=prepared_record,
             provider_client=provider,
             model=model,
-            provider_name="gemini_api",
+            provider_name=provider_name,
             arm=ARM,
             token_limit=TOKEN_CAP,
             cost_limit=CASE_COST_CAP_USD,
@@ -1047,40 +1161,53 @@ def _check_live_attestations() -> None:
         raise EvaluationSafetyError("operator Gemini quota confirmation is stale")
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate-root", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument(
         "--live", action="store_true", help="make one separately authorized Gemini attempt"
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--freeze-version",
+        choices=FREEZE_VERSION_CHOICES,
+        default=DEFAULT_FREEZE_VERSION,
+        help="freeze to validate against; v1 is the historical default, v2 is explicit",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     evidence_path: Path | None = None
     base: dict[str, Any] = {}
     try:
-        document = json.loads(FREEZE_PATH.read_text(encoding="utf-8"))
-        validate_model_config(document)
-        budget_config = json.loads(BUDGET_CONFIG_PATH.read_text(encoding="utf-8"))
-        validate_budget_config(budget_config)
-        if sha256_file(BUDGET_CONFIG_PATH) != EXPECTED_BUDGET_CONFIG_SHA256:
+        version = select_freeze_version(args.freeze_version)
+        document = json.loads(version.challenge_config_path.read_text(encoding="utf-8"))
+        validate_model_config(document, version)
+        budget_config = json.loads(version.budget_config_path.read_text(encoding="utf-8"))
+        validate_budget_config(budget_config, version)
+        if sha256_file(version.budget_config_path) != version.budget_config_sha256:
             raise EvaluationSafetyError("versioned benchmark budget hash mismatch")
-        context_policy = json.loads(CONTEXT_POLICY_PATH.read_text(encoding="utf-8"))
-        validate_context_policy(context_policy)
-        if sha256_file(CONTEXT_POLICY_PATH) != EXPECTED_CONTEXT_POLICY_SHA256:
+        context_policy = json.loads(version.context_policy_path.read_text(encoding="utf-8"))
+        validate_context_policy(context_policy, version)
+        if sha256_file(version.context_policy_path) != version.context_policy_sha256:
             raise EvaluationSafetyError("versioned context policy hash mismatch")
-        if sha256_file(MODEL_VISIBLE_FREEZE_PATH) != EXPECTED_MODEL_VISIBLE_FREEZE_SHA256:
+        if sha256_file(version.model_visible_freeze_path) != version.model_visible_freeze_sha256:
             raise EvaluationSafetyError("operator-provided model-visible freeze hash mismatch")
-        if sha256_file(FREEZE_PATH) != EXPECTED_FREEZE_SHA256:
+        if sha256_file(version.challenge_config_path) != version.challenge_config_sha256:
             raise EvaluationSafetyError("frozen challenge config hash mismatch")
         if sha256_file(PATCH_PATH) != EXPECTED_PATCH_SHA256:
             raise EvaluationSafetyError("regression overlay hash check failed")
         candidate_backend = _validate_candidate(args.candidate_root)
         evidence_path = _ensure_private_evidence_path(args.evidence)
         base = {
-            "evaluation_id": EVALUATION_ID,
-            "challenge_id": CHALLENGE_ID,
-            "budget_config_sha256": EXPECTED_BUDGET_CONFIG_SHA256,
-            "context_policy_sha256": EXPECTED_CONTEXT_POLICY_SHA256,
+            "freeze_version": version.name,
+            "evaluation_id": version.context_evaluation_id,
+            "challenge_id": version.challenge_id,
+            "budget_config_sha256": version.budget_config_sha256,
+            "context_policy_sha256": version.context_policy_sha256,
+            "model_visible_freeze_sha256": version.model_visible_freeze_sha256,
             "per_case_token_cap": TOKEN_CAP,
             "provider": "gemini_api",
             "model": GEMINI_MODEL,
@@ -1088,7 +1215,7 @@ def main() -> int:
             "per_case_cost_cap_usd": str(CASE_COST_CAP_USD),
             "max_case_seconds": MAX_CASE_SECONDS,
             "baseline_commit": EXPECTED_BASELINE,
-            "freeze_sha256": EXPECTED_FREEZE_SHA256,
+            "freeze_sha256": version.challenge_config_sha256,
             "regression_test_command": f"python -m pytest -q {TEST_PATH}",
             "permitted_source_paths": [SOURCE_PATH],
             "regression_test_sha256": EXPECTED_FROZEN_TEST_RAW_SHA256,
@@ -1103,7 +1230,7 @@ def main() -> int:
         # Persist an intent record before any provider setup/call. A crash or
         # safety stop therefore cannot be misreported as a completed attempt.
         _write_evidence(evidence_path, base, create=True)
-        staged, python, failure_output = _prepare_model_workspace(candidate_backend)
+        staged, python, failure_output = _prepare_model_workspace(candidate_backend, version)
         base.update(
             status="baseline_failed_as_expected",
             provider_calls=0,

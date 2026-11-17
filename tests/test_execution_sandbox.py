@@ -29,6 +29,15 @@ def test_bubblewrap_host_namespace_denial_is_recognized() -> None:
     assert not _bubblewrap_permission_denied("bwrap: unknown option --fake")
 
 
+def test_bubblewrap_resource_exhaustion_is_a_sandbox_startup_failure() -> None:
+    # Process-cap exhaustion (EAGAIN) must fail closed as "sandbox unavailable".
+    assert _bubblewrap_permission_denied(
+        "bwrap: Creating new namespace failed: Resource temporarily unavailable"
+    )
+    # A test's own output mentioning the phrase, not at line start with "bwrap:", must not match.
+    assert not _bubblewrap_permission_denied("E   OSError: Resource temporarily unavailable")
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.name != "nt", reason="exercises the Windows AppContainer dispatch")
 async def test_windows_sandbox_setup_failure_fails_closed(

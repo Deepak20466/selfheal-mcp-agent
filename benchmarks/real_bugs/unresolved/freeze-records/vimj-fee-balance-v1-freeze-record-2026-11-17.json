@@ -1,0 +1,71 @@
+{
+  "record_id": "vimj-fee-balance-v1-freeze-record-2026-11-17",
+  "record_date_utc": "2026-11-17",
+  "status": "PROPOSED_PENDING_OWNER_REVIEW",
+  "authoritative": false,
+  "purpose": "Document the model-visible freeze file for the frozen VIMJ fee-balance case, preserve the historical pin, and propose the committed bytes as the basis for a new freeze version. No evaluator constant, historical config, or historical evidence was changed.",
+  "challenge": {
+    "evaluation_id": "vimj-offline-candidate-2026-11-09",
+    "repository": "Deepak20466/vimj-studio-os-saas",
+    "baseline_commit": "6490833d178b71624d024b16046240a20a3f78a6",
+    "baseline_source_path": "backend/app/routers/fees.py",
+    "baseline_source_sha256": "6d131b6b91d079f61af2d78b1e80e54ab9512093951b8caae0ff5a4735d09d28",
+    "permitted_source_paths": ["app/routers/fees.py"],
+    "regression_test_name": "tests/test_requested_changes.py::RequestedChanges::test_updating_unpaid_fee_amount_keeps_outstanding_balance_in_sync",
+    "regression_test_overlay_path": "benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-test.patch",
+    "regression_test_overlay_sha256": "c77b210cef093b15370493e96daf76219f5f16c3f13224a26b955a40e70c61d4"
+  },
+  "model_visible_freeze_file": {
+    "repository_path": "benchmarks/real_bugs/unresolved/vimj-fee-balance-v1-model-visible-freeze.json",
+    "source_commit": "066bcf8a2393646857d8d801f08a3770b8038d58",
+    "source_commit_subject": "Align unresolved evaluation with operator freeze",
+    "source_commit_date": "2026-11-09",
+    "git_blob_sha1": "f94c3d86b8ee4d1d517fe74d6650f9c330ba6b21",
+    "size_bytes": 919,
+    "sha256": "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc",
+    "byte_identical_to_working_tree": true,
+    "contains_evaluator_only_terms": false
+  },
+  "historical_pin": {
+    "value_sha256": "9c9f1e6e71ce96925c0c716dd452ccec2e1254241e523632ec4226701b7555f6",
+    "where_pinned": [
+      "benchmarks/real_bugs/unresolved_eval.py (EXPECTED_MODEL_VISIBLE_FREEZE_SHA256)",
+      "benchmarks/real_bugs/unresolved/vimj-fee-balance-v1.json (model_visible_freeze_sha256)",
+      "benchmarks/real_bugs/unresolved/vimj-gemini-2.5-flash-budget-v1.json (model_visible_freeze_sha256)",
+      "benchmarks/real_bugs/unresolved/vimj-cohere-north-mini-code-budget-v2.json (model_visible_freeze_sha256)",
+      "docs/unresolved-bug-evaluation.md"
+    ],
+    "status": "UNREPRODUCIBLE",
+    "reason": "No committed byte sequence in the SelfHeal repository or its history produces this value. The only committed version of the freeze file is 921fe894 (commit 066bcf8).",
+    "variants_tested_no_match": {
+      "raw": "921fe894efc6a20f85185c76d4bfae77d01c65f273699564f2ece151a3ab3efc",
+      "no_trailing_newline": "5045d407e39ca1a0",
+      "crlf_line_endings": "3a44d00653d30ff7",
+      "crlf_no_trailing_newline": "79bdfac3e3c2cef1",
+      "json_minified": "5f101893bb9aa378",
+      "json_indent_4": "2153ee97f03c2a45",
+      "json_indent_4_trailing_newline": "186c04ec6550747e",
+      "json_sorted_keys_indent_2_trailing_newline": "8420420a34d9ab1a"
+    },
+    "inference_not_proven": "The 2026-11-09 official preflight record passed the same freeze-file gate. That suggests the operator's file then hashed to the pin and was later replaced by the committed bytes. The original file is not in the repository, so this cannot be confirmed."
+  },
+  "verification_performed_2026_11_17": [
+    {"check": "SelfHeal commit 066bcf8 exists and contains the freeze file", "result": "pass", "executed": true},
+    {"check": "Freeze file bytes at 066bcf8 equal the on-disk file", "result": "pass", "executed": true},
+    {"check": "Freeze file sha256 equals the proposed value", "result": "pass (921fe894...)", "executed": true},
+    {"check": "Freeze file structural validation (baseline commit, test sha, allowed paths, no evaluator-only terms, zero attempts, zero provider calls)", "result": "pass", "executed": true},
+    {"check": "VIMJ checkout HEAD equals baseline and git status is clean", "result": "pass", "executed": true},
+    {"check": "backend/app/routers/fees.py sha256 equals baseline source hash", "result": "pass (6d131b6b...)", "executed": true},
+    {"check": "Regression overlay patch sha256", "result": "pass (c77b210c...)", "executed": true},
+    {"check": "Overlaid regression test canonical (LF) sha256", "result": "pass (c5dd6217...)", "executed": true},
+    {"check": "Overlaid regression test raw CRLF sha256 equals the raw pin", "result": "pass (1bd8dcbe...)", "executed": true},
+    {"check": "Regression test name present in overlaid file", "result": "pass (1 match)", "executed": true},
+    {"check": "Expected baseline failure: 125.00 != 175, 1 failed", "result": "not re-executed in this session (sandbox blocked: 884 tasks). Matches the saved 2026-11-09 preflight records (vimj-official-offline-preflight-2026-11-09.jsonl and vimj-verified-offline-preflight-v2.jsonl).", "executed": false}
+  ],
+  "proposed_next_steps_requires_owner_approval": [
+    "Choose Option A (new versioned freeze set pinning 921fe894...) or Option B (retire the freeze check and record the committed file as the only authority).",
+    "Do not edit the 2026-11-09 configs or pins. Create new dated, versioned configs and a new evaluator constant set for the chosen option.",
+    "Re-run the baseline regression inside the sandbox only after the process-count precondition is met.",
+    "Record the operator's approval, with date, in this file before marking it authoritative."
+  ]
+}

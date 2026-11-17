@@ -1,0 +1,16 @@
+{
+  "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+  "model_requested": "sonnet",
+  "auth": {},
+  "cli_calls": 1,
+  "started_at_utc": "2026-11-17T13:08:16.789852+00:00",
+  "finished_at_utc": "2026-11-17T13:08:27.416559+00:00",
+  "return_code": 0,
+  "stderr_tail": "",
+  "prompt_sha256": "b5c522bde9864e4e0a8e19704540b929efa8c9c5cfe241377f38744e92909964",
+  "prompt_chars": 31622,
+  "patch_sha256": "88fb36df44f4db3961e4a8b90ca854540f518e833ee0fc77c959148f847e3f97",
+  "patch_paths": [
+    "app/routers/fees.py"
+  ]
+}

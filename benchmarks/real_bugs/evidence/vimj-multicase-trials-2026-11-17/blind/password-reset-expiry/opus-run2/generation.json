@@ -1,0 +1,17 @@
+{
+  "case_id": "password-reset-expiry",
+  "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+  "model_requested": "opus",
+  "auth": {},
+  "cli_calls": 1,
+  "started_at_utc": "2026-11-17T13:21:39.366909+00:00",
+  "finished_at_utc": "2026-11-17T13:21:47.795949+00:00",
+  "return_code": 0,
+  "stderr_tail": "",
+  "prompt_sha256": "73ab0ff83e6d2b2611bca164c3de97c712d882c0c72e1cbb478e4988ed201a7d",
+  "prompt_chars": 14548,
+  "patch_sha256": "a211f7497c8d6bff3c3fadb187f021a51bbf38269887b99ce41d41c9caa3fb0c",
+  "patch_paths": [
+    "app/routers/auth.py"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "case_id": "fee-balance",
+  "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+  "model_requested": "haiku",
+  "auth": {},
+  "cli_calls": 1,
+  "started_at_utc": "2026-11-17T13:18:39.729006+00:00",
+  "finished_at_utc": "2026-11-17T13:18:55.836393+00:00",
+  "return_code": 0,
+  "stderr_tail": "",
+  "prompt_sha256": "b5c522bde9864e4e0a8e19704540b929efa8c9c5cfe241377f38744e92909964",
+  "prompt_chars": 31622,
+  "patch_sha256": "7d6661822199b273c006ed1b52fb3c1c7f76c02ac788777ba484d7d2a9fd188b",
+  "patch_paths": [
+    "app/routers/fees.py"
+  ]
+}

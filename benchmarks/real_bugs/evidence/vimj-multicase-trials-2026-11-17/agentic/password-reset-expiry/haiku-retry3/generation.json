@@ -1,0 +1,84 @@
+{
+ "case_id": "password-reset-expiry",
+ "route": "claude.ai subscription via Claude Code CLI (no API key); usage unmetered",
+ "model_requested": "haiku",
+ "finish_reason": "model_finished",
+ "model_requests": 4,
+ "tool_call_counts": {
+  "read_file": 2,
+  "propose_patch": 1,
+  "run_tests": 2
+ },
+ "wall_seconds": 57.3,
+ "patch_proposed": true,
+ "patch_sha256": "899449ca901760a50e776ca62ea18f97018936526a4e5e41fb456d2f93ee7e9d",
+ "usage": {
+  "metered": false,
+  "cost_enforcement": "not_enforced_subscription_unmetered",
+  "billed_cost_usd": null,
+  "unverified_api_equivalent_estimate_usd": "0.0128325800000000006",
+  "cli_invocations": 4,
+  "model": "haiku",
+  "verified_login": {
+   "loggedIn": true,
+   "authMethod": "claude.ai",
+   "subscriptionType": "pro",
+   "apiProvider": "firstParty",
+   "api_key_env_present_and_stripped": false
+  },
+  "calls": [
+   {
+    "index": 1,
+    "duration_seconds": 6.127,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 453,
+    "cache_creation_input_tokens": 640,
+    "cache_read_input_tokens": 1986,
+    "tool_calls": [
+     "read_file",
+     "read_file"
+    ],
+    "reported_estimate_usd_unverified": "0.00061186"
+   },
+   {
+    "index": 2,
+    "duration_seconds": 33.387,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 8035,
+    "cache_creation_input_tokens": 7013,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "propose_patch"
+    ],
+    "reported_estimate_usd_unverified": "0.00616514"
+   },
+   {
+    "index": 3,
+    "duration_seconds": 6.06,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 699,
+    "cache_creation_input_tokens": 7611,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [
+     "run_tests",
+     "run_tests"
+    ],
+    "reported_estimate_usd_unverified": "0.00267704"
+   },
+   {
+    "index": 4,
+    "duration_seconds": 6.564,
+    "num_turns": 2,
+    "input_tokens": 2,
+    "output_tokens": 613,
+    "cache_creation_input_tokens": 10094,
+    "cache_read_input_tokens": 624,
+    "tool_calls": [],
+    "reported_estimate_usd_unverified": "0.0033785400000000006"
+   }
+  ]
+ }
+}
