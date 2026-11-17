@@ -314,9 +314,7 @@ class TracingMCPClient:
                 self.retry_ready = False
                 self.raw_patch_candidate = patch if isinstance(patch, str) else None
                 self.last_patch = self.raw_patch_candidate
-                normalized_patch = _validate_benchmark_patch(
-                    patch, self.allowed_source_paths
-                )
+                normalized_patch = _validate_benchmark_patch(patch, self.allowed_source_paths)
                 self.last_patch = normalized_patch
                 arguments = {**arguments, "unified_diff": normalized_patch}
                 if not self.validated:
@@ -555,9 +553,7 @@ def _normalize_benchmark_patch(patch: Any, allowed_source_paths: set[str]) -> st
             candidate,
             allowed_prefixes=sorted(
                 {
-                    f"{Path(path).parent.as_posix()}/"
-                    if Path(path).parent != Path(".")
-                    else ""
+                    f"{Path(path).parent.as_posix()}/" if Path(path).parent != Path(".") else ""
                     for path in allowed_source_paths
                 }
             ),
@@ -1021,15 +1017,12 @@ def _benchmark_context(
             sections.append(
                 f"Frozen failing test context — {test_rel.as_posix()}:{start}-{end}:\n"
                 + "\n".join(
-                    f"{line_no}: {test_source[line_no - 1]}"
-                    for line_no in range(start, end + 1)
+                    f"{line_no}: {test_source[line_no - 1]}" for line_no in range(start, end + 1)
                 )
             )
 
     if test_tree is not None and test_function is not None:
-        used_aliases = {
-            node.id for node in ast.walk(test_function) if isinstance(node, ast.Name)
-        }
+        used_aliases = {node.id for node in ast.walk(test_function) if isinstance(node, ast.Name)}
         imported_modules = sorted(
             {module_aliases[alias] for alias in used_aliases.intersection(module_aliases)}
         )
@@ -1101,8 +1094,7 @@ def _benchmark_context(
             excerpt_lines: list[str] = []
             for start, end in relevant:
                 excerpt_lines.extend(
-                    f"{line_no}: {source_lines[line_no - 1]}"
-                    for line_no in range(start, end + 1)
+                    f"{line_no}: {source_lines[line_no - 1]}" for line_no in range(start, end + 1)
                 )
             sections.append(f"Imported source context — {rel}:\n" + "\n".join(excerpt_lines))
 
@@ -1131,8 +1123,7 @@ def _benchmark_prompt(*, context_sufficient: bool = True) -> str:
         "Do not call read_file or list_files; the supplied context is sufficient."
         if context_sufficient
         else (
-            "Use at most one repository-relative read_file call only if required; "
-            "never list files."
+            "Use at most one repository-relative read_file call only if required; never list files."
         )
     )
     return f"""You are repairing a real historical bug in a disposable Python repository.
@@ -1547,9 +1538,7 @@ def _openrouter_requests_used_today(path: Path, *, now: datetime | None = None) 
         for line in file.read_text(encoding="utf-8").splitlines():
             try:
                 row = json.loads(line)
-                recorded_at = datetime.fromisoformat(
-                    str(row["recorded_at"]).replace("Z", "+00:00")
-                )
+                recorded_at = datetime.fromisoformat(str(row["recorded_at"]).replace("Z", "+00:00"))
                 count = row.get("provider_request_count", 0)
                 if (
                     recorded_at.tzinfo is not None
@@ -1716,9 +1705,7 @@ async def _run_cases(
                 await asyncio.sleep(delay)
     written: list[dict[str, Any]] = []
     openrouter_requests_used = (
-        _openrouter_requests_used_today(run_file.parent)
-        if provider_name == "openrouter_api"
-        else 0
+        _openrouter_requests_used_today(run_file.parent) if provider_name == "openrouter_api" else 0
     )
     for _case_dir, metadata, prepared in cases:
         for arm in ARMS:

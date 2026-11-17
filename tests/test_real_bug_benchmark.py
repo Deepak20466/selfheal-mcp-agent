@@ -249,25 +249,19 @@ def test_benchmark_patch_requires_valid_source_only_diff() -> None:
 
 
 def test_benchmark_patch_normalizes_supported_unambiguous_headers_and_fences() -> None:
-    bare = (
-        "--- src/module.py\n+++ src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
-    )
+    bare = "--- src/module.py\n+++ src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
     expected = (
         "diff --git a/src/module.py b/src/module.py\n"
         "--- a/src/module.py\n+++ b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
     )
     assert run_module._validate_benchmark_patch(bare, {"src/module.py"}) == expected
 
-    missing_file_headers = (
-        "diff --git a/src/module.py b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
-    )
+    missing_file_headers = "diff --git a/src/module.py b/src/module.py\n@@ -1 +1 @@\n-old\n+new\n"
+    assert run_module._validate_benchmark_patch(missing_file_headers, {"src/module.py"}) == expected
     assert (
-        run_module._validate_benchmark_patch(missing_file_headers, {"src/module.py"})
+        run_module._validate_benchmark_patch(f"```diff\n{expected}```", {"src/module.py"})
         == expected
     )
-    assert run_module._validate_benchmark_patch(
-        f"```diff\n{expected}```", {"src/module.py"}
-    ) == expected
 
 
 def test_normalized_patch_applies_and_passes_test_in_isolated_checkout(tmp_path: Path) -> None:
@@ -352,9 +346,9 @@ def test_safe_patch_candidate_evidence_retains_exact_output_and_digest() -> None
     )
     evidence = run_module._patch_candidate_evidence(candidate)
     assert evidence["patch_candidate"] == candidate
-    assert evidence["patch_candidate_sha256"] == hashlib.sha256(
-        candidate.encode("utf-8")
-    ).hexdigest()
+    assert (
+        evidence["patch_candidate_sha256"] == hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+    )
 
 
 def test_tracing_rejects_worktree_prefixed_inspection_path() -> None:
@@ -377,11 +371,7 @@ def test_tracing_rejects_worktree_prefixed_inspection_path() -> None:
         max_inspection_tool_calls=1,
     )
     with pytest.raises(MCPToolError, match="repository-relative"):
-        asyncio.run(
-            tracer.call_tool(
-                "read_file", {"path": "rb-attempt/s/src/module.py"}
-            )
-        )
+        asyncio.run(tracer.call_tool("read_file", {"path": "rb-attempt/s/src/module.py"}))
     assert client.calls == []
 
 
@@ -445,9 +435,9 @@ def test_tracing_limits_supplemental_repository_inspection_to_one_call() -> None
 
     client = FakeClient()
     tracer = run_module.TracingMCPClient(client, validated=True, error_id=1)
-    assert asyncio.run(tracer.call_tool("read_file", {"path": "src/module.py"}))[
-        "content"
-    ] == "source"
+    assert (
+        asyncio.run(tracer.call_tool("read_file", {"path": "src/module.py"}))["content"] == "source"
+    )
 
     with pytest.raises(MCPToolError, match="no more repository inspection calls"):
         asyncio.run(tracer.call_tool("list_files", {}))

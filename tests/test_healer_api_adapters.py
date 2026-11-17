@@ -2033,16 +2033,12 @@ def test_openrouter_deduplicates_repeated_source_reads_on_outgoing_history() -> 
     messages = [
         {
             "role": "assistant",
-            "tool_calls": [
-                {"id": "read-1", "function": {"name": "read_file", "arguments": "{}"}}
-            ],
+            "tool_calls": [{"id": "read-1", "function": {"name": "read_file", "arguments": "{}"}}],
         },
         {"role": "tool", "tool_call_id": "read-1", "content": read_result},
         {
             "role": "assistant",
-            "tool_calls": [
-                {"id": "read-2", "function": {"name": "read_file", "arguments": "{}"}}
-            ],
+            "tool_calls": [{"id": "read-2", "function": {"name": "read_file", "arguments": "{}"}}],
         },
         {"role": "tool", "tool_call_id": "read-2", "content": read_result},
     ]
