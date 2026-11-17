@@ -149,6 +149,7 @@ current terminal-first product.
 - [Real-bug benchmark method](docs/benchmark-real-bugs.md)
 - [Verified VIMJ single-case evidence](docs/evidence/vimj-fee-balance-2026-11-10.md)
 - [Verified VIMJ coach deletion case](docs/evidence/vimj-coach-deletion-2026-11-17.md)
+- [VIMJ attempt accounting (corrected counts)](docs/evidence/vimj-reliability-accounting-2026-11-17.md)
 - [Historical fixture benchmark](docs/benchmark.md)
 - [Verification report](VERIFICATION.md)
 - [Recovered evidence](docs/history/RECOVERED_EVIDENCE.md)
