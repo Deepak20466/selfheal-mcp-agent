@@ -19,6 +19,71 @@ remain unattempted. These outcomes and all raw records are saved under
 file is preserved unchanged. The v9 adapter fix and both leakage audits are committed separately
 from these historical outcomes. Do not resume into an existing result file.
 
+An OpenRouter v9 pilot preflight on 2026-11-10 verified the existing Free-tier key and the
+zero-priced, tool-capable `cohere/north-mini-code:free` endpoint. The run then stopped before any
+model completion because the configured database role could not access the disposable database's
+Alembic version table. It produced no benchmark attempt and does not change the Gemini pilot score.
+See the [OpenRouter preflight report](evidence/openrouter-v9-pilot-preflight-2026-11-10.md).
+
+After the disposable database permissions were corrected and reverified, the frozen OpenRouter
+pilot resumed. It recorded three arm attempts across two of the ten selected cases: zero completed
+repairs (0/3), zero target-test passes, and zero full-suite passes. The exact model was still
+verified free before generation; 26 completion requests reported a total cost of $0.00. The run
+stopped after a request-cap event, a patch that did not apply, and a per-case token-cap event. Eight
+selected cases remain unattempted, so this is a partial result rather than a 10-case success rate.
+See the [OpenRouter results report](evidence/openrouter-v9-pilot-results-2026-11-10.md),
+[raw attempts](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-pilot-10-20261110/2026-11-10.md).
+
+A subsequent controlled repeat of the first frozen case stopped before repair verification: the
+agent used 10 `read_file` requests, 40,172 input and 888 output tokens, and reached the 40,000-token
+case guard. All completions reported $0.00. The trace shows three invalid array-shaped line-range
+arguments and no patch or test-verification tool call. Offline workflow updates now normalize that
+observed range shape, compact repeated source reads, return failed patch applications to the agent
+for one correction, and stop inspection-only loops after four turns. Final offline tests passed
+133 with 2 skipped; the last two workflow refinements were not live-tested. See the
+[controlled-case report](evidence/openrouter-v9-controlled-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-controlled-1case-20261110/2026-11-10.md).
+
+A later primed controlled attempt on the same first frozen case supplied the focused failing test,
+baseline failure, import map, and source excerpt before the first repair turn. The free OpenRouter
+model used 2 completion requests and 4,773 total tokens ($0.00 reported), but spent them on one
+invalid worktree-prefixed `read_file` path and a blocked `list_files` attempt. It proposed no patch;
+the regression remained failing and the full suite was not run. The path guidance and bounded
+inspection allowance were refined offline afterward. Focused offline validation passed 135 tests
+with 2 skipped using `--noconftest`; the standard pytest session could not connect to its configured
+test database. See the [primed-case report](evidence/openrouter-v9-primed-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v9-primed-1case-20261110/2026-11-10.md).
+
+The structured repair runner then completed exactly one controlled attempt on the same frozen
+case. Before generation, the exact `cohere/north-mini-code:free` model and tool-capable zero-priced
+endpoint were reverified; provider fallback was disabled, the per-completion zero-cost guard was
+active, and only the disposable `selfheal_real_bug_test` database was used. The attempt used 2
+completion requests, 4,555 input and 1,528 output tokens (6,083 total), with $0.00 provider-reported
+cost. The model attempted one 495-byte diff, but it had no parseable file paths and was rejected
+before application. The target regression remained failing, so the full suite was not run. The
+bounded correction was blocked after the provider's two-request daily headroom was exhausted. The
+offline structured workflow suite passed 138 tests with 2 skipped. See the
+[structured-case report](evidence/openrouter-v10-structured-case-2026-11-10.md),
+[raw attempt](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/attempts.jsonl),
+and [scorer output](../benchmarks/real_bugs/results/published/openrouter-north-mini-code-v10-structured-attrs1-20261110/2026-11-10.md).
+
+Reviewing that published JSONL showed it retained the 495-byte size and `Diff does not touch any
+files` error but not the diff text itself. The record proves no path was parsed; it does not reveal
+whether the original had missing headers, Markdown, or another format issue. The runner now
+normalizes only enclosing fences and unambiguous one-file unified headers, rejects other forms,
+and retains a bounded exact candidate plus SHA256 when safe. Its request accounting caps each case
+by both daily headroom and the per-case allowance, reserving one in-budget request for a correction
+when possible. See [patch-format follow-up](evidence/openrouter-v10-patch-format-2026-11-10.md).
+
+A requested v11 single-case live run was stopped at preflight because the local UTC ledger showed
+40/40 benchmark completion requests used, leaving zero headroom for an initial patch and its
+correction. No OpenRouter API request or database connection was made; no benchmark attempt row
+or repair outcome exists. See the
+[blocked preflight report](evidence/openrouter-v11-live-preflight-blocked-2026-11-10.md).
+
 A separate VIMJ fee-balance repair used one genuine AI-generated code change against frozen
 repository commit `6490833d178b71624d024b16046240a20a3f78a6`. The response needed patch metadata
 normalization; saved local logs report 1 frozen regression and 30 backend tests passed. It did not
