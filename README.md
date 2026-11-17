@@ -58,6 +58,7 @@ sandboxed test execution. See [provider setup and current execution limits](docs
 | [`multi-agent-workspace`](https://github.com/Deepak20466/multi-agent-workspace) | Manual, engineer-directed and Claude-assisted | Dogfooding exposed two Selfheal defects, fixed in Selfheal commits [`ecba78b`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/ecba78b90773d965d5218dce5688fb9cef6ef503) and [`c402003`](https://github.com/Deepak20466/selfheal-mcp-agent/commit/c402003ea41b7e2d8e5283a8954519e412c314d6). The PyPDF2 repair did not converge; a separate manual PR [#1](https://github.com/Deepak20466/multi-agent-workspace/pull/1) merged despite unrelated failing CI. |
 | [ShopCart](https://github.com/Deepak20466/ShopCart) | Manual changes; AI-prepared onboarding | Selfheal onboarding PR [#1](https://github.com/Deepak20466/ShopCart/pull/1) needed manual setup repair before CI ran. The pagination bug was fixed manually (engineer-directed, Claude-assisted) in PR [#2](https://github.com/Deepak20466/ShopCart/pull/2); clean-build work was PR [#3](https://github.com/Deepak20466/ShopCart/pull/3); safe dependency updates were PR [#4](https://github.com/Deepak20466/ShopCart/pull/4). All four are merged. PR #4 reduced audit findings from 36 (5 critical, 17 high, 14 moderate) to 20 (3 critical, 7 high, 10 moderate). |
 | [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Isolated real-application repair; AI-generated code | At frozen commit [`6490833`](https://github.com/Deepak20466/vimj-studio-os-saas/commit/6490833d178b71624d024b16046240a20a3f78a6), the unpaid balance was ₹125; expected ₹175. One genuine AI-generated repair required patch metadata normalization. Saved local logs report the frozen regression **1 passed** and complete backend suite **30 passed**. No VIMJ PR or merge was created. [Evidence](docs/evidence/vimj-fee-balance-2026-11-10.md). |
+| [`vimj-studio-os-saas`](https://github.com/Deepak20466/vimj-studio-os-saas) | Human-assisted repair (interactive session, not autonomous provider generation); sandbox-verified | Coach deletion could cascade-delete sessions, attendance, salary and fee receipts. Now returns 409 and asks the admin to deactivate. PR [#6](https://github.com/Deepak20466/vimj-studio-os-saas/pull/6) merged as `acf11b6e`; 10/10 targeted tests and 51/51 backend tests passed post-merge in a Bubblewrap sandbox. No production deployment or production database check. [Evidence](docs/evidence/vimj-coach-deletion-2026-11-17.md). |
 
 ## Manually reported bugs
 
@@ -69,7 +70,10 @@ human-review-only suggestion and cannot claim the normal verified route. See
 
 ## Benchmarks & Real-World Evaluation
 
+> **Update 2026-11-17:** VIMJ PRs #3, #5 and #6 were later merged by the repository owner. Statements above that say no VIMJ PR was created describe the 2026-11-10 state only.
+
 - **Historical synthetic fixture:** 20/20 scenarios passed in one disposable FastAPI repository. This is a recorded synthetic result, not an estimate of reliability across repositories. See the [benchmark report](docs/benchmark.md).
+- **VIMJ coach deletion (2026-11-17):** a real defect that let one admin action delete a coach and cascade to historical attendance and financial records. Fixed in VIMJ PR #6 and sandbox-verified (10/10 targeted, 51/51 backend). The repair was written by hand in an interactive session; no provider generated it. See the [coach deletion evidence](docs/evidence/vimj-coach-deletion-2026-11-17.md).
 - **VIMJ offline recovery:** the recovered AI-authored code change passed the saved frozen regression (1 test) and backend suite (30 tests) after formatting-only patch normalization. This validates one isolated candidate offline; it does not establish a successful live autonomous repair. No VIMJ PR was created. See the [VIMJ evidence report, patch, and reproduction steps](docs/evidence/vimj-fee-balance-2026-11-10.md).
 - **Gemini adapter hardening:** identified and fixed a signed function-call history compatibility issue, with offline regression coverage. Live pilot rerun is pending; no end-to-end live repair is claimed yet. Five saved attempts cover two of ten selected cases, and eight cases remain. See the [real-bug benchmark report](docs/benchmark-real-bugs.md) and [saved results](benchmarks/real_bugs/results/published/pilot-through-v8.md).
 Other historical results include two SelfHeal defects found during engineer-directed dogfooding,
@@ -144,6 +148,7 @@ current terminal-first product.
 - [Three-minute interview walkthrough](docs/interview-demo.md)
 - [Real-bug benchmark method](docs/benchmark-real-bugs.md)
 - [Verified VIMJ single-case evidence](docs/evidence/vimj-fee-balance-2026-11-10.md)
+- [Verified VIMJ coach deletion case](docs/evidence/vimj-coach-deletion-2026-11-17.md)
 - [Historical fixture benchmark](docs/benchmark.md)
 - [Verification report](VERIFICATION.md)
 - [Recovered evidence](docs/history/RECOVERED_EVIDENCE.md)
